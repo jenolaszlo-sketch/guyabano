@@ -42,7 +42,7 @@ public sealed class CodeGenerationWorkflow(
 
         cancellationToken.ThrowIfCancellationRequested();
 
-            if (!planningResult.Succeeded || planningResult.Plan is null)
+        if (!planningResult.Succeeded || planningResult.Plan is null)
             return planningResult;
 
         var architectureResult = planningResult;

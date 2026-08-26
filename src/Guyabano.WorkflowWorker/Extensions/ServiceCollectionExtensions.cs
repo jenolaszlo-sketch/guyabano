@@ -116,6 +116,57 @@ public static class ServiceCollectionExtensions
             CodeGenerationWorkflowResult>(
             CodeGenerationWorkflowConstants.WorkflowName,
             CodeGenerationWorkflowConstants.WorkflowVersion);
+        services.AddSingleton<CodeGenerationActivityHeartbeatStore>();
+        services.AddZhinuStep<
+            PlanCodeGenerationStep,
+            CodeGenerationWorkflowRequest,
+            CodeGenerationWorkflowResult>(
+                CodeGenerationWorkflowConstants.PlanStep);
+        services.AddZhinuStep<
+            DecomposeCodeGenerationTaskStep,
+            CodeGenerationDecompositionWorkflowRequest,
+            CodeGenerationDecompositionWorkflowResult>(
+                CodeGenerationWorkflowConstants.DecomposeTaskStep);
+        services.AddZhinuStep<
+            ReviewCodeGenerationArchitectureStep,
+            ArchitectureReviewWorkflowRequest,
+            ArchitectureReviewWorkflowResult>(
+                CodeGenerationWorkflowConstants.ReviewArchitectureStep);
+        services.AddZhinuStep<
+            ResolveCodeGenerationArchitectureGapStep,
+            ArchitectureGapResolutionWorkflowRequest,
+            ArchitectureGapResolutionWorkflowResult>(
+                CodeGenerationWorkflowConstants.ResolveArchitectureGapStep);
+        services.AddZhinuStep<
+            IntegrateCodeGenerationArchitectureStep,
+            ArchitectureDecisionIntegrationWorkflowRequest,
+            ArchitectureDecisionIntegrationWorkflowResult>(
+                CodeGenerationWorkflowConstants.IntegrateArchitectureStep);
+        services.AddZhinuStep<
+            ScaffoldCodeGenerationStep,
+            CodeGenerationScaffoldingRequest,
+            CodeGenerationScaffoldingResult>(
+                CodeGenerationWorkflowConstants.ScaffoldStep);
+        services.AddZhinuStep<
+            GenerateCodeTaskStep,
+            CodeGenerationTaskWorkflowRequest,
+            CodeGenerationTaskWorkflowResult>(
+                CodeGenerationWorkflowConstants.GenerateTaskStep);
+        services.AddZhinuStep<
+            BuildGeneratedCodeStep,
+            CodeGenerationBuildRequest,
+            CodeGenerationBuildResult>(
+                CodeGenerationWorkflowConstants.BuildStep);
+        services.AddZhinuStep<
+            LoadCodeGenerationCheckpointStep,
+            CodeGenerationCheckpointLoadRequest,
+            CodeGenerationRunCheckpoint>(
+                CodeGenerationWorkflowConstants.LoadCheckpointStep);
+        services.AddZhinuStep<
+            SaveCodeGenerationCheckpointStep,
+            CodeGenerationCheckpointRequest,
+            Guyabano.Artifacts.ArtifactReference>(
+                CodeGenerationWorkflowConstants.SaveCheckpointStep);
 
         services.AddSingleton<FileSystemArtifactRepository>(provider =>
         {
@@ -153,15 +204,13 @@ public static class ServiceCollectionExtensions
         services.AddCodeGenerationPlanning();
         services.AddWorkflowProgress();
 
-        services.AddSingleton<CodeGenerationPlanningActivities>();
-        services.AddSingleton<CodeGenerationDecompositionActivities>();
-        services.AddSingleton<CodeGenerationArchitectureActivities>();
-        services.AddSingleton<CodeGenerationScaffoldingActivities>();
-        services.AddSingleton<CodeGenerationTaskActivities>();
-        services.AddSingleton<CodeGenerationBuildActivities>();
-        services.AddSingleton<CodeGenerationCheckpointActivities>();
-        services.AddSingleton<ICodeGenerationActivityExecutor,
-            CodeGenerationActivityExecutor>();
+        services.AddScoped<CodeGenerationPlanningActivities>();
+        services.AddScoped<CodeGenerationDecompositionActivities>();
+        services.AddScoped<CodeGenerationArchitectureActivities>();
+        services.AddScoped<CodeGenerationScaffoldingActivities>();
+        services.AddScoped<CodeGenerationTaskActivities>();
+        services.AddScoped<CodeGenerationBuildActivities>();
+        services.AddScoped<CodeGenerationCheckpointActivities>();
         services.AddHostedService<ModelConfigurationLoggingService>();
 
         return services;

@@ -17,8 +17,8 @@
     <PackageReference Include="Penghou.Baize.Router" Version="0.3.0-preview.4" />
     <PackageReference Include="Penghou.Baize.Tools" Version="0.3.0-preview.4" />
     <PackageReference Include="Penghou.Cangjie.Sqlite" Version="0.1.0-preview.2" />
-    <PackageReference Include="Penghou.Zhinu.Hosting" Version="0.1.0-preview.7" />
-    <PackageReference Include="Penghou.Zhinu.Sqlite" Version="0.1.0-preview.7" />
+    <PackageReference Include="Penghou.Zhinu.Hosting" Version="0.1.0-preview.8" />
+    <PackageReference Include="Penghou.Zhinu.Sqlite" Version="0.1.0-preview.8" />
   </ItemGroup>
 
   <ItemGroup>

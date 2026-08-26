@@ -4,8 +4,7 @@ using Guyabano.CodeGeneration.Planning;
 
 namespace Guyabano.CodeGeneration.Workflows;
 
-public sealed class CodeGenerationWorkflow(
-    ICodeGenerationActivityExecutor activities)
+public sealed class CodeGenerationWorkflow
     : IWorkflow<CodeGenerationWorkflowRequest, CodeGenerationWorkflowResult>
 {
     public async Task<CodeGenerationWorkflowResult> RunAsync(
@@ -19,26 +18,26 @@ public sealed class CodeGenerationWorkflow(
                 workflow,
                 cancellationToken);
 
-        var planningResult =
-            await activities.ExecuteAsync<CodeGenerationWorkflowResult>(
-            workflow,
-            "planning",
-            CodeGenerationWorkflowConstants.PlanActivity,
-            request,
-            new StepOptions
-            {
-                ExecutionTimeout = TimeSpan.FromMinutes(15),
-                Retry = new RetryPolicy
+        var planningResult = await workflow.StepAsync<
+            CodeGenerationWorkflowRequest,
+            CodeGenerationWorkflowResult>(
+                "planning",
+                CodeGenerationWorkflowConstants.PlanStep,
+                request,
+                new StepOptions
                 {
-                    InitialDelay = TimeSpan.FromSeconds(10),
-                    BackoffCoefficient = 2,
-                    MaximumDelay = TimeSpan.FromSeconds(30),
-                    MaxAttempts =
-                        CodeGenerationWorkflowConstants
-                            .MaximumPlanningTransportAttempts
-                }
-            },
-            cancellationToken);
+                    ExecutionTimeout = TimeSpan.FromMinutes(15),
+                    Retry = new RetryPolicy
+                    {
+                        InitialDelay = TimeSpan.FromSeconds(10),
+                        BackoffCoefficient = 2,
+                        MaximumDelay = TimeSpan.FromSeconds(30),
+                        MaxAttempts =
+                            CodeGenerationWorkflowConstants
+                                .MaximumPlanningTransportAttempts
+                    }
+                },
+                cancellationToken);
 
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -56,11 +55,11 @@ public sealed class CodeGenerationWorkflow(
              pass <= CodeGenerationWorkflowConstants.MaximumArchitectureReviewPasses;
              pass++)
         {
-            var review = await activities.ExecuteAsync<
+            var review = await workflow.StepAsync<
+                ArchitectureReviewWorkflowRequest,
                 ArchitectureReviewWorkflowResult>(
-                workflow,
                 $"architecture-review/{architectureResult.ArchitectureVersion}/{pass}",
-                CodeGenerationWorkflowConstants.ReviewArchitectureActivity,
+                CodeGenerationWorkflowConstants.ReviewArchitectureStep,
                 new ArchitectureReviewWorkflowRequest(
                     architecturePlan,
                     pass,
@@ -167,11 +166,11 @@ public sealed class CodeGenerationWorkflow(
                     .Where(parent => pendingIds.Contains(parent.Id))
                     .ToArray();
                 var waveTasks = waveParents
-                    .Select(parent => activities.ExecuteAsync<
+                    .Select(parent => workflow.StepAsync<
+                        CodeGenerationDecompositionWorkflowRequest,
                         CodeGenerationDecompositionWorkflowResult>(
-                        workflow,
                         $"decomposition/{planningResult.ArchitectureVersion}/{parent.Id}",
-                        CodeGenerationWorkflowConstants.DecomposeTaskActivity,
+                        CodeGenerationWorkflowConstants.DecomposeTaskStep,
                         new CodeGenerationDecompositionWorkflowRequest(
                             planningResult.Plan,
                             parent.Id,
@@ -247,11 +246,11 @@ public sealed class CodeGenerationWorkflow(
                  pass <= CodeGenerationWorkflowConstants.MaximumArchitectureReviewPasses;
                  pass++)
             {
-                var review = await activities.ExecuteAsync<
+                var review = await workflow.StepAsync<
+                    ArchitectureReviewWorkflowRequest,
                     ArchitectureReviewWorkflowResult>(
-                    workflow,
                     $"architecture-review/{architectureResult.ArchitectureVersion}/{pass}",
-                    CodeGenerationWorkflowConstants.ReviewArchitectureActivity,
+                    CodeGenerationWorkflowConstants.ReviewArchitectureStep,
                     new ArchitectureReviewWorkflowRequest(
                         architecturePlan,
                         pass,
@@ -333,11 +332,11 @@ public sealed class CodeGenerationWorkflow(
             decompositionResults,
             failed: null);
 
-        var scaffoldingResult =
-            await activities.ExecuteAsync<CodeGenerationScaffoldingResult>(
-                workflow,
+        var scaffoldingResult = await workflow.StepAsync<
+            CodeGenerationScaffoldingRequest,
+            CodeGenerationScaffoldingResult>(
                 $"scaffolding/{planningResult.ArchitectureVersion}",
-                CodeGenerationWorkflowConstants.ScaffoldActivity,
+                CodeGenerationWorkflowConstants.ScaffoldStep,
                 new CodeGenerationScaffoldingRequest(planningResult.Plan),
                 new StepOptions
                 {
@@ -398,11 +397,11 @@ public sealed class CodeGenerationWorkflow(
                     "The implementation graph has pending tasks but no ready nodes.");
 
             var waveTasks = readyNodes
-                .Select(node => activities.ExecuteAsync<
+                .Select(node => workflow.StepAsync<
+                    CodeGenerationTaskWorkflowRequest,
                     CodeGenerationTaskWorkflowResult>(
-                        workflow,
                         $"generation/{node.Parent.Id}/{node.Leaf.Id}",
-                        CodeGenerationWorkflowConstants.GenerateTaskActivity,
+                        CodeGenerationWorkflowConstants.GenerateTaskStep,
                         new CodeGenerationTaskWorkflowRequest(
                             planningResult.Plan,
                             node.Parent.Id,
@@ -485,11 +484,11 @@ public sealed class CodeGenerationWorkflow(
                 "A workflow cannot continue from itself.");
         }
 
-        var checkpoint = await activities.ExecuteAsync<
+        var checkpoint = await workflow.StepAsync<
+            CodeGenerationCheckpointLoadRequest,
             CodeGenerationRunCheckpoint>(
-            workflow,
             "continuation/load-checkpoint",
-            CodeGenerationWorkflowConstants.LoadCheckpointActivity,
+            CodeGenerationWorkflowConstants.LoadCheckpointStep,
             new CodeGenerationCheckpointLoadRequest(
                 request.ResumeFromWorkflowId,
                 request.Prompt,
@@ -542,11 +541,11 @@ public sealed class CodeGenerationWorkflow(
                  CodeGenerationWorkflowConstants.MaximumBuildAttempts;
              buildAttempt++)
         {
-            var buildResult =
-                await activities.ExecuteAsync<CodeGenerationBuildResult>(
-                    workflow,
+            var buildResult = await workflow.StepAsync<
+                CodeGenerationBuildRequest,
+                CodeGenerationBuildResult>(
                     $"build/{buildAttempt}",
-                    CodeGenerationWorkflowConstants.BuildActivity,
+                    CodeGenerationWorkflowConstants.BuildStep,
                     new CodeGenerationBuildRequest(
                         currentResult.WrittenFiles,
                         currentResult.Plan!.Solution.Path,
@@ -602,11 +601,11 @@ public sealed class CodeGenerationWorkflow(
 
             foreach (var repairRequest in repairRequests)
             {
-                var repairResult = await activities.ExecuteAsync<
+                var repairResult = await workflow.StepAsync<
+                    CodeGenerationTaskWorkflowRequest,
                     CodeGenerationTaskWorkflowResult>(
-                    workflow,
                     $"build-repair/{buildAttempt}/{repairRequest.ParentTaskId}/{repairRequest.Task.Id}",
-                    CodeGenerationWorkflowConstants.GenerateTaskActivity,
+                    CodeGenerationWorkflowConstants.GenerateTaskStep,
                     repairRequest,
                     TaskActivityOptions(
                         repairRequest.StartingModelTier),
@@ -642,10 +641,11 @@ public sealed class CodeGenerationWorkflow(
         CodeGenerationWorkflowResult result,
         string checkpointKey,
         CancellationToken cancellationToken) =>
-        _ = await activities.ExecuteAsync<Guyabano.Artifacts.ArtifactReference>(
-            workflow,
+        _ = await workflow.StepAsync<
+            CodeGenerationCheckpointRequest,
+            Guyabano.Artifacts.ArtifactReference>(
             $"checkpoint/{checkpointKey}",
-            CodeGenerationWorkflowConstants.SaveCheckpointActivity,
+            CodeGenerationWorkflowConstants.SaveCheckpointStep,
             new CodeGenerationCheckpointRequest(
                 workflow.WorkflowRunId.ToString("D"),
                 prompt,
@@ -729,11 +729,11 @@ public sealed class CodeGenerationWorkflow(
         var result = startingResult;
         foreach (var finding in review.Findings)
         {
-            var resolution = await activities.ExecuteAsync<
+            var resolution = await workflow.StepAsync<
+                ArchitectureGapResolutionWorkflowRequest,
                 ArchitectureGapResolutionWorkflowResult>(
-                workflow,
                 $"architecture-gap/{result.ArchitectureVersion}/{finding.Id}",
-                CodeGenerationWorkflowConstants.ResolveArchitectureGapActivity,
+                CodeGenerationWorkflowConstants.ResolveArchitectureGapStep,
                 new ArchitectureGapResolutionWorkflowRequest(
                     plan,
                     finding,
@@ -773,12 +773,11 @@ public sealed class CodeGenerationWorkflow(
             var resolvedReview = ApplyResolutions(
                 focusedReview,
                 [resolution]);
-            var integration = await activities.ExecuteAsync<
+            var integration = await workflow.StepAsync<
+                ArchitectureDecisionIntegrationWorkflowRequest,
                 ArchitectureDecisionIntegrationWorkflowResult>(
-                workflow,
                 $"architecture-integration/{result.ArchitectureVersion}/{finding.Id}",
-                CodeGenerationWorkflowConstants
-                    .IntegrateArchitectureDecisionsActivity,
+                CodeGenerationWorkflowConstants.IntegrateArchitectureStep,
                 new ArchitectureDecisionIntegrationWorkflowRequest(
                     plan,
                     resolvedReview,

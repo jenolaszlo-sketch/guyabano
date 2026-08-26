@@ -322,6 +322,20 @@ Exit criteria:
 
 First express the methodology as an ordinary code-first Zhinu workflow:
 
+Current foundation:
+
+- The code-first workflow uses typed, keyed class-based Zhinu steps for
+  planning, architecture, decomposition, scaffolding, generation, build, and
+  checkpoints.
+- Orchestration, bounded review/repair loops, scheduling waves, and completion
+  decisions remain visible in `CodeGenerationWorkflow.RunAsync`.
+- Step implementations and their dependencies are resolved in a fresh scope
+  for every attempt; completed replay does not resolve them.
+- Retry heartbeat context is owned outside ephemeral step instances and is
+  isolated by workflow run, durable step key, and revision.
+- No compensation is declared until an operation has a genuine reversible
+  contract.
+
 ```text
 Analyze
 → Inspect

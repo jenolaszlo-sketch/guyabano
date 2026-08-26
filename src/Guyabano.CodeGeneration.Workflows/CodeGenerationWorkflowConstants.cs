@@ -1,25 +1,31 @@
+using Penghou.Zhinu;
+
 namespace Guyabano.CodeGeneration.Workflows;
 
 public static class CodeGenerationWorkflowConstants
 {
     public const string WorkflowName = "guyabano-code-generation";
-    public const string WorkflowVersion = "1";
-    public const string PlanActivity = "PlanCodeGeneration";
-    public const string DecomposeTaskActivity =
-        "DecomposeCodeGenerationTask";
-    public const string ReviewArchitectureActivity =
-        "ReviewCodeGenerationArchitecture";
-    public const string IntegrateArchitectureDecisionsActivity =
-        "AmendCodeGenerationArchitecture";
-    public const string ResolveArchitectureGapActivity =
-        "ResolveCodeGenerationArchitectureGap";
-    public const string ScaffoldActivity = "ScaffoldCodeGeneration";
-    public const string GenerateTaskActivity = "GenerateCodeTask";
-    public const string BuildActivity = "BuildGeneratedCode";
-    public const string LoadCheckpointActivity =
-        "LoadCodeGenerationCheckpoint";
-    public const string SaveCheckpointActivity =
-        "SaveCodeGenerationCheckpoint";
+    public const string WorkflowVersion = "2";
+    public static readonly StepImplementationKey PlanStep =
+        new("guyabano.plan-code-generation");
+    public static readonly StepImplementationKey DecomposeTaskStep =
+        new("guyabano.decompose-code-generation-task");
+    public static readonly StepImplementationKey ReviewArchitectureStep =
+        new("guyabano.review-code-generation-architecture");
+    public static readonly StepImplementationKey IntegrateArchitectureStep =
+        new("guyabano.integrate-code-generation-architecture");
+    public static readonly StepImplementationKey ResolveArchitectureGapStep =
+        new("guyabano.resolve-code-generation-architecture-gap");
+    public static readonly StepImplementationKey ScaffoldStep =
+        new("guyabano.scaffold-code-generation");
+    public static readonly StepImplementationKey GenerateTaskStep =
+        new("guyabano.generate-code-task");
+    public static readonly StepImplementationKey BuildStep =
+        new("guyabano.build-generated-code");
+    public static readonly StepImplementationKey LoadCheckpointStep =
+        new("guyabano.load-code-generation-checkpoint");
+    public static readonly StepImplementationKey SaveCheckpointStep =
+        new("guyabano.save-code-generation-checkpoint");
     public const int MaximumBuildRepairCycles = 5;
     public const int MaximumBuildAttempts =
         MaximumBuildRepairCycles + 1;

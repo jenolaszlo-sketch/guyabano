@@ -26,6 +26,34 @@ for model communication.
 | `Guyabano.CI.Client` | Typed client for the CI server |
 | `Guyabano.WebTerminal` | Blazor web terminal UI |
 
+## Durable workflow composition
+
+The code-generation workflow keeps control flow, bounded loops, gates, and
+result aggregation visible in `CodeGenerationWorkflow.RunAsync`. Each external
+operation is a typed, keyed Zhinu workflow step implemented in
+`Guyabano.WorkflowWorker`:
+
+```text
+CodeGenerationWorkflow
+  -> PlanCodeGenerationStep
+  -> Review / resolve / integrate architecture steps
+  -> DecomposeCodeGenerationTaskStep
+  -> ScaffoldCodeGenerationStep
+  -> GenerateCodeTaskStep
+  -> BuildGeneratedCodeStep
+  -> Load / save checkpoint steps
+```
+
+Zhinu resolves every execution attempt in a fresh DI scope. Completed-step
+replay resolves no implementation, and the durable step key remains separate
+from the keyed implementation identity. Guyabano does not enable Zhinu
+compensation for these steps because filesystem, model, CI, and artifact
+operations do not yet have a truthful reversible contract.
+
+Workflow definition version `2` introduces these durable implementation
+identities. Version-1 histories remain distinct instead of being replayed
+against a changed execution binding.
+
 ## Status
 
 Pre-release scaffolding. See [ROADMAP.md](ROADMAP.md) and

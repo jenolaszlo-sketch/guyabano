@@ -8,8 +8,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Guyabano.CodeGeneration.Validation\Guyabano.CodeGeneration.Validation.csproj" />
-    <PackageReference Include="Penghou.Baize.Router" Version="0.3.0-preview.3" />
-    <PackageReference Include="Penghou.Baize.Tools" Version="0.3.0-preview.3" />
+    <PackageReference Include="Penghou.Baize.Router" Version="0.3.0-preview.4" />
+    <PackageReference Include="Penghou.Baize.Tools" Version="0.3.0-preview.4" />
     <ProjectReference Include="..\Guyabano.Llm.Prompting\Guyabano.Llm.Prompting.csproj" />
   </ItemGroup>
 

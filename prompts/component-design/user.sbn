@@ -1,0 +1,27 @@
+Guiding mission and scope boundaries:
+{{ mission_json }}
+
+Design components for this bounded context:
+{{ context_json }}
+
+Use cases and immutable acceptance scenarios owned by this context:
+{{ use_cases_json }}
+
+Acceptance criteria with their immutable IDs:
+{{ acceptance_criteria_json }}
+
+Assign each acceptance criterion ID to the smallest component or verification component that owns or directly verifies that observable behavior. Supporting DTOs, entities, and store abstractions must not inherit unrelated HTTP, input-validation, or end-to-end scenarios merely because they participate in the same capability. Every criterion must have at least one owner in this bounded context.
+
+Available modules:
+{{ modules_json }}
+
+Frozen contracts:
+{{ contracts_json }}
+
+Immutable upstream components:
+{{ upstream_components_json }}
+{{ if previous_failure }}
+
+The preceding attempt was rejected for this reason. Correct the component defect without changing frozen artifacts:
+{{ previous_failure }}
+{{ end }}

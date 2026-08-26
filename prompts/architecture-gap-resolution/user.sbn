@@ -1,0 +1,16 @@
+Immutable architecture:
+{{ plan_json }}
+
+Established and project-scoped architecture practices:
+{{ practices_json }}
+
+Focused finding to resolve:
+{{ finding_json }}
+
+Use this exact ADR ID in decisionRecord:
+{{ decision_id }}
+{{ if previous_failure }}
+
+The preceding resolution attempt was rejected for this exact reason. Correct it without broadening the finding:
+{{ previous_failure }}
+{{ end }}

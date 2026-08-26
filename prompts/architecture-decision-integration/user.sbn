@@ -1,0 +1,17 @@
+Current architecture plan:
+{{ plan_json }}
+
+Resolved architecture findings (their suggestedResolution values are authoritative):
+{{ resolved_review_json }}
+
+Authoritative resolved decisions and selected practices:
+{{ resolved_decisions_json }}
+
+{{ if previous_failure && previous_failure != "" }}
+The previous decision-integration attempt failed deterministic validation:
+{{ previous_failure }}
+
+Correct only that integration failure. Do not reconsider any resolution or widen the patch.
+{{ end }}
+
+Return the minimal structured architecture decision patch through {{ result_tool_name }}.

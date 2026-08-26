@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-Guyabano.WebTerminal-57eb5a17-9f48-47bb-8924-7d3e15ea2fd6</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <DockerComposeProjectPath>..\docker-compose.dcproj</DockerComposeProjectPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
+    <PackageReference Include="Penghou.Baize" Version="0.3.0-preview.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Generated workspaces are user artifacts, not WebTerminal source. -->
+    <Compile Remove="generated\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Guyabano.CodeGeneration.Workflows\Guyabano.CodeGeneration.Workflows.csproj" />
+    <ProjectReference Include="..\Guyabano.Messaging\Guyabano.Messaging.csproj" />
+    <ProjectReference Include="..\Guyabano.WorkflowWorker\Guyabano.WorkflowWorker.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\prompts\**\*.txt;..\..\prompts\**\*.sbn">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>prompts\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+    <Content Include="..\Guyabano.WorkflowWorker\appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>appsettings.CodeGeneration.json</TargetPath>
+    </Content>
+  </ItemGroup>
+
+</Project>

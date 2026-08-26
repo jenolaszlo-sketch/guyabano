@@ -1,0 +1,17 @@
+using Penghou.Baize;
+using Guyabano.Llm.Prompting;
+
+namespace Guyabano.CodeGeneration.Planning;
+
+public sealed record ComponentDesignPromptContext(
+    DomainDiscovery Domain,
+    SolutionTopology Topology,
+    BoundedContextPlan BoundedContext,
+    IReadOnlyList<BoundedContextContractCatalog> ContractCatalogs,
+    IReadOnlyList<BoundedContextComponentManifest> UpstreamManifests,
+    LlmResponseFormat ResponseFormat,
+    int MaxTokens,
+    string? PreviousFailure = null) : ILlmPromptContext
+{
+    public double Temperature { get; init; } = 0.1;
+}

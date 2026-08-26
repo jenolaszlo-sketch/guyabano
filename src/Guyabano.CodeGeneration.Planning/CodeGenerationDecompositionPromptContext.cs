@@ -1,0 +1,11 @@
+using Guyabano.Llm.Prompting;
+using Penghou.Baize;
+
+namespace Guyabano.CodeGeneration.Planning;
+
+public sealed record CodeGenerationDecompositionPromptContext(
+    ComponentWorkContext WorkContext,
+    string ResultToolName,
+    IReadOnlyList<LlmTool> Tools,
+    int MaxTokens = 8000,
+    double Temperature = 0.1) : ILlmPromptContext;

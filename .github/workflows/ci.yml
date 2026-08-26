@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Guyabano.slnx
+      - run: dotnet format Guyabano.slnx --verify-no-changes --no-restore
+      - run: dotnet build Guyabano.slnx -c Release --no-restore
+      - run: dotnet test Guyabano.slnx -c Release --no-build
+
+  pack:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Guyabano.slnx
+      - run: dotnet pack Guyabano.slnx -c Release --no-restore --output artifacts/packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/packages

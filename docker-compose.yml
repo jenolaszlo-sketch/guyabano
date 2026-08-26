@@ -1,0 +1,53 @@
+services:
+  guyabano-web-terminal:
+    image: ${DOCKER_REGISTRY-}guyabanowebterminal
+    build:
+      context: .
+      dockerfile: src/Guyabano.WebTerminal/Dockerfile
+    depends_on:
+      guyabano-ci-server:
+        condition: service_started
+      ollama:
+        condition: service_started
+    environment:
+      CodeGeneration__OutputRoot: /workspace/generated
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GuyabanoCI__BaseAddress: http://guyabano-ci-server:8080
+    volumes:
+      - ./generated:/workspace/generated
+      - ./src/Guyabano/logs/http:/app/logs/http
+
+  guyabano-ci-server:
+    image: ${DOCKER_REGISTRY-}guyabanociserver
+    build:
+      context: .
+      dockerfile: src/Guyabano.CI.Server/Dockerfile
+    environment:
+      CI__GeneratedRoot: /workspace/generated
+      CI__DotNetCommand: dotnet
+      CI__JetBrainsCommand: jb
+    volumes:
+      - ./generated:/workspace/generated
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: local-code-brain
+    ports:
+      - "11434:11434"
+    volumes:
+      - d:/ollama_storage:/root/.ollama
+
+    environment:
+      # Never keep several models resident simultaneously.
+      OLLAMA_MAX_LOADED_MODELS: "1"
+
+      # Avoid multiplying the context cache through parallel requests.
+      OLLAMA_NUM_PARALLEL: "1"
+
+      # Uncomment to unload the model immediately after every request.
+      # OLLAMA_KEEP_ALIVE: "0"
+
+    mem_limit: 6g
+

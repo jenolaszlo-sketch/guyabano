@@ -1,0 +1,23 @@
+Task:
+{{ task }}
+Solution:
+- Name: {{ project_name }}
+- Root namespace: {{ root_namespace }}
+- Target framework: {{ target_framework }}
+- Solution file: {{ solution_file }}
+- Application project: {{ application_project_file }}
+- Test project: {{ test_project_file }}
+{{ if project_context }}
+Project context:
+{{ project_context }}
+{{ end -}}
+Existing files:
+{{ if files.size > 0 }}
+{{ for file in files }}
+File: {{ file.Path }}
+{{ file.Content }}
+{{ end -}}
+{{ else }}
+No existing files were provided.
+{{ end -}}
+Generate the required files and return them through {{ result_tool_name }}.

@@ -1,0 +1,22 @@
+Review pass: {{ review_pass }}
+
+{{ if previous_review_json }}
+This is a convergence review. The preceding review is:
+{{ previous_review_json }}
+
+Verify each preceding finding against the amended plan. Return a finding with the same ID only when it remains unresolved. Then check only for contradictions or blocking regressions introduced by the amendments. Do not restart a broad architecture audit and do not introduce optional improvements.
+{{ else }}
+This is the initial broad semantic review.
+{{ end }}
+
+Architecture plan:
+{{ plan_json }}
+
+{{ if previous_failure && previous_failure != "" }}
+The previous review attempt was rejected:
+{{ previous_failure }}
+
+Correct that exact structural or semantic failure in this attempt. Return a fresh, independently reasoned review of the supplied plan.
+{{ end }}
+
+Return the complete review as the schema-conforming JSON response.

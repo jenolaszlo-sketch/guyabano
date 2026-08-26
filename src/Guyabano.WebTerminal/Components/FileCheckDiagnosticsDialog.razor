@@ -1,0 +1,59 @@
+<div class="diagnostic-backdrop" @onclick="OnClose">
+    <section
+        class="diagnostic-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="file-check-diagnostic-title"
+        @onclick:stopPropagation="true">
+        <div class="diagnostic-header">
+            <div>
+                <p class="eyebrow">FILE CHECK DIAGNOSTICS</p>
+                <h2 id="file-check-diagnostic-title">
+                    @Selection.Check.Kind check failed
+                </h2>
+            </div>
+            <button
+                type="button"
+                class="dialog-close"
+                aria-label="Close file check diagnostics"
+                @onclick="OnClose">
+                &times;
+            </button>
+        </div>
+
+        <div class="diagnostic-context">
+            <span>File: @Selection.FilePath</span>
+            <span>Status: @Selection.Check.Status</span>
+        </div>
+
+        @foreach (var diagnostic in Selection.Check.Diagnostics)
+        {
+            <article class="diagnostic-item @diagnostic.Severity.ToString().ToLowerInvariant()">
+                <div class="diagnostic-summary">
+                    <span class="diagnostic-symbol">!</span>
+                    <div>
+                        <strong>@diagnostic.Summary</strong>
+                        <code>@diagnostic.Code</code>
+                    </div>
+                </div>
+                @if (diagnostic.Details.Count > 0)
+                {
+                    <ul class="diagnostic-details">
+                        @foreach (var detail in diagnostic.Details)
+                        {
+                            <li>@detail</li>
+                        }
+                    </ul>
+                }
+            </article>
+        }
+    </section>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public required WorkflowFileCheckSelection Selection { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+}

@@ -1,0 +1,205 @@
+using Microsoft.Extensions.Options;
+using Guyabano.CI.Client;
+using Guyabano.CI.Contracts;
+using Guyabano.CodeGeneration.Workflows;
+using Guyabano.Messaging;
+
+namespace Guyabano.WorkflowWorker;
+
+public sealed class CodeGenerationBuildActivities(
+    IGuyabanoCiClient ciClient,
+    IWorkflowProgressPublisher progressPublisher,
+    IOptions<CodeGenerationWorkerOptions> options,
+    ILogger<CodeGenerationBuildActivities> logger)
+{
+    public async Task<CodeGenerationBuildResult> BuildAsync(
+        CodeGenerationBuildRequest request)
+    {
+        var context = CodeGenerationActivityExecutionContext.Current;
+        var info = context.Info;
+        var workflowId = info.WorkflowId ??
+            throw new InvalidOperationException(
+                "Workflow activity information did not include a workflow ID.");
+        var settings = options.Value;
+        var paths = ToRelativePaths(
+            settings.OutputRoot,
+            request.WrittenFiles);
+
+        await PublishSafelyAsync(workflowId, new WorkflowProgress(
+            WorkflowProgressEventType.Started,
+            "Building",
+            $"Building {request.ProjectOrSolutionFile}.",
+            DateTimeOffset.UtcNow,
+            RunId: info.WorkflowRunId,
+            ActivityId: info.ActivityId,
+            Attempt: request.BuildAttempt,
+            MaximumAttempts: request.MaximumBuildAttempts,
+            FileChecks:
+                CodeGenerationCompilationFileChecks.CreateRunning(paths)));
+
+        try
+        {
+            var diagnostics = new List<CiDiagnostic>();
+            CiStreamEvent? resultEvent = null;
+            string? serviceError = null;
+
+            await foreach (var streamEvent in ciClient.BuildAsync(
+                new CiBuildRequest(
+                    settings.CiRelativePath,
+                    request.ProjectOrSolutionFile),
+                context.CancellationToken))
+            {
+                if (streamEvent.Diagnostic is not null)
+                {
+                    diagnostics.Add(streamEvent.Diagnostic);
+                }
+
+                if (streamEvent.Type == "error")
+                {
+                    serviceError = streamEvent.Message;
+                }
+
+                if (streamEvent.Type == "result")
+                {
+                    resultEvent = streamEvent;
+                }
+            }
+
+            diagnostics = diagnostics
+                .DistinctBy(diagnostic => new
+                {
+                    diagnostic.Code,
+                    diagnostic.Severity,
+                    diagnostic.Message,
+                    diagnostic.FilePath,
+                    diagnostic.Line,
+                    diagnostic.Column
+                })
+                .ToList();
+            var succeeded = resultEvent?.Success == true;
+            var errorCount = diagnostics.Count(diagnostic =>
+                diagnostic.Severity == CiDiagnosticSeverity.Error);
+            var error = succeeded
+                ? null
+                : serviceError ?? (errorCount > 0
+                    ? $"Build failed with {errorCount} compiler error(s)."
+                    : $"dotnet build exited with code {resultEvent?.ExitCode?.ToString() ?? "unknown"}.");
+            var fileChecks =
+                CodeGenerationCompilationFileChecks.CreateCompleted(
+                    paths,
+                    succeeded,
+                    diagnostics);
+            await PublishSafelyAsync(workflowId, new WorkflowProgress(
+                succeeded
+                    ? WorkflowProgressEventType.Completed
+                    : WorkflowProgressEventType.Failed,
+                succeeded ? "Build completed" : "Build failed",
+                succeeded
+                    ? "The generated solution compiled successfully."
+                    : error!,
+                DateTimeOffset.UtcNow,
+                RunId: info.WorkflowRunId,
+                ActivityId: info.ActivityId,
+                Attempt: request.BuildAttempt,
+                Succeeded: succeeded,
+                Diagnostics: diagnostics
+                    .Select(CodeGenerationCompilationFileChecks.MapDiagnostic)
+                    .ToArray(),
+                MaximumAttempts: request.MaximumBuildAttempts,
+                WillRetry: !succeeded &&
+                    request.BuildAttempt < request.MaximumBuildAttempts,
+                FileChecks: fileChecks));
+
+            return new CodeGenerationBuildResult(
+                succeeded,
+                resultEvent?.ExitCode,
+                error,
+                diagnostics.Select(MapDiagnostic).ToArray());
+        }
+        catch (OperationCanceledException)
+        {
+            await PublishSafelyAsync(workflowId, new WorkflowProgress(
+                WorkflowProgressEventType.Canceled,
+                "Build canceled",
+                "The generated solution build was canceled.",
+                DateTimeOffset.UtcNow,
+                RunId: info.WorkflowRunId,
+                ActivityId: info.ActivityId,
+                Attempt: request.BuildAttempt,
+                Succeeded: false,
+                MaximumAttempts: request.MaximumBuildAttempts));
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await PublishSafelyAsync(workflowId, new WorkflowProgress(
+                WorkflowProgressEventType.Failed,
+                "Build failed",
+                exception.Message,
+                DateTimeOffset.UtcNow,
+                RunId: info.WorkflowRunId,
+                ActivityId: info.ActivityId,
+                Attempt: request.BuildAttempt,
+                Succeeded: false,
+                MaximumAttempts: request.MaximumBuildAttempts));
+
+            throw new CodeGenerationActivityException(
+                exception.Message,
+                exception,
+                errorType: exception.GetType().Name,
+                nonRetryable: true);
+        }
+    }
+
+    private async Task PublishSafelyAsync(
+        string workflowId,
+        WorkflowProgress progress)
+    {
+        try
+        {
+            await progressPublisher.PublishAsync(
+                workflowId,
+                progress,
+                CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Unable to publish {EventType} build progress for workflow {WorkflowId}.",
+                progress.EventType,
+                workflowId);
+        }
+    }
+
+    private static IReadOnlyList<string> ToRelativePaths(
+        string outputRoot,
+        IReadOnlyList<string> writtenFiles)
+    {
+        var fullRoot = Path.GetFullPath(outputRoot);
+        return writtenFiles
+            .Select(path => Path.IsPathRooted(path)
+                ? Path.GetRelativePath(fullRoot, Path.GetFullPath(path))
+                : path)
+            .Where(path => path != ".." &&
+                !Normalize(path).StartsWith("../", StringComparison.Ordinal))
+            .Select(Normalize)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string Normalize(string path) =>
+        path.Replace('\\', '/').TrimStart('.', '/');
+
+    private static CodeGenerationBuildDiagnostic MapDiagnostic(
+        CiDiagnostic diagnostic) =>
+        new(
+            diagnostic.Tool,
+            diagnostic.Code,
+            diagnostic.Severity.ToString(),
+            diagnostic.Message,
+            diagnostic.FilePath,
+            diagnostic.ProjectPath,
+            diagnostic.Line,
+            diagnostic.Column);
+}

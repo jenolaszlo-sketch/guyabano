@@ -1,0 +1,8 @@
+Create the solution topology for this immutable domain artifact:
+
+{{ domain_json }}
+{{ if previous_failure }}
+
+The preceding attempt was rejected for this reason. Correct the topology defect without changing the domain artifact:
+{{ previous_failure }}
+{{ end }}

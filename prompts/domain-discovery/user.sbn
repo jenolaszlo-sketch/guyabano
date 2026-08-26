@@ -1,0 +1,8 @@
+Discover the domain and capabilities in this request:
+
+{{ request }}
+{{ if previous_failure }}
+
+The preceding attempt was rejected for this reason. Correct only that defect while preserving the requested product behavior:
+{{ previous_failure }}
+{{ end }}

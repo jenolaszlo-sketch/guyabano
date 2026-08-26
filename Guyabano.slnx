@@ -1,0 +1,27 @@
+<Solution>
+  <Folder Name="/Tests/">
+    <Project Path="tests/Guyabano.Artifacts.Tests/Guyabano.Artifacts.Tests.csproj" />
+    <Project Path="tests/Guyabano.CI.Tests/Guyabano.CI.Tests.csproj" />
+    <Project Path="tests/Guyabano.CodeGeneration.Validation.Tests/Guyabano.CodeGeneration.Validation.Tests.csproj" />
+    <Project Path="tests/Guyabano.CodeGeneration.Planning.Tests/Guyabano.CodeGeneration.Planning.Tests.csproj" />
+    <Project Path="tests/Guyabano.Llm.CodeGeneration.Tests/Guyabano.Llm.CodeGeneration.Tests.csproj" Id="74fa29cf-609c-444e-a7b5-a73bd09899ce" />
+    <Project Path="tests/Guyabano.WorkflowProgress.Tests/Guyabano.WorkflowProgress.Tests.csproj" />
+  </Folder>
+  <Folder Name="/Tools/">
+    <Project Path="src/Guyabano.CI.Client/Guyabano.CI.Client.csproj" />
+    <Project Path="src/Guyabano.CI.Contracts/Guyabano.CI.Contracts.csproj" />
+    <Project Path="src/Guyabano.CI.Server/Guyabano.CI.Server.csproj" />
+  </Folder>
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
+  <Project Path="src/Guyabano.CodeGeneration.Validation/Guyabano.CodeGeneration.Validation.csproj" />
+  <Project Path="src/Guyabano.Artifacts/Guyabano.Artifacts.csproj" />
+  <Project Path="src/Guyabano.CodeGeneration.Planning/Guyabano.CodeGeneration.Planning.csproj" />
+  <Project Path="src/Guyabano.CodeGeneration.Workflows/Guyabano.CodeGeneration.Workflows.csproj" />
+  <Project Path="src/Guyabano.Llm.CodeGeneration/Guyabano.Llm.CodeGeneration.csproj" Id="a34663bb-e74f-44cd-bb3d-0a801647dcc2" />
+  <Project Path="src/Guyabano.Llm.Prompting/Guyabano.Llm.Prompting.csproj" Id="346cccb9-5bcd-42fe-b561-4fd92a3e5b90" />
+  <Project Path="src/Guyabano.Messaging/Guyabano.Messaging.csproj" />
+  <Project Path="src/Guyabano.WebTerminal/Guyabano.WebTerminal.csproj" />
+  <Project Path="src/Guyabano.WorkflowWorker/Guyabano.WorkflowWorker.csproj" Id="bed79c51-1626-432f-9370-e41982d049ee" />
+</Solution>

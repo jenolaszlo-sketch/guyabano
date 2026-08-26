@@ -1,0 +1,466 @@
+@page "/"
+@implements IAsyncDisposable
+@inject ICodeGenerationWorkflowClient WorkflowClient
+@inject IWorkflowProgressSubscriber ProgressSubscriber
+
+<PageTitle>Guyabano Web Terminal</PageTitle>
+
+<section class="terminal">
+    <div class="terminal-heading">
+        <div>
+            <p class="eyebrow">CODE GENERATION</p>
+            <h1>What should Guyabano build?</h1>
+            <p class="heading-copy">
+                Submit a request and follow planning, scaffolding, and each implementation task.
+            </p>
+        </div>
+        <div class="connection-state">
+            <span class="status-dot"></span>
+            Zhinu embedded
+        </div>
+    </div>
+
+    <div class="conversation" aria-live="polite">
+        @if (!string.IsNullOrWhiteSpace(ResumeFrom))
+        {
+            <div class="result-card warning">
+                <div class="result-heading">Build-and-repair continuation</div>
+                <p>
+                    Source workflow: <strong>@ResumeFrom</strong>. Planning,
+                    decomposition, scaffolding, and initial generation will be
+                    reused. Starting requires an explicit click.
+                </p>
+            </div>
+        }
+
+        @if (_runs.Count == 0)
+        {
+            <div class="empty-state">
+                <div class="empty-icon">&gt;_</div>
+                <h2>Start with a clear outcome</h2>
+                <p>
+                    Ask for a complete project, a focused change, or a
+                    document. Progress will appear here as it happens.
+                </p>
+            </div>
+        }
+
+        @foreach (var run in _runs)
+        {
+            <article class="message user-message">
+                <div class="message-label">You</div>
+                <div class="message-content">@run.Prompt</div>
+            </article>
+
+            <article class="message assistant-message">
+                <div class="message-label">
+                    <span>Guyabano</span>
+                    <span class="run-status @(run.IsRunning ? "running" : "")">
+                        @run.Status
+                    </span>
+                </div>
+
+                @if (run.WorkflowId is not null)
+                {
+                    <div class="workflow-id">@run.WorkflowId</div>
+                }
+
+                @if (run.Activities.Count > 0)
+                {
+                    <div class="progress-list">
+                        @foreach (var activity in run.Activities)
+                        {
+                            <div class="progress-entry">
+                                @if (activity.Diagnostics.Count > 0)
+                                {
+                                    <button
+                                        type="button"
+                                        class="activity-indicator @activity.VisualState"
+                                        aria-label="Show activity diagnostics"
+                                        title="Show activity diagnostics"
+                                        @onclick="() => ShowDiagnostics(activity)">
+                                        @ActivityIcon(activity)
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span
+                                        class="activity-indicator @activity.VisualState"
+                                        aria-label="@ActivityLabel(activity)"
+                                        title="@ActivityLabel(activity)">
+                                        @ActivityIcon(activity)
+                                    </span>
+                                }
+                                <div>
+                                    <div class="progress-title">
+                                        @activity.Progress.Stage
+                                        @if (activity.Progress.Model is not null)
+                                        {
+                                            <span class="model-chip">
+                                                @activity.Progress.Model
+                                            </span>
+                                        }
+                                        @if (activity.Progress.Attempt is not null &&
+                                            activity.Progress.MaximumAttempts is not null)
+                                        {
+                                            <span class="attempt-chip">
+                                                Attempt @activity.Progress.Attempt of @activity.Progress.MaximumAttempts
+                                            </span>
+                                        }
+                                    </div>
+                                    <div class="progress-message">
+                                        @activity.Progress.Message
+                                    </div>
+                                </div>
+                                <time>
+                                    @activity.Progress.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                                </time>
+                            </div>
+                        }
+                    </div>
+                }
+                else if (run.IsRunning)
+                {
+                    <div class="thinking">
+                        <span></span><span></span><span></span>
+                    </div>
+                }
+
+                @if (run.FileChecks.Count > 0)
+                {
+                    <div class="run-file-checks">
+                        <FileChecksGrid
+                            Files="@run.FileChecks"
+                            OnShowDiagnostics="ShowFileCheckDiagnostics" />
+                    </div>
+                }
+
+                @if (run.Result is not null)
+                {
+                    <div class="result-card @(run.Result.Succeeded ? "success" : "failure")">
+                        <div class="result-heading">
+                            @(run.Result.Succeeded
+                                ? run.Result.TaskResults.Count > 0 || run.Result.Plan is null
+                                    ? "Workflow completed"
+                                    : "Planning completed"
+                                : run.Result.Failure)
+                        </div>
+                        @if (run.Result.Error is not null)
+                        {
+                            <p>@run.Result.Error</p>
+                        }
+                        <div class="result-metrics">
+                            <span>Model: @run.Result.Model</span>
+                            @if (run.Result.Usage?.TotalTokens is not null)
+                            {
+                                <span>Tokens: @run.Result.Usage.TotalTokens</span>
+                            }
+                            <span>Files: @run.Result.WrittenFiles.Count</span>
+                        </div>
+                        @if (run.Result.Plan is not null)
+                        {
+                            <CodeGenerationPlanView
+                                Plan="run.Result.Plan"
+                                Decompositions="run.Result.Decompositions"
+                                ArchitectureVersion="run.Result.ArchitectureVersion"
+                                ArchitectureReviews="run.Result.ArchitectureReviews" />
+                        }
+                        @if (run.Result.WrittenFiles.Count > 0)
+                        {
+                            <details>
+                                <summary>Written files</summary>
+                                <ul class="file-list">
+                                    @foreach (var file in run.Result.WrittenFiles)
+                                    {
+                                        <li>@file</li>
+                                    }
+                                </ul>
+                            </details>
+                        }
+                    </div>
+                }
+
+                @if (run.Error is not null)
+                {
+                    <div class="result-card failure">
+                        <div class="result-heading">Workflow failed</div>
+                        <p>@run.Error</p>
+                    </div>
+                }
+            </article>
+        }
+    </div>
+
+    <div class="composer">
+        <textarea
+            @bind="_prompt"
+            @bind:event="oninput"
+            placeholder="Describe what you want to build..."
+            rows="4"
+            disabled="@_isSubmitting"></textarea>
+        <div class="composer-footer">
+            <span>Planning and implementation run through a durable workflow.</span>
+            <button
+                type="button"
+                @onclick="SubmitAsync"
+                disabled="@(_isSubmitting ||
+                    string.IsNullOrWhiteSpace(_prompt) &&
+                    string.IsNullOrWhiteSpace(ResumeFrom))">
+                @(_isSubmitting
+                    ? "Starting..."
+                    : string.IsNullOrWhiteSpace(ResumeFrom)
+                        ? "Generate project"
+                        : "Build and repair")
+            </button>
+        </div>
+    </div>
+</section>
+
+@if (_selectedActivity is not null)
+{
+    <div
+        class="diagnostic-backdrop"
+        @onclick="CloseDiagnostics">
+        <section
+            class="diagnostic-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="diagnostic-title"
+            @onclick:stopPropagation="true">
+            <div class="diagnostic-header">
+                <div>
+                    <p class="eyebrow">ACTIVITY DIAGNOSTICS</p>
+                    <h2 id="diagnostic-title">
+                        @_selectedActivity.Progress.Stage
+                    </h2>
+                </div>
+                <button
+                    type="button"
+                    class="dialog-close"
+                    aria-label="Close diagnostics"
+                    @onclick="CloseDiagnostics">
+                    ×
+                </button>
+            </div>
+
+            <div class="diagnostic-context">
+                @if (_selectedActivity.Progress.Model is not null)
+                {
+                    <span>Model: @_selectedActivity.Progress.Model</span>
+                }
+                @if (_selectedActivity.Progress.Attempt is not null)
+                {
+                    <span>
+                        Attempt: @_selectedActivity.Progress.Attempt
+                        @if (_selectedActivity.Progress.MaximumAttempts is not null)
+                        {
+                            <text> of @_selectedActivity.Progress.MaximumAttempts</text>
+                        }
+                    </span>
+                }
+            </div>
+
+            @foreach (var diagnostic in _selectedActivity.Diagnostics)
+            {
+                <article class="diagnostic-item @diagnostic.Severity.ToString().ToLowerInvariant()">
+                    <div class="diagnostic-summary">
+                        <span class="diagnostic-symbol">!</span>
+                        <div>
+                            <strong>@diagnostic.Summary</strong>
+                            <code>@diagnostic.Code</code>
+                        </div>
+                    </div>
+                    @if (diagnostic.Details.Count > 0)
+                    {
+                        <ul class="diagnostic-details">
+                            @foreach (var detail in diagnostic.Details)
+                            {
+                                <li>@detail</li>
+                            }
+                        </ul>
+                    }
+                </article>
+            }
+        </section>
+    </div>
+}
+
+@if (_selectedFileCheck is not null)
+{
+    <FileCheckDiagnosticsDialog
+        Selection="@_selectedFileCheck"
+        OnClose="CloseFileCheckDiagnostics" />
+}
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "resumeFrom")]
+    public string? ResumeFrom { get; set; }
+
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly List<ChatRunState> _runs = [];
+    private string _prompt = string.Empty;
+    private bool _isSubmitting;
+    private ActivityProgressState? _selectedActivity;
+    private WorkflowFileCheckSelection? _selectedFileCheck;
+
+    private async Task SubmitAsync()
+    {
+        var sourceWorkflowId = ResumeFrom?.Trim();
+        var prompt = _prompt.Trim();
+        if (prompt.Length == 0 &&
+            !string.IsNullOrWhiteSpace(sourceWorkflowId))
+        {
+            prompt = $"Continue build and repair from {sourceWorkflowId}.";
+        }
+
+        if (prompt.Length == 0 || _isSubmitting)
+        {
+            return;
+        }
+
+        _isSubmitting = true;
+        _prompt = string.Empty;
+        var run = new ChatRunState(
+            prompt,
+            _lifetime.Token);
+        _runs.Add(run);
+
+        try
+        {
+            run.WorkflowId = await WorkflowClient.StartAsync(
+                prompt,
+                sourceWorkflowId,
+                run.CancellationToken);
+            run.Status = "Running";
+
+            _ = ObserveProgressAsync(run);
+            _ = ObserveCompletionAsync(run);
+        }
+        catch (Exception exception)
+        {
+            run.Status = "Failed";
+            run.IsRunning = false;
+            run.Error = exception.Message;
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private async Task ObserveProgressAsync(ChatRunState run)
+    {
+        try
+        {
+            await foreach (var entry in
+                ProgressSubscriber.SubscribeAsync(
+                    run.WorkflowId!,
+                    cancellationToken: run.CancellationToken))
+            {
+                await InvokeAsync(() =>
+                {
+                    run.AddProgress(entry);
+                    run.Status = entry.Progress.Stage;
+                    StateHasChanged();
+                });
+
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            await InvokeAsync(() =>
+            {
+                run.Error =
+                    $"Progress stream unavailable: {exception.Message}";
+                StateHasChanged();
+            });
+        }
+    }
+
+    private async Task ObserveCompletionAsync(ChatRunState run)
+    {
+        try
+        {
+            var result = await WorkflowClient.WaitForResultAsync(
+                run.WorkflowId!,
+                run.CancellationToken);
+
+            await InvokeAsync(() =>
+            {
+                run.SetResult(result);
+                run.Status = result.Succeeded
+                    ? "Completed"
+                    : "Generation failed";
+                run.IsRunning = false;
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            await InvokeAsync(() =>
+            {
+                run.Status = "Failed";
+                run.IsRunning = false;
+                run.Error = exception.Message;
+                StateHasChanged();
+            });
+        }
+        finally
+        {
+            run.CompleteObservation();
+        }
+    }
+
+    private void ShowDiagnostics(ActivityProgressState activity) =>
+        _selectedActivity = activity;
+
+    private void CloseDiagnostics() =>
+        _selectedActivity = null;
+
+    private void ShowFileCheckDiagnostics(
+        WorkflowFileCheckSelection selection) =>
+        _selectedFileCheck = selection;
+
+    private void CloseFileCheckDiagnostics() =>
+        _selectedFileCheck = null;
+
+    private static string ActivityIcon(
+        ActivityProgressState activity) =>
+        activity.VisualState switch
+        {
+            "failed" => "×",
+            "warning" => "!",
+            "succeeded" => "✓",
+            _ => ""
+        };
+
+    private static string ActivityLabel(
+        ActivityProgressState activity) =>
+        activity.VisualState switch
+        {
+            "failed" => "Activity failed",
+            "warning" => "Activity completed with warnings",
+            "succeeded" => "Activity completed successfully",
+            _ => "Activity is running"
+        };
+
+    public ValueTask DisposeAsync()
+    {
+        _lifetime.Cancel();
+
+        foreach (var run in _runs)
+        {
+            run.Dispose();
+        }
+
+        _lifetime.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

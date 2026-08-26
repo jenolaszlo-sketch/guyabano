@@ -1,0 +1,56 @@
+@using Guyabano.Messaging
+
+<section class="file-checks-panel" aria-label="Generated file checks">
+    <div class="file-checks-heading">
+        <strong>Generated file checks</strong>
+        <span>@Files.Count file(s)</span>
+    </div>
+    <div class="file-checks-scroll">
+        <table class="file-checks-table">
+            <thead>
+                <tr>
+                    <th scope="col">Path</th>
+                    <th scope="col">Syntax</th>
+                    <th scope="col">Compilation</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var file in Files)
+                {
+                    <tr>
+                        <td><code>@file.Path</code></td>
+                        <td>
+                            <FileCheckStatusIcon
+                                FilePath="@file.Path"
+                                Check="@GetCheck(file, WorkflowFileCheckKind.Syntax)"
+                                OnShowDiagnostics="OnShowDiagnostics" />
+                        </td>
+                        <td>
+                            <FileCheckStatusIcon
+                                FilePath="@file.Path"
+                                Check="@GetCheck(file, WorkflowFileCheckKind.Compilation)"
+                                OnShowDiagnostics="OnShowDiagnostics" />
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public required IReadOnlyList<WorkflowGeneratedFileChecks> Files { get; set; }
+
+    [Parameter]
+    public EventCallback<WorkflowFileCheckSelection> OnShowDiagnostics { get; set; }
+
+    private static WorkflowFileCheck GetCheck(
+        WorkflowGeneratedFileChecks file,
+        WorkflowFileCheckKind kind) =>
+        file.Checks.FirstOrDefault(check => check.Kind == kind) ??
+        new WorkflowFileCheck(
+            kind,
+            WorkflowFileCheckStatus.NotRun,
+            []);
+}

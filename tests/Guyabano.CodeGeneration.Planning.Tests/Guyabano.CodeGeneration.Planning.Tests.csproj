@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="1.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0-pre.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="FluentAssertions" Version="7.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\prompts\architecture-decision-integration\*.sbn">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>prompts\architecture-decision-integration\%(Filename)%(Extension)</TargetPath>
+    </Content>
+    <Content Include="..\..\prompts\architecture-review\*.sbn">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>prompts\architecture-review\%(Filename)%(Extension)</TargetPath>
+    </Content>
+    <Content Include="..\..\prompts\architecture-gap-resolution\*.sbn">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>prompts\architecture-gap-resolution\%(Filename)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Guyabano.CodeGeneration.Planning\Guyabano.CodeGeneration.Planning.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\prompts\code-generation-decomposition\*.sbn">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>prompts\code-generation-decomposition\%(Filename)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

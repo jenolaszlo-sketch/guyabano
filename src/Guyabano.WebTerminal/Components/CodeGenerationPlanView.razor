@@ -1,0 +1,312 @@
+<section class="plan-view">
+    <div class="plan-header">
+        <div>
+            <p class="eyebrow">IMPLEMENTATION PLAN</p>
+            <h3>@Plan.Title</h3>
+            <p>@Plan.Summary</p>
+        </div>
+        <div class="plan-totals">
+            <span><strong>@Plan.Tasks.Count</strong> architecture tasks</span>
+            <span><strong>@TotalPoints</strong> points</span>
+            @if (Decompositions.Count > 0)
+            {
+                <span class="ready">
+                    <strong>@LeafCount</strong> execution leaves
+                </span>
+            }
+            else
+            {
+                <span class="@(HighComplexityCount > 0 ? "needs-work" : "ready")">
+                    <strong>@HighComplexityCount</strong> marked for decomposition
+                </span>
+            }
+        </div>
+    </div>
+
+    @if (ArchitectureReviews.Count > 0)
+    {
+        <details class="plan-section" open>
+            <summary>
+                Architecture v@ArchitectureVersion review
+                (@ArchitectureReviews.Count pass(es))
+            </summary>
+            @foreach (var reviewResult in ArchitectureReviews)
+            {
+                <article class="plan-detail-item">
+                    <strong>
+                        Pass @reviewResult.ReviewPass —
+                        @(reviewResult.Review?.Approved == true ? "Approved" : "Changes requested")
+                    </strong>
+                    <span>@reviewResult.Model</span>
+                    @foreach (var finding in reviewResult.Review?.Findings ?? [])
+                    {
+                        <div class="contract-row">
+                            <code>@finding.Id</code>
+                            <div>
+                                <strong>@finding.Severity — @finding.Category</strong>
+                                <p>@finding.Summary</p>
+                                <small>Affected: @DisplayIds(finding.AffectedIds)</small>
+                            </div>
+                        </div>
+                    }
+                </article>
+            }
+        </details>
+    }
+
+    @if (Plan.Assumptions.Count > 0)
+    {
+        <details class="plan-section">
+            <summary>Assumptions (@Plan.Assumptions.Count)</summary>
+            <ul>
+                @foreach (var assumption in Plan.Assumptions)
+                {
+                    <li>@assumption</li>
+                }
+            </ul>
+        </details>
+    }
+
+    @if (Plan.ArchitectureNotes.Count > 0)
+    {
+        <details class="plan-section" open>
+            <summary>Inferred architecture notes (@Plan.ArchitectureNotes.Count)</summary>
+            @foreach (var note in Plan.ArchitectureNotes)
+            {
+                <article class="plan-detail-item">
+                    <strong>@note.Id â€” @note.Subject</strong>
+                    <span>@note.Category</span>
+                    <p>@note.Decision</p>
+                    <small>Unspecified: @note.MissingInformation</small>
+                    <small>Why: @string.Join("; ", note.Reasons)</small>
+                    <small>Impact: @note.Impact</small>
+                    <small>Affected: @DisplayIds(note.AffectedIds)</small>
+                    <small>User overridable: @(note.UserOverridable ? "Yes" : "No")</small>
+                </article>
+            }
+        </details>
+    }
+
+    <div class="plan-section">
+        <h4>Projects</h4>
+        <p><code>@Plan.Solution.Path</code></p>
+        <div class="plan-projects">
+            @foreach (var project in Plan.Projects)
+            {
+                <article class="plan-project">
+                    <div>
+                        <strong>@project.Name</strong>
+                        <span>@project.Kind · @project.TargetFramework</span>
+                    </div>
+                    <code>@project.Path</code>
+                    <ul>
+                        @foreach (var responsibility in project.Responsibilities)
+                        {
+                            <li>@responsibility</li>
+                        }
+                    </ul>
+                    @if (project.ProjectDependencies.Count > 0)
+                    {
+                        <small>
+                            References: @string.Join(", ", project.ProjectDependencies)
+                        </small>
+                    }
+                    @if (project.Packages.Count > 0)
+                    {
+                        <small>
+                            Packages: @string.Join(", ", project.Packages.Select(package => package.Name))
+                        </small>
+                    }
+                </article>
+            }
+        </div>
+    </div>
+
+    <div class="plan-section">
+        <h4>Tasks</h4>
+        <div class="plan-tasks">
+            @foreach (var task in Plan.Tasks)
+            {
+                <article class="plan-task @(task.DecompositionRecommended ? "decompose" : "")">
+                    <div class="plan-task-heading">
+                        <div>
+                            <span class="task-id">@task.Id</span>
+                            <strong>@task.Title</strong>
+                        </div>
+                        <span class="points @PointsClass(task.ComplexityPoints)">
+                            @task.ComplexityPoints pts
+                        </span>
+                    </div>
+                    <p>@task.Objective</p>
+                    <div class="task-meta">
+                        <span>Execution: @task.ExecutionKind</span>
+                        @if (!string.IsNullOrWhiteSpace(task.ModuleId))
+                        {
+                            <span>Module: @task.ModuleId</span>
+                        }
+                        <span>Estimated files: @task.EstimatedFiles</span>
+                        @if (task.DependsOn.Count > 0)
+                        {
+                            <span>Depends on: @string.Join(", ", task.DependsOn)</span>
+                        }
+                    </div>
+                    @if (task.DecompositionRecommended)
+                    {
+                        <div class="decomposition-note">
+                            Further decomposition recommended
+                        </div>
+                    }
+                    @if (FindDecomposition(task.Id) is { } decomposition)
+                    {
+                        <div class="leaf-tasks">
+                            <strong>
+                                @decomposition.LeafTasks.Count execution-ready leaf task(s)
+                            </strong>
+                            @foreach (var leaf in decomposition.LeafTasks)
+                            {
+                                <div class="leaf-task">
+                                    <div>
+                                        <code>@leaf.Id</code>
+                                        <span>@leaf.Title</span>
+                                        <small>@leaf.ComplexityPoints pts</small>
+                                    </div>
+                                    <small>
+                                        @string.Join(", ", leaf.Artifacts.Select(artifact => artifact.Path))
+                                    </small>
+                                </div>
+                            }
+                        </div>
+                    }
+                    <details>
+                        <summary>Task details</summary>
+                        <dl class="task-details">
+                            <dt>Deliverables</dt>
+                            <dd>@string.Join("; ", task.Deliverables)</dd>
+                            <dt>Complexity</dt>
+                            <dd>@string.Join("; ", task.ComplexityReasons)</dd>
+                            <dt>Contracts</dt>
+                            <dd>@DisplayIds(task.ContractIds)</dd>
+                            <dt>Architecture decisions</dt>
+                            <dd>@DisplayIds(task.DecisionIds)</dd>
+                            <dt>Acceptance</dt>
+                            <dd>@DisplayIds(task.AcceptanceCriterionIds)</dd>
+                            <dt>Verification</dt>
+                            <dd>@string.Join(", ", task.VerificationKinds)</dd>
+                        </dl>
+                    </details>
+                </article>
+            }
+        </div>
+    </div>
+
+    <details class="plan-section">
+        <summary>Modules and contracts (@Plan.Modules.Count modules, @Plan.Contracts.Count contracts)</summary>
+        @foreach (var module in Plan.Modules)
+        {
+            <article class="plan-detail-item">
+                <strong>@module.Id — @module.Name</strong>
+                <span>@module.ProjectName</span>
+                <p>@string.Join("; ", module.Responsibilities)</p>
+                @foreach (var contract in Plan.Contracts.Where(contract => contract.ModuleId == module.Id))
+                {
+                    <div class="contract-row">
+                        <code>@contract.Id</code>
+                        <div>
+                            <strong>@contract.Name</strong>
+                            <span>@contract.Kind — @contract.Purpose</span>
+                            @if (contract.Members.Count > 0)
+                            {
+                                <ul>
+                                    @foreach (var member in contract.Members)
+                                    {
+                                        <li><code>@member</code></li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                    </div>
+                }
+            </article>
+        }
+    </details>
+
+    <details class="plan-section">
+        <summary>Acceptance criteria (@Plan.AcceptanceCriteria.Count)</summary>
+        @foreach (var criterion in Plan.AcceptanceCriteria)
+        {
+            <article class="bdd-scenario">
+                <strong>@criterion.Id — @criterion.Feature</strong>
+                <h5>@criterion.Scenario</h5>
+                @foreach (var given in criterion.Given)
+                {
+                    <p><span>Given</span> @given</p>
+                }
+                @foreach (var when in criterion.When)
+                {
+                    <p><span>When</span> @when</p>
+                }
+                @foreach (var then in criterion.Then)
+                {
+                    <p><span>Then</span> @then</p>
+                }
+                <small>@string.Join(", ", criterion.VerificationKinds)</small>
+            </article>
+        }
+    </details>
+
+    <details class="plan-section">
+        <summary>Architecture decisions (@Plan.Decisions.Count)</summary>
+        @foreach (var decision in Plan.Decisions)
+        {
+            <article class="plan-detail-item">
+                <strong>@decision.Id — @decision.Title</strong>
+                <p>@decision.Decision</p>
+                <small>Reasons: @string.Join("; ", decision.Reasons)</small>
+                @if (decision.RelatedPackages.Count > 0)
+                {
+                    <small>Related packages: @string.Join(", ", decision.RelatedPackages)</small>
+                }
+            </article>
+        }
+    </details>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public required CodeGenerationPlan Plan { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<CodeGenerationDecompositionWorkflowResult>
+        Decompositions { get; set; } = [];
+
+    [Parameter]
+    public int ArchitectureVersion { get; set; } = 1;
+
+    [Parameter]
+    public IReadOnlyList<ArchitectureReviewWorkflowResult>
+        ArchitectureReviews { get; set; } = [];
+
+    private int TotalPoints =>
+        Plan.Tasks.Sum(task => task.ComplexityPoints);
+
+    private int HighComplexityCount =>
+        Plan.Tasks.Count(task =>
+            task.DecompositionRecommended ||
+            task.ComplexityPoints >= 8);
+
+    private int LeafCount =>
+        Decompositions.Sum(item =>
+            item.Decomposition?.LeafTasks.Count ?? 0);
+
+    private static string PointsClass(int points) =>
+        points >= 8 ? "high" : points >= 5 ? "medium" : "low";
+
+    private static string DisplayIds(IReadOnlyCollection<string> ids) =>
+        ids.Count == 0 ? "None" : string.Join(", ", ids);
+
+    private CodeGenerationTaskDecomposition? FindDecomposition(
+        string taskId) =>
+        Decompositions.FirstOrDefault(item => item.ParentTaskId.Equals(
+            taskId,
+            StringComparison.Ordinal))?.Decomposition;
+}

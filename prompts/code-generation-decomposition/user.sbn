@@ -1,0 +1,188 @@
+Architecture plan: {{ plan_title }}
+{{ plan_summary }}
+
+Guiding mission: {{ mission.GuidingIntent }}
+Success outcomes:
+{{ for outcome in mission.SuccessOutcomes }}
+- {{ outcome }}
+{{ end }}
+Non-goals:
+{{ for non_goal in mission.NonGoals }}
+- {{ non_goal }}
+{{ end }}
+
+Immutable parent task:
+- ID: {{ parent_task.Id }}
+- Title: {{ parent_task.Title }}
+- Objective: {{ parent_task.Objective }}
+- Complexity: {{ parent_task.ComplexityPoints }}
+- Estimated files: {{ parent_task.EstimatedFiles }}
+
+Parent deliverables:
+{{ for item in parent_task.Deliverables }}
+- {{ item }}
+{{ end }}
+
+Project:
+- Name: {{ project.Name }}
+- Path: {{ project.Path }}
+- Kind: {{ project.Kind }}
+- Architectural role: {{ project.Role }}
+- Target framework: {{ project.TargetFramework }}
+
+Referenced projects:
+{{ if project_dependencies.size > 0 }}
+{{ for dependency in project_dependencies }}
+- {{ dependency.Name }} | {{ dependency.Role }} | {{ dependency.Path }}
+{{ end }}
+{{ else }}
+- None.
+{{ end }}
+
+Module:
+- ID: {{ module.Id }}
+- Name: {{ module.Name }}
+{{ for item in module.Responsibilities }}
+- {{ item }}
+{{ end }}
+
+Immutable contracts:
+{{ if contracts.size > 0 }}
+{{ for contract in contracts }}
+- {{ contract.Id }} | {{ contract.Kind }} {{ contract.Name }}: {{ contract.Purpose }}
+{{ for member in contract.Members }}
+  - {{ member }}
+{{ end }}
+{{ end }}
+{{ else }}
+- None assigned.
+{{ end }}
+
+Typed contract relationships:
+- Defines:
+{{ if parent_task.Relationships.DefinesContractIds.size > 0 }}
+{{ for id in parent_task.Relationships.DefinesContractIds }}
+  - {{ id }}
+{{ end }}
+{{ else }}
+  - None
+{{ end }}
+- Implements ports:
+{{ if parent_task.Relationships.ImplementsPortContractIds.size > 0 }}
+{{ for id in parent_task.Relationships.ImplementsPortContractIds }}
+  - {{ id }}
+{{ end }}
+{{ else }}
+  - None
+{{ end }}
+- Consumes:
+{{ if parent_task.Relationships.ConsumesContractIds.size > 0 }}
+{{ for id in parent_task.Relationships.ConsumesContractIds }}
+  - {{ id }}
+{{ end }}
+{{ else }}
+  - None
+{{ end }}
+
+Typed component dependencies:
+{{ if component_dependencies.size > 0 }}
+{{ for dependency in component_dependencies }}
+- {{ dependency.TaskId }} | {{ dependency.Kind }} | {{ dependency.ProjectRole }} project {{ dependency.ProjectName }} | {{ dependency.Title }}
+{{ for deliverable in dependency.Deliverables }}
+  - Deliverable: {{ deliverable }}
+{{ end }}
+{{ end }}
+{{ else }}
+- No component dependencies are required.
+{{ end }}
+
+Acceptance criteria:
+{{ if acceptance_criteria.size > 0 }}
+{{ for criterion in acceptance_criteria }}
+- {{ criterion.Id }} | {{ criterion.Feature }} | {{ criterion.Scenario }}
+{{ for step in criterion.Given }}
+  Given {{ step }}
+{{ end }}
+{{ for step in criterion.When }}
+  When {{ step }}
+{{ end }}
+{{ for step in criterion.Then }}
+  Then {{ step }}
+{{ end }}
+{{ end }}
+{{ else }}
+- None assigned.
+{{ end }}
+
+Owning use cases:
+{{ if use_cases.size > 0 }}
+{{ for use_case in use_cases }}
+- {{ use_case.Id }} | {{ use_case.BoundedContext }} | {{ use_case.Name }}: {{ use_case.Objective }}
+{{ for rule in use_case.BusinessRules }}
+  - Rule: {{ rule }}
+{{ end }}
+{{ for outcome in use_case.ErrorOutcomes }}
+  - Error outcome: {{ outcome }}
+{{ end }}
+{{ end }}
+{{ else }}
+- None assigned.
+{{ end }}
+
+Architecture decisions:
+{{ if decisions.size > 0 }}
+{{ for decision in decisions }}
+- {{ decision.Id }} | {{ decision.Title }}: {{ decision.Decision }}
+{{ end }}
+{{ else }}
+- None.
+{{ end }}
+
+Architecture notes:
+{{ if architecture_notes.size > 0 }}
+These are reviewed defaults and inferred constraints. Apply each decision to the leaves that implement its affected IDs and include the constraint in their concrete requirements.
+{{ for note in architecture_notes }}
+- {{ note.Id }} | {{ note.Category }} | {{ note.Subject }}: {{ note.Decision }}
+  - Impact: {{ note.Impact }}
+  - Affected IDs: {{ for affected_id in note.AffectedIds }}{{ affected_id }}{{ if !for.last }}, {{ end }}{{ end }}
+{{ end }}
+{{ else }}
+- None.
+{{ end }}
+
+Resolved upstream artifacts:
+{{ if resolved_dependencies.size > 0 }}
+These artifacts were resolved by validated decompositions of dependency tasks. Their paths, namespaces, and type names are immutable; reference them exactly and do not recreate or rename them.
+{{ for artifact in resolved_dependencies }}
+- Task {{ artifact.ArchitectureTaskId }} / leaf {{ artifact.LeafTaskId }}
+  - Path: {{ artifact.Path }}
+  - Kind: {{ artifact.Kind }}
+  - Namespace: {{ artifact.Namespace }}
+{{ for type_name in artifact.FullyQualifiedTypeNames }}
+  - Type: {{ type_name }}
+{{ end }}
+{{ for requirement in artifact.EffectiveRequirements }}
+  - Resolved requirement: {{ requirement }}
+{{ end }}
+{{ if artifact.RelatedContractIds.size > 0 }}
+  - Related contracts: {{ for contract_id in artifact.RelatedContractIds }}{{ contract_id }}{{ if !for.last }}, {{ end }}{{ end }}
+{{ end }}
+{{ end }}
+{{ else }}
+- No upstream code-generation artifacts are required.
+{{ end }}
+
+Resolved upstream contracts:
+{{ if resolved_dependency_contracts.size > 0 }}
+These are the complete architecture contracts referenced by upstream artifacts. Their member signatures and semantics are immutable.
+{{ for contract in resolved_dependency_contracts }}
+- {{ contract.Id }} | {{ contract.Kind }} {{ contract.Name }}: {{ contract.Purpose }}
+{{ for member in contract.Members }}
+  - {{ member }}
+{{ end }}
+{{ end }}
+{{ else }}
+- None.
+{{ end }}
+
+Return execution-ready leaves or explicit architecture gaps through {{ result_tool_name }}.

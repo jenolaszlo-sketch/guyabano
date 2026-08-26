@@ -1,0 +1,53 @@
+@using Guyabano.Messaging
+
+@if (Check.Diagnostics.Count > 0)
+{
+    <button
+        type="button"
+        class="file-check-status @StatusClass"
+        aria-label="@AccessibleLabel"
+        title="@AccessibleLabel"
+        @onclick="ShowDiagnosticsAsync">
+        @StatusIcon
+    </button>
+}
+else
+{
+    <span
+        class="file-check-status @StatusClass"
+        aria-label="@AccessibleLabel"
+        title="@AccessibleLabel">
+        @StatusIcon
+    </span>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public required string FilePath { get; set; }
+
+    [Parameter, EditorRequired]
+    public required WorkflowFileCheck Check { get; set; }
+
+    [Parameter]
+    public EventCallback<WorkflowFileCheckSelection> OnShowDiagnostics { get; set; }
+
+    private string StatusClass =>
+        Check.Status.ToString().ToLowerInvariant();
+
+    private string StatusIcon => Check.Status switch
+    {
+        WorkflowFileCheckStatus.Passed => "\u2713",
+        WorkflowFileCheckStatus.Failed => "\u00D7",
+        WorkflowFileCheckStatus.Warning => "!",
+        WorkflowFileCheckStatus.Running => string.Empty,
+        WorkflowFileCheckStatus.NotApplicable => "N/A",
+        _ => "\u2014"
+    };
+
+    private string AccessibleLabel =>
+        $"{Check.Kind} check for {FilePath}: {Check.Status}";
+
+    private Task ShowDiagnosticsAsync() =>
+        OnShowDiagnostics.InvokeAsync(
+            new WorkflowFileCheckSelection(FilePath, Check));
+}

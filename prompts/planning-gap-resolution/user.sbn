@@ -1,0 +1,16 @@
+Original request:
+{{ original_request }}
+
+Owning planning stage:
+{{ stage }}
+
+Current stage artifact:
+{{ current_artifact_json }}
+
+Focused issue:
+{{ issue }}
+{{ if previous_failure }}
+
+The preceding resolver output was rejected:
+{{ previous_failure }}
+{{ end }}

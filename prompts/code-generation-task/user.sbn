@@ -1,0 +1,144 @@
+{{ if original_request }}
+Original request:
+{{ original_request }}
+{{ end }}
+
+Assigned task:
+- ID: {{ task_id }}
+- Title: {{ task_title }}
+- Objective: {{ objective }}
+{{ if parent_task_id }}
+- Parent architecture task: {{ parent_task_id }}
+{{ end }}
+- Module: {{ module_name }}
+- Project: {{ project_name }}
+- Project file: {{ project_path }}
+- Target framework: {{ target_framework }}
+
+{{ if retry }}
+Previous attempt correction:
+- Previous attempt: {{ retry.PreviousAttempt }}
+- Previous model: {{ retry.PreviousModel }}
+- Failure: {{ retry.Failure }}
+{{ if retry.Error }}
+- Error: {{ retry.Error }}
+{{ end }}
+{{ if retry.Diagnostics.size > 0 }}
+- Diagnostics:
+{{ for diagnostic in retry.Diagnostics }}
+  - {{ diagnostic }}
+{{ end }}
+{{ end }}
+{{ if retry.WrittenFiles.size > 0 }}
+- Files written by the failed attempt:
+{{ for file in retry.WrittenFiles }}
+  - {{ file }}
+{{ end }}
+{{ end }}
+- Correct the reported failure. Do not repeat the same malformed response or invalid output.
+{{ end }}
+
+Module responsibilities:
+{{ for responsibility in module_responsibilities }}
+- {{ responsibility }}
+{{ end }}
+
+Deliverables:
+{{ for deliverable in deliverables }}
+- {{ deliverable }}
+{{ end }}
+
+{{ if implementation_requirements.size > 0 }}
+Exact implementation requirements:
+{{ for requirement in implementation_requirements }}
+- {{ requirement }}
+{{ end }}
+{{ end }}
+
+{{ if artifacts.size > 0 }}
+Exact leaf artifacts:
+{{ for artifact in artifacts }}
+- Path: {{ artifact.Path }}
+  Kind: {{ artifact.Kind }}
+  Namespace: {{ artifact.Namespace }}
+{{ if artifact.TypeNames.size > 0 }}
+  Types:
+{{ for type_name in artifact.TypeNames }}
+    - {{ type_name }}
+{{ end }}
+{{ end }}
+  Requirements:
+{{ for requirement in artifact.Requirements }}
+    - {{ requirement }}
+{{ end }}
+{{ end }}
+{{ end }}
+
+Required contracts:
+{{ if contracts.size > 0 }}
+{{ for contract in contracts }}
+- {{ contract.Id }} | {{ contract.Kind }} {{ contract.Name }}: {{ contract.Purpose }}
+{{ for member in contract.Members }}
+  - {{ member }}
+{{ end }}
+{{ end }}
+{{ else }}
+- None.
+{{ end }}
+
+Acceptance criteria:
+{{ if acceptance_criteria.size > 0 }}
+{{ for criterion in acceptance_criteria }}
+- {{ criterion.Id }} | {{ criterion.Feature }} | {{ criterion.Scenario }}
+{{ for step in criterion.Given }}
+  Given {{ step }}
+{{ end }}
+{{ for step in criterion.When }}
+  When {{ step }}
+{{ end }}
+{{ for step in criterion.Then }}
+  Then {{ step }}
+{{ end }}
+{{ end }}
+{{ else }}
+- None assigned.
+{{ end }}
+
+Architecture decisions:
+{{ if decisions.size > 0 }}
+{{ for decision in decisions }}
+- {{ decision.Id }} | {{ decision.Title }}: {{ decision.Decision }}
+{{ for reason in decision.Reasons }}
+  - {{ reason }}
+{{ end }}
+{{ end }}
+{{ else }}
+- None.
+{{ end }}
+
+Architecture notes:
+{{ if architecture_notes.size > 0 }}
+These are reviewed defaults and inferred constraints. Apply them exactly unless the current retry diagnostics explicitly require correcting their implementation.
+{{ for note in architecture_notes }}
+- {{ note.Id }} | {{ note.Category }} | {{ note.Subject }}: {{ note.Decision }}
+  - Impact: {{ note.Impact }}
+{{ for reason in note.Reasons }}
+  - Reason: {{ reason }}
+{{ end }}
+{{ end }}
+{{ else }}
+- None.
+{{ end }}
+
+Current relevant files:
+{{ if files.size > 0 }}
+{{ for file in files }}
+File: {{ file.Path }}
+{{ file.Content }}
+
+{{ end }}
+{{ else }}
+No relevant files currently exist.
+{{ end }}
+
+Implement this task and return only its created or changed files through {{ result_tool_name }}.

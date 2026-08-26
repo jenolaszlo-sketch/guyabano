@@ -1,0 +1,22 @@
+Guiding mission and scope boundaries:
+{{ mission_json }}
+
+Design contracts for this bounded context:
+{{ context_json }}
+
+Capabilities owned by this context:
+{{ capabilities_json }}
+
+Use cases and immutable acceptance scenarios owned by this context:
+{{ use_cases_json }}
+
+Available modules:
+{{ modules_json }}
+
+Immutable upstream contracts:
+{{ upstream_contracts_json }}
+{{ if previous_failure }}
+
+The preceding attempt was rejected for this reason. Correct the contract defect without changing upstream artifacts:
+{{ previous_failure }}
+{{ end }}

@@ -1,0 +1,12 @@
+Plan the following request:
+
+{{ request }}
+
+{{ if previous_failure && previous_failure != "" }}
+The previous planning attempt was rejected:
+{{ previous_failure }}
+
+Correct that exact structural or architectural-quality failure. Do not repeat the rejected output.
+{{ end }}
+
+Return the complete plan as the schema-conforming JSON response.

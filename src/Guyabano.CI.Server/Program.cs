@@ -36,6 +36,8 @@ builder.Services.AddControllers();
 
 var app = builder.Build();
 
+app.UseMiddleware<ApiKeyMiddleware>();
+
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapControllers();
 

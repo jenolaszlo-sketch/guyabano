@@ -46,7 +46,8 @@ public sealed record RepositoryContextReference(
 
 public sealed record RepositoryIndexRequest(
     RepositoryReference Repository,
-    string WorkflowRunId);
+    string WorkflowRunId,
+    string SessionId);
 
 public sealed record RepositoryContextSelectionRequest(
     RepositoryRevision Revision,
@@ -55,4 +56,5 @@ public sealed record RepositoryContextSelectionRequest(
 public sealed record RepositoryContextCaptureRequest(
     RepositoryContextSelection Selection,
     string WorkflowRunId,
+    string SessionId,
     string QueryText);

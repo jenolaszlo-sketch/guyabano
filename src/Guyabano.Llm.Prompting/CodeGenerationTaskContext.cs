@@ -25,4 +25,7 @@ public sealed record CodeGenerationTaskContext(
     IReadOnlyList<CodeGenerationArtifactContext>? Artifacts = null,
     IReadOnlyList<CodeGenerationTaskArchitectureNoteContext>?
         ArchitectureNotes = null,
-    bool AllowBuildArtifacts = false);
+    bool AllowBuildArtifacts = false,
+    string? SessionId = null,
+    string? WorkflowRunId = null,
+    string? WorkflowStepKey = null);

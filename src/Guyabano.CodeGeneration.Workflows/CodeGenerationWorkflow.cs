@@ -680,7 +680,8 @@ public sealed class CodeGenerationWorkflow
                 CodeGenerationWorkflowConstants.IndexRepositoryStep,
                 new RepositoryIndexRequest(
                     request.Repository,
-                    workflow.WorkflowRunId.ToString("D")),
+                    workflow.WorkflowRunId.ToString("D"),
+                    request.SessionId.ToString()),
                 RepositoryContextActivityOptions(TimeSpan.FromMinutes(15)),
                 cancellationToken);
         var selection = await workflow.StepAsync<
@@ -701,6 +702,7 @@ public sealed class CodeGenerationWorkflow
                 new RepositoryContextCaptureRequest(
                     selection,
                     workflow.WorkflowRunId.ToString("D"),
+                    request.SessionId.ToString(),
                     request.Prompt),
                 RepositoryContextActivityOptions(TimeSpan.FromMinutes(2)),
                 cancellationToken);

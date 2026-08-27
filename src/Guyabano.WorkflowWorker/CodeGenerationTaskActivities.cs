@@ -10,6 +10,7 @@ public sealed class CodeGenerationTaskActivities(
     ICodeGenerationTaskService taskService,
     IWorkflowProgressPublisher progressPublisher,
     IOptions<CodeGenerationWorkerOptions> options,
+    CodeGenerationWorkspaceResolver workspaceResolver,
     ILogger<CodeGenerationTaskActivities> logger)
 {
     public async Task<CodeGenerationTaskWorkflowResult> GenerateAsync(
@@ -21,6 +22,10 @@ public sealed class CodeGenerationTaskActivities(
         var workflowId = info.WorkflowId ??
             throw new InvalidOperationException(
                 "Workflow activity information did not include a workflow ID.");
+        var workspace = await workspaceResolver.ResolveWorkflowAsync(
+            workflowId,
+            context.CancellationToken);
+        var workspaceRoot = workspace.HostPath;
         var task = request.Task;
         var attempt = info.Attempt;
         var maximumAttempts = CodeGenerationModelSelector.MaximumAttempts(
@@ -64,8 +69,14 @@ public sealed class CodeGenerationTaskActivities(
                     request.Plan,
                     request.ParentTaskId,
                     request.Task,
-                    settings.OutputRoot,
+                    workspaceRoot,
                     context.CancellationToken);
+            taskContext = taskContext with
+            {
+                SessionId = workspace.SessionId.ToString(),
+                WorkflowRunId = workflowId,
+                WorkflowStepKey = info.ActivityId
+            };
             if (previousAttempt is not null)
             {
                 taskContext = taskContext with
@@ -76,7 +87,7 @@ public sealed class CodeGenerationTaskActivities(
 
             var outcome = await taskService.GenerateAndEmitAsync(
                 taskContext,
-                settings.OutputRoot,
+                workspaceRoot,
                 model,
                 maxTokens,
                 context.CancellationToken);
@@ -135,7 +146,7 @@ public sealed class CodeGenerationTaskActivities(
                         outcome,
                         attempt,
                         actualModel,
-                        settings.OutputRoot));
+                        workspaceRoot));
                 throw new CodeGenerationActivityException(
                     outcome.Error ?? $"Task '{task.Id}' failed.",
                     errorType: outcome.Failure.ToString(),
@@ -145,7 +156,7 @@ public sealed class CodeGenerationTaskActivities(
             return Map(
                 task.Id,
                 outcome,
-                settings.OutputRoot,
+                workspaceRoot,
                 selection.Tier,
                 request.IsBuildRepair,
                 request.BuildRepairCycle);

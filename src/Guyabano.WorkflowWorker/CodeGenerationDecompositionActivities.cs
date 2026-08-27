@@ -3,6 +3,7 @@ using Penghou.Baize;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Planning;
 using Guyabano.CodeGeneration.Workflows;
+using Guyabano.Llm.Prompting;
 using Guyabano.Messaging;
 
 namespace Guyabano.WorkflowWorker;
@@ -14,6 +15,7 @@ public sealed class CodeGenerationDecompositionActivities(
     IArtifactRepository artifactRepository,
     IWorkflowProgressPublisher progressPublisher,
     IOptions<CodeGenerationWorkerOptions> options,
+    CodeGenerationWorkspaceResolver workspaceResolver,
     ILogger<CodeGenerationDecompositionActivities> logger)
 {
     public async Task<CodeGenerationDecompositionWorkflowResult>
@@ -25,6 +27,13 @@ public sealed class CodeGenerationDecompositionActivities(
         var workflowId = info.WorkflowId ??
             throw new InvalidOperationException(
                 "Workflow activity information did not include a workflow ID.");
+        var workspace = await workspaceResolver.ResolveWorkflowAsync(
+            workflowId,
+            context.CancellationToken);
+        using var correlationScope = LlmRequestCorrelationScope.Push(new(
+            workspace.SessionId.ToString(),
+            workflowId,
+            info.ActivityId));
         var parent = request.Plan.Tasks.Single(item => item.Id.Equals(
             request.ParentTaskId,
             StringComparison.Ordinal));

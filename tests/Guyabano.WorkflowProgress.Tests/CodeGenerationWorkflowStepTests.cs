@@ -8,7 +8,7 @@ namespace Guyabano.WorkflowProgressTests;
 public sealed class CodeGenerationWorkflowStepTests
 {
     [Fact]
-    public void ImplementationKeys_AreUniqueForWorkflowVersionThree()
+    public void ImplementationKeys_AreUniqueForWorkflowVersionFour()
     {
         WorkflowStepReference[] steps =
         {
@@ -27,7 +27,7 @@ public sealed class CodeGenerationWorkflowStepTests
             CodeGenerationWorkflowConstants.SaveCheckpointStep
         };
 
-        CodeGenerationWorkflowConstants.WorkflowVersion.Should().Be("3");
+        CodeGenerationWorkflowConstants.WorkflowVersion.Should().Be("4");
         steps.Select(step => step.ImplementationKey.Value)
             .Should().OnlyHaveUniqueItems();
     }

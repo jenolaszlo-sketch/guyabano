@@ -23,6 +23,8 @@ using Guyabano.CodeGeneration.Workflows;
 using Guyabano.Llm.CodeGeneration.Extensions;
 using Guyabano.Llm.Prompting.Extensions;
 using Guyabano.Messaging.Extensions;
+using Guyabano.Messaging;
+using Guyabano.Session;
 
 namespace Guyabano.WorkflowWorker.Extensions;
 
@@ -108,6 +110,10 @@ public static class ServiceCollectionExtensions
         var stateRoot = Path.Combine(outputRoot, ".gen");
         Directory.CreateDirectory(stateRoot);
 
+        services.AddSingleton<IGuyabanoSessionStore>(
+            new FileSystemGuyabanoSessionStore(
+                Path.Combine(stateRoot, "sessions")));
+
         services.AddCangjieSqlite(options =>
         {
             options.DatabasePath = Path.Combine(stateRoot, "cangjie.db");
@@ -135,6 +141,7 @@ public static class ServiceCollectionExtensions
             CodeGenerationWorkflowConstants.WorkflowName,
             CodeGenerationWorkflowConstants.WorkflowVersion);
         services.AddSingleton<CodeGenerationActivityHeartbeatStore>();
+        services.AddSingleton<CodeGenerationWorkspaceResolver>();
         services.AddZhinuStep<IndexRepositoryStep>(
                 CodeGenerationWorkflowConstants.IndexRepositoryStep);
         services.AddZhinuStep<SelectRepositoryContextStep>(
@@ -172,10 +179,16 @@ public static class ServiceCollectionExtensions
             return new FileSystemArtifactRepository(
                 Path.Combine(codeGeneration.OutputRoot, ".gen"));
         });
-        services.AddSingleton<IArtifactRepository>(provider =>
+        services.AddSingleton<ContextIndexingArtifactRepository>(provider =>
             new ContextIndexingArtifactRepository(
                 provider.GetRequiredService<FileSystemArtifactRepository>(),
                 provider.GetRequiredService<IContextStore>()));
+        services.AddSingleton<IArtifactRepository>(provider =>
+            new ZhinuPublishingArtifactRepository(
+                provider.GetRequiredService<
+                    ContextIndexingArtifactRepository>(),
+                provider.GetRequiredService<
+                    CodeGenerationWorkspaceResolver>()));
 
         services.AddHttpClient("llm", client =>
         {
@@ -197,6 +210,9 @@ public static class ServiceCollectionExtensions
         services.AddLlmCodeGeneration();
         services.AddCodeGenerationPlanning();
         services.AddWorkflowProgress();
+        services.AddSingleton<IWorkflowProgressPublisher>(provider =>
+            new ZhinuWorkflowProgressPublisher(
+                provider.GetRequiredService<InMemoryWorkflowProgressHub>()));
 
         services.AddScoped<CodeGenerationPlanningActivities>();
         services.AddScoped<CodeGenerationDecompositionActivities>();

@@ -9,7 +9,7 @@ namespace Guyabano.WorkflowWorker;
 public sealed class CodeGenerationBuildActivities(
     IGuyabanoCiClient ciClient,
     IWorkflowProgressPublisher progressPublisher,
-    IOptions<CodeGenerationWorkerOptions> options,
+    CodeGenerationWorkspaceResolver workspaceResolver,
     ILogger<CodeGenerationBuildActivities> logger)
 {
     public async Task<CodeGenerationBuildResult> BuildAsync(
@@ -20,9 +20,11 @@ public sealed class CodeGenerationBuildActivities(
         var workflowId = info.WorkflowId ??
             throw new InvalidOperationException(
                 "Workflow activity information did not include a workflow ID.");
-        var settings = options.Value;
+        var workspace = await workspaceResolver.ResolveWorkflowAsync(
+            workflowId,
+            context.CancellationToken);
         var paths = ToRelativePaths(
-            settings.OutputRoot,
+            workspace.HostPath,
             request.WrittenFiles);
 
         await PublishSafelyAsync(workflowId, new WorkflowProgress(
@@ -45,7 +47,7 @@ public sealed class CodeGenerationBuildActivities(
 
             await foreach (var streamEvent in ciClient.BuildAsync(
                 new CiBuildRequest(
-                    settings.CiRelativePath,
+                    workspace.CiRelativePath,
                     request.ProjectOrSolutionFile),
                 context.CancellationToken))
             {

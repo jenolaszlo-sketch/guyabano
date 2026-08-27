@@ -56,7 +56,10 @@ public sealed class FileSystemArtifactRepository : IArtifactRepository
             DateTimeOffset.UtcNow,
             request.Status,
             inputs,
-            request.Payload);
+            request.Payload)
+        {
+            SessionId = request.SessionId
+        };
         var finalPath = ResolvePath(reference.RelativePath);
         var directory = Path.GetDirectoryName(finalPath)!;
         Directory.CreateDirectory(directory);

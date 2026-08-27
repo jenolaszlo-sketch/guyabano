@@ -23,7 +23,12 @@ public sealed class CodeGenerationTaskPromptBuilderTests
             "emit_task_files",
             "Emits task files.",
             "{\"type\":\"object\"}");
-        var context = CreateContext();
+        var context = CreateContext() with
+        {
+            SessionId = "session-1",
+            WorkflowRunId = "workflow-1",
+            WorkflowStepKey = "generation/T1"
+        };
 
         var request = await builder.BuildAsync(
             new CodeGenerationTaskPromptContext(
@@ -37,6 +42,11 @@ public sealed class CodeGenerationTaskPromptBuilderTests
         TextOf(request.Messages[1]).Should().Be(
             "Todo.Api|ITodoService|AC1");
         request.Tools.Should().ContainSingle().Which.Should().Be(tool);
+        request.Metadata["guyabano.session_id"].Should().Be("session-1");
+        request.Metadata["guyabano.workflow_run_id"].Should().Be("workflow-1");
+        request.Metadata["guyabano.workflow_step_key"].Should().Be(
+            "generation/T1");
+        request.Metadata["guyabano.task_id"].Should().Be("T1");
     }
 
     [Fact]

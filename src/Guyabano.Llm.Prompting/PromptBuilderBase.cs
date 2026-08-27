@@ -21,6 +21,11 @@ public abstract class PromptBuilderBase<TContext>(
     /// <summary>Override to request structured output; default is unconstrained text.</summary>
     protected virtual LlmResponseFormat? BuildResponseFormat(TContext context) => null;
 
+    /// <summary>Override to attach host-neutral routing and telemetry metadata.</summary>
+    protected virtual IReadOnlyDictionary<string, object?> BuildMetadata(
+        TContext context) => new Dictionary<string, object?>(
+            StringComparer.Ordinal);
+
     public async Task<LlmRequest> BuildAsync(TContext context, CancellationToken cancellationToken = default)
     {
         if (context is null)
@@ -43,6 +48,22 @@ public abstract class PromptBuilderBase<TContext>(
             context.Temperature,
             context.MaxTokens,
             BuildTools(context).ToList(),
-            BuildResponseFormat(context));
+            BuildResponseFormat(context),
+            metadata: MergeMetadata(context));
+    }
+
+    private IReadOnlyDictionary<string, object?> MergeMetadata(TContext context)
+    {
+        var metadata = new Dictionary<string, object?>(
+            BuildMetadata(context),
+            StringComparer.Ordinal);
+        var correlation = LlmRequestCorrelationScope.Current;
+        if (correlation is null)
+            return metadata;
+
+        metadata.TryAdd("guyabano.session_id", correlation.SessionId);
+        metadata.TryAdd("guyabano.workflow_run_id", correlation.WorkflowRunId);
+        metadata.TryAdd("guyabano.workflow_step_key", correlation.WorkflowStepKey);
+        return metadata;
     }
 }

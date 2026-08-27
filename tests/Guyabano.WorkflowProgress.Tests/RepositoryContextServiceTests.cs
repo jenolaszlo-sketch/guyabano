@@ -41,7 +41,8 @@ public sealed class RepositoryContextServiceTests : IDisposable
                     TimeProvider.System)),
             new RepositoryIndexRequest(
                 new RepositoryReference("repo:test", root),
-                workflowRunId.ToString("D")),
+                workflowRunId.ToString("D"),
+                "session:test"),
             workflowRunId,
             "repository/index");
 
@@ -61,6 +62,7 @@ public sealed class RepositoryContextServiceTests : IDisposable
             new RepositoryContextCaptureRequest(
                 selection,
                 workflowRunId.ToString("D"),
+                "session:test",
                 "customer service"),
             workflowRunId,
             "repository/capture");
@@ -75,6 +77,10 @@ public sealed class RepositoryContextServiceTests : IDisposable
         var replay = await reopened.ResolveSnapshotAsync(
             captured.SnapshotId,
             TestContext.Current.CancellationToken);
+        replay!.Snapshot.Metadata["sessionId"].Should().Be("session:test");
+        replay.Items.Should().OnlyContain(item =>
+            item.Provenance.Attributes["sessionId"] == "session:test" &&
+            item.Tags.Contains("session:session:test"));
 
         replay.Should().NotBeNull();
         replay!.Items.Select(item => item.Content)
@@ -109,7 +115,8 @@ public sealed class RepositoryContextServiceTests : IDisposable
                 new CodeGenerationActivityHeartbeatStore(TimeProvider.System)),
             new RepositoryIndexRequest(
                 new RepositoryReference("repo:changing", root),
-                firstRunId.ToString("D")),
+                firstRunId.ToString("D"),
+                "session:test"),
             firstRunId,
             "repository/index");
 
@@ -124,7 +131,8 @@ public sealed class RepositoryContextServiceTests : IDisposable
                 new CodeGenerationActivityHeartbeatStore(TimeProvider.System)),
             new RepositoryIndexRequest(
                 new RepositoryReference("repo:changing", root),
-                secondRunId.ToString("D")),
+                secondRunId.ToString("D"),
+                "session:test"),
             secondRunId,
             "repository/index");
         var selectOriginal = () => service.SelectAsync(
@@ -168,6 +176,7 @@ public sealed class RepositoryContextServiceTests : IDisposable
         var request = new RepositoryContextCaptureRequest(
             selection,
             workflowRunId,
+            "session:test",
             "retry");
 
         var first = await service.CaptureAsync(
@@ -229,7 +238,9 @@ public sealed class RepositoryContextServiceTests : IDisposable
 
     private static CodeGenerationWorkflowRequest RequestWithContext(
         string content) =>
-        new("Build the requested system.")
+        new(
+            "Build the requested system.",
+            Guyabano.Session.GuyabanoSessionId.New())
         {
             RepositoryContext = new RepositoryContextReference(
                 Guid.NewGuid(),

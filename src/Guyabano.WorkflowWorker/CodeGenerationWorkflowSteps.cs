@@ -16,6 +16,7 @@ internal abstract class CodeGenerationWorkflowStep<TInput, TOutput>(
         cancellationToken.ThrowIfCancellationRequested();
         var heartbeatState = heartbeatStore.GetOrCreate(context);
         var runId = context.WorkflowRunId.ToString("D");
+        using var zhinuScope = CodeGenerationZhinuStepScope.Push(context);
         using var scope = CodeGenerationActivityExecutionContext.Push(
             new CodeGenerationActivityExecutionContext(
                 runId,

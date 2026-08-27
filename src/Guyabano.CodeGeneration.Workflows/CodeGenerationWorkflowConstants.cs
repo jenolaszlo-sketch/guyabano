@@ -5,7 +5,7 @@ namespace Guyabano.CodeGeneration.Workflows;
 public static class CodeGenerationWorkflowConstants
 {
     public const string WorkflowName = "guyabano-code-generation";
-    public const string WorkflowVersion = "3";
+    public const string WorkflowVersion = "4";
     public static readonly WorkflowStepReference<
         RepositoryIndexRequest,
         RepositoryRevision> IndexRepositoryStep =

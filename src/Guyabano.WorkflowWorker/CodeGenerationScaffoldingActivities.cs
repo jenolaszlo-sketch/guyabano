@@ -11,7 +11,7 @@ namespace Guyabano.WorkflowWorker;
 public sealed class CodeGenerationScaffoldingActivities(
     IGuyabanoCiClient ciClient,
     IWorkflowProgressPublisher progressPublisher,
-    IOptions<CodeGenerationWorkerOptions> options,
+    CodeGenerationWorkspaceResolver workspaceResolver,
     ILogger<CodeGenerationScaffoldingActivities> logger)
 {
     public async Task<CodeGenerationScaffoldingResult> ScaffoldAsync(
@@ -22,6 +22,9 @@ public sealed class CodeGenerationScaffoldingActivities(
         var workflowId = info.WorkflowId ??
             throw new InvalidOperationException(
                 "Workflow activity information did not include a workflow ID.");
+        var workspace = await workspaceResolver.ResolveWorkflowAsync(
+            workflowId,
+            context.CancellationToken);
         var scaffoldingTask = request.Plan.Tasks.SingleOrDefault(task =>
             task.ExecutionKind == PlanTaskExecutionKind.Scaffolding);
 
@@ -48,7 +51,7 @@ public sealed class CodeGenerationScaffoldingActivities(
             string? serviceError = null;
 
             await foreach (var streamEvent in ciClient.ScaffoldAsync(
-                CreateRequest(request.Plan, options.Value.CiRelativePath),
+                CreateRequest(request.Plan, workspace.CiRelativePath),
                 context.CancellationToken))
             {
                 if (streamEvent.Type == "error")

@@ -64,4 +64,26 @@ public sealed class CodeGenerationTaskPromptBuilder(
     protected override IReadOnlyList<LlmTool> BuildTools(
         CodeGenerationTaskPromptContext context) =>
         context.Tools;
+
+    protected override IReadOnlyDictionary<string, object?> BuildMetadata(
+        CodeGenerationTaskPromptContext context)
+    {
+        var metadata = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["guyabano.task_id"] = context.Task.TaskId
+        };
+        Add(metadata, "guyabano.session_id", context.Task.SessionId);
+        Add(metadata, "guyabano.workflow_run_id", context.Task.WorkflowRunId);
+        Add(metadata, "guyabano.workflow_step_key", context.Task.WorkflowStepKey);
+        return metadata;
+    }
+
+    private static void Add(
+        IDictionary<string, object?> metadata,
+        string key,
+        string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+            metadata[key] = value;
+    }
 }

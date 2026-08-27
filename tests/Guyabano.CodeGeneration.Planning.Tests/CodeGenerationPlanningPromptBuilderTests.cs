@@ -30,6 +30,33 @@ public sealed class CodeGenerationPlanningPromptBuilderTests
             value => value == "Build a todo API.");
     }
 
+    [Fact]
+    public async Task BuildAsync_InheritsWorkflowCorrelationFromActivityScope()
+    {
+        var builder = new CodeGenerationPlanningPromptBuilder(
+            new RecordingTemplateEngine());
+        using var scope = LlmRequestCorrelationScope.Push(new(
+            "01991c80-3796-7f03-9074-e87e17778ed0",
+            "01991c80-8e8a-765c-a037-f855422143c6",
+            "architecture-review/1/1"));
+
+        var request = await builder.BuildAsync(
+            new CodeGenerationPlanningPromptContext(
+                "Build a todo API.",
+                LlmResponseFormat.JsonSchema("""{"type":"object"}""")),
+            TestContext.Current.CancellationToken);
+
+        request.Metadata.Should().Contain(new Dictionary<string, object?>
+        {
+            ["guyabano.session_id"] =
+                "01991c80-3796-7f03-9074-e87e17778ed0",
+            ["guyabano.workflow_run_id"] =
+                "01991c80-8e8a-765c-a037-f855422143c6",
+            ["guyabano.workflow_step_key"] =
+                "architecture-review/1/1"
+        });
+    }
+
     private sealed class RecordingTemplateEngine : IPromptTemplateEngine
     {
         public List<string> TemplateNames { get; } = [];

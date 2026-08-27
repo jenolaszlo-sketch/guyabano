@@ -20,7 +20,10 @@ public sealed class FileSystemArtifactRepositoryTests : IDisposable
             1,
             "T-Store",
             ArtifactStatus.Validated,
-            new TestPayload("T-Store", ["Store.cs"]));
+            new TestPayload("T-Store", ["Store.cs"]))
+        {
+            SessionId = "session-1"
+        };
 
         var cancellationToken = TestContext.Current.CancellationToken;
         var written = await repository.WriteAsync(
@@ -32,6 +35,7 @@ public sealed class FileSystemArtifactRepositoryTests : IDisposable
 
         loaded.Should().NotBeNull();
         loaded!.Status.Should().Be(ArtifactStatus.Validated);
+        loaded.SessionId.Should().Be("session-1");
         loaded.Payload.Should().BeEquivalentTo(request.Payload);
         File.Exists(Path.Combine(
             _root,

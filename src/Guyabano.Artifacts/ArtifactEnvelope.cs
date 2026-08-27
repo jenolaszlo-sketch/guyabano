@@ -7,4 +7,7 @@ public sealed record ArtifactEnvelope<TPayload>(
     DateTimeOffset CreatedAt,
     ArtifactStatus Status,
     IReadOnlyList<ArtifactReference> Inputs,
-    TPayload Payload);
+    TPayload Payload)
+{
+    public string? SessionId { get; init; }
+}

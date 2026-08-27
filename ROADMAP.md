@@ -26,6 +26,38 @@ The central boundary is:
 > Guyabano decides what must happen. Zhinu durably enforces the process. A coding
 > executor attempts one bounded workspace change.
 
+The executable near-term handoff for session identity, cross-product state
+integration, selective reruns, and auditability is maintained in
+[`docs/plans/session-and-state-integration.md`](docs/plans/session-and-state-integration.md).
+
+The target execution plane has two intentionally different branches:
+
+```text
+                         Guyabano
+                            │
+                workflow and methodology
+                            │
+                          Zhinu
+                 durable step orchestration
+                            │
+                     ICodingExecutor
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+     model-backed executor        agent-backed executor
+              │                           │
+            Baize                    A2A client
+              │                           │
+   ┌──────────┼──────────┐      ┌─────────┼──────────┐
+ OpenAI     Gemini    DeepSeek  Codex    Claude    OpenCode
+                                  via native A2A support or gateways
+```
+
+`ICodingExecutor` is the stable capability boundary above both branches. Baize
+normalizes model providers; A2A normalizes communication with opaque coding
+agents. Neither Baize nor A2A owns Guyabano's methodology, durable retries,
+workspace authority, or final acceptance decision.
+
 ## Component responsibilities
 
 ### Guyabano
@@ -51,6 +83,19 @@ The central boundary is:
 - Provides model/provider abstraction
 - May be composed into `BaizeCodingExecutor`
 - Does not define Guyabano's workflow or the shared coding-executor contract
+
+### A2A
+
+- Provides discovery and communication with opaque remote or local agents.
+- Maps A2A messages, tasks, status updates, and artifacts to one bounded coding
+  executor invocation.
+- Does not replace Zhinu: an A2A task is provider execution state, not the
+  authoritative Guyabano workflow.
+- Does not grant filesystem authority, enforce workspace containment, prove
+  cancellation, or make agent-reported artifacts authoritative evidence.
+- Codex, Claude Code, OpenCode, and future agents may connect through native A2A
+  support or narrowly scoped gateways; native support must be verified rather
+  than assumed.
 
 ### Zhinu
 
@@ -86,9 +131,11 @@ Providers may use any of these internally. They must not leak into the minimum
 common contract unless two substantially different implementations prove a
 portable need.
 
-Do not extract a new Penghou package during the initial refactor. Keep the
-abstraction inside Guyabano until it has survived real use with at least two
-different coding harnesses.
+Do not extract a new Penghou package before the initial Baize vertical,
+workspace-safety boundary, and authoritative-evidence semantics are proven
+inside Guyabano. A deliberately unstable preview package may then enable the
+second executor; a stable public contract still requires two substantially
+different harnesses to have exercised it.
 
 ## Phase 0 — Capture current behavior
 
@@ -116,6 +163,7 @@ public interface ICodingExecutor
 {
     Task<CodingResult> ExecuteAsync(
         CodingTask task,
+        CodingWorkspace workspace,
         CancellationToken cancellationToken = default);
 }
 ```
@@ -126,10 +174,17 @@ Initial common types should remain small:
 CodingTask
   ExecutionId
   TaskId
-  Workspace
-  Instructions
+  Objective and optional description
+  Constraints and acceptance criteria
+  Relevant and allowed files
   ExpectedWorkspaceRevision
-  Constraints/options
+
+CodingWorkspace
+  WorkspaceId
+  Local root or provider-neutral location
+  Baseline revision
+  Allowed path scope
+  Mutation lease/execution identity
 
 CodingResult
   Status
@@ -148,6 +203,11 @@ Identity rules:
   provider resume behavior.
 - `ExpectedWorkspaceRevision` prevents silently applying work to stale state.
 - Retry attempts must not be mistaken for logical task identity.
+- Workspace identity and mutation authority are supplied separately from the
+  semantic task so the same task can be attempted in an isolated replacement
+  workspace.
+- Reported changes, commands, and verification are executor claims until the
+  host independently observes them.
 
 Exit criteria:
 
@@ -263,15 +323,88 @@ Exit criteria:
 - Stale evidence is rejected after workspace mutation.
 - Evidence is visible in workflow progress and diagnostics.
 
-## Phase 5 — Add a substantially different executor
+## Phase 5 — Extract a preview library and add a substantially different executor
+
+Once Phases 0–4 have fixed the responsibility boundary, extract the proven
+contracts under the working name `Penghou.Luban`. The name is provisional until
+the repository and NuGet IDs are created, but the package boundary is not:
+
+```text
+Penghou.Luban
+  core task, workspace, result, change, verification-report,
+  diagnostics, path-safety, and conformance contracts
+
+Penghou.Luban.Baize
+  Baize-backed execution, structured edit protocol, prompting,
+  and bounded model-driven repair
+
+Penghou.Luban.A2A
+  A2A client adapter, task/artifact normalization, reconciliation,
+  and protocol-version negotiation
+
+Agent gateways (separate processes or optional packages)
+  expose Codex, Claude Code, OpenCode, or another coding harness through A2A
+```
+
+The core package must not depend on Guyabano, Zhinu, Baize, A2A, Hetu, Nuwa,
+Codex, or Microsoft dependency injection. Adapter packages may depend on the
+products and protocols they integrate. DI registration and keyed resolution
+belong in adapter or hosting packages rather than the core abstraction.
+
+### Phase 5A — Core preview and Baize migration
+
+- Move only the already-proven `ICodingExecutor`, `CodingTask`,
+  `CodingWorkspace`, `CodingResult`, change, diagnostic, and reported
+  verification contracts.
+- Provide canonical path containment, traversal rejection, allowed-path
+  enforcement, cancellation, bounded result collections, and privacy-safe
+  diagnostics.
+- Make command execution opt-in with explicit executable/argument policy,
+  timeout, working-directory containment, cancellation, and complete result
+  reporting. Never treat a command reported by an executor as authorization.
+- Report created, modified, deleted, and renamed paths with hashes where
+  available. Full diffs are optional, bounded, and potentially sensitive; the
+  host's independently observed diff remains authoritative.
+- Ship a capability-gated executor conformance harness covering creation,
+  modification, multi-file changes, boundary rejection, cancellation,
+  verification failure, and failure without unrelated corruption.
+- Move `BaizeCodingExecutor` behind the package contract without moving
+  Guyabano's methodology, workspace lifecycle, or authoritative gates.
+- Keep filesystem context as the baseline. Hetu and Nuwa integrations remain
+  optional adapter composition, never required core dependencies.
+
+Do not put provider continuation/session models or a workspace transaction
+manager in the first core contract. Opaque continuation becomes portable only
+if two executors demonstrate compatible lifecycle and security semantics.
+Workspace creation, snapshot, commit, rollback, quarantine, and mutation leases
+remain host-owned; a reusable transaction abstraction can move later if another
+host proves the same boundary.
+
+Executor-requested verification may drive an internal bounded repair loop, but
+its results remain reported evidence. Guyabano independently captures the final
+diff and reruns mandatory build, test, format, analysis, review, and approval
+gates against the exact resulting workspace revision.
+
+Structured edits should prefer explicit create, replace, patch, delete, and
+move operations. Every path is canonicalized beneath the workspace root;
+ambiguous edits and structurally unrecoverable output fail rather than being
+guessed. Nuwa may repair uniquely recoverable response structure, not infer
+code changes.
+
+### Phase 5B — A substantially different agent executor over A2A
 
 Implement one external coding harness whose internal architecture differs from
-the Baize implementation, for example:
+the Baize implementation. Prefer a generic `A2ACodingExecutor` plus a narrow
+gateway for one real coding agent, for example:
 
-- `CodexCodingExecutor`
-- `ClaudeCodeCodingExecutor`
-- `CopilotCodingExecutor`
-- `OpenCodeCodingExecutor`
+- Codex behind an A2A gateway
+- Claude Code behind an A2A gateway
+- OpenCode behind an A2A gateway
+- another native A2A coding agent
+
+If the chosen agent has no usable A2A surface, a direct process adapter may be
+used to learn its lifecycle, but that provider-specific process contract stays
+outside `Penghou.Luban` core and should be replaceable by an A2A gateway.
 
 The second executor should exercise different ownership assumptions. Ideally:
 
@@ -288,13 +421,44 @@ Integration concerns:
 - Provider session/resume correlation
 - Workspace mutation and crash ambiguity
 
+The A2A mapping should be explicit:
+
+```text
+CodingTask       → A2A input message/data part
+ExecutionId      → idempotent client correlation metadata
+A2A task/context → provider execution reference persisted by Zhinu
+A2A artifacts    → reported CodingResult content
+status updates   → optional progress diagnostics
+GetTask          → restart/reconnect reconciliation
+CancelTask       → best-effort remote cancellation request
+```
+
+Critical results must come from terminal task state and artifacts, not transient
+status messages. After disconnect or restart, Guyabano reconciles the recorded
+A2A task before creating another mutating invocation. Cancellation does not
+prove that the remote agent stopped writing; workspace fencing and reconciliation
+still apply.
+
+Agent Cards and advertised skills inform selection but are untrusted capability
+claims. Hosts allowlist endpoints, authentication policy, supported protocol
+versions, skills, input/output modes, and any required A2A extensions before
+workspace access is granted.
+
+Codex-, Claude-, and OpenCode-specific session IDs, sandbox settings, command
+events, and tool protocols remain inside their gateway. The minimum core API
+remains non-streaming; A2A streaming is mapped to optional progress only after a
+real host requires it.
+
 Exit criteria:
 
-- Both executors satisfy the same narrow interface.
+- The Baize and A2A executors satisfy the same narrow interface.
 - Main workflow code contains no provider-specific branching.
 - Differences are handled through DI configuration, implementation-specific
   options, or proven capability descriptors.
 - The base interface has not expanded merely to mirror one provider.
+- Guyabano can execute the same bounded task through Baize or an A2A coding
+  agent without changing its engineering workflow.
+- A package consumer can use Luban without referencing Guyabano.
 
 ## Phase 6 — Executor selection and factual capabilities
 
@@ -318,6 +482,11 @@ Capabilities should be coarse and factual, such as:
 - Supports command restrictions
 - Supports progress reporting
 - Supports provider sessions
+
+For an A2A executor, its descriptor is the host-validated projection of an
+Agent Card plus local policy; no A2A transport type leaks into the Luban core
+contract, and an advertised skill is not accepted as proof that workspace or
+command restrictions are enforced.
 
 Do not add planner, memory, delegation, or tool APIs to the common contract.
 
@@ -367,6 +536,98 @@ Repository-intelligence follow-ups:
 - Add a host-visible disclosure preview showing which Cangjie snapshot and how
   many characters will be sent before a model route receives repository context.
 
+### Guyabano sessions
+
+Introduce a long-lived `GuyabanoSession` as the user-visible and auditable
+boundary around one evolving engineering effort. A session survives individual
+Zhinu workflow runs and correlates the workspace, workflow history, memories,
+code-graph publications, model executions, artifacts, clarifications, and
+approvals under one stable identity.
+
+```text
+Guyabano session
+  ├── append-only interaction and audit timeline
+  ├── one evolving workspace with staged mutations
+  ├── one or more Zhinu workflow runs and step revisions
+  ├── Cangjie decisions, evidence, lessons, and context snapshots
+  ├── Hetu code-graph publications for exact workspace revisions
+  ├── Baize model-execution evidence
+  └── typed artifacts, builds, tests, reviews, and approvals
+```
+
+Identity rules:
+
+- `SessionId` identifies the long-lived engineering effort and its output
+  workspace; it is not a Zhinu run ID.
+- A session may contain multiple workflow runs, restarts, continuations, and
+  interactive operations.
+- Every persisted reference must be traceable to the relevant session, workflow
+  run, durable step key and revision, workspace revision, and producer where
+  those identities apply.
+- Cangjie scopes and snapshots, Hetu repository and index identities, Zhinu
+  artifacts, and filesystem manifests remain owned by their respective systems;
+  the session correlates them rather than copying all payloads into one store.
+
+Add an append-only session event log with ordered, immutable envelopes containing
+actor, timestamp, event type, causation, correlation, and relevant cross-system
+references. Important events include user and assistant messages, workflow and
+step lifecycle changes, user-input requests and responses, clarifications,
+approvals, model invocations, context selections, artifact publications,
+workspace staging and promotion, builds, tests, code-graph publications,
+invalidation previews, and reruns. Large or sensitive payloads remain in their
+authoritative stores and are referenced by bounded metadata and content hashes.
+
+Interactive workflow behavior:
+
+- A workflow may durably wait for user input through a Zhinu signal.
+- The request and response are also recorded as session events; accepted
+  clarification is promoted deliberately into keyed Cangjie knowledge rather
+  than treating all conversation as memory.
+- Guyabano relates clarification to affected requirements, decisions, contracts,
+  tasks, and artifacts, uses Hetu for code impact where applicable, and asks
+  Zhinu for a preview of the affected restart subtree.
+- Material cascades are presented for approval before mutation. The proposed
+  impact, user decision, applied invalidation, reused steps, rerun steps, and
+  resulting revisions are all auditable.
+- Selective regeneration writes to a staging workspace, validates the staged
+  revision, then promotes it into the session workspace. Failed mutations cannot
+  silently become the session's current revision.
+
+Create a focused `Guyabano.Session` component for session identity, commands,
+events, projections, audit queries, clarification and approval models, and
+cross-product reference types. A persistence adapter may provide an embedded
+SQLite event store. Penghou-facing adapters translate Zhinu, Cangjie, Hetu, and
+Baize activity into session references and events, while workflow sequencing,
+dependency declarations, acceptance gates, and restart policy remain visible in
+Guyabano's workflow code.
+
+Required tests:
+
+- Unit tests cover command validation, idempotent event append, causation and
+  correlation, clarification classification, revision correspondence, and
+  cross-store reconciliation rules.
+- Embedded integration tests use real Zhinu SQLite, Cangjie SQLite, Hetu
+  Ladybug, and filesystem artifacts to prove restart recovery, artifact
+  publication, context snapshots, incremental code indexing, and audit
+  reconstruction.
+- One vertical dogfood test changes a requirement after successful generation,
+  previews the cascade, reruns only affected nodes, reuses unaffected siblings,
+  promotes a verified workspace revision, and reconstructs who did what and why.
+
+Session exit criteria:
+
+- An operator can reconstruct the ordered history of user, Guyabano, model,
+  workflow, tool, and CI actions without relying on transient UI state or chat
+  history.
+- Every model-produced change identifies the exact Cangjie context snapshot and
+  Hetu code publication available to it.
+- A clarification can produce a previewable, dependency-aware cascade and a
+  selective Zhinu rerun without creating a disconnected output workspace.
+- Decisions and evidence superseded by a rerun remain historically accessible
+  while current projections resolve to the promoted session revision.
+- A consistency audit detects missing or mismatched workflow artifacts, memory
+  references, graph publications, workspace revisions, and validation evidence.
+
 ```text
 Analyze
 → Inspect
@@ -404,18 +665,25 @@ Exit criteria:
 - Workflow state, evidence, and user-visible task state have an explicit mapping.
 - The methodology can be inspected independently of provider implementation.
 
-## Phase 8 — Evaluate extraction
+## Phase 8 — Stabilize the extracted library
 
-Consider extracting the coding-executor abstraction into a reusable package
-such as `Penghou.Luban` only when all of the following are true:
+The preview extraction in Phase 5 is allowed to evolve. Consider a stable Luban
+API only when all of the following are true:
 
-- At least two substantially different executors are production-usable.
-- Their common contract has remained stable through real tasks.
-- Another application besides Guyabano has a concrete need for the abstraction.
-- Workspace, cancellation, result, and evidence semantics are understood.
-- Extraction reduces duplication rather than creating speculative indirection.
+- Baize and at least one substantially different executor are production-usable.
+- The common contract has remained small and stable through real Guyabano tasks.
+- Workspace fencing, cancellation, crash ambiguity, result limits, and evidence
+  semantics are understood and covered by conformance tests.
+- Capability descriptors describe observed differences rather than an imagined
+  universal agent feature set.
+- Extraction demonstrably removes provider coupling and can be consumed without
+  referencing Guyabano.
 
-Until then, keep the contract inside Guyabano and allow it to evolve cheaply.
+A second application is strong validation but is not a prerequisite for an
+experimental preview. Do not add general memory, planning, orchestration,
+provider-native sessions, Git hosting, pull requests, distributed workers,
+container infrastructure, or IDE abstractions to make the package appear more
+general.
 
 ## Suggested internal structure
 
@@ -426,7 +694,7 @@ Guyabano/
     ArchitectureWorkflow
     ReviewWorkflow
 
-  Coding/
+  Coding/                    # temporary pre-extraction home
     ICodingExecutor
     CodingTask
     CodingResult
@@ -439,10 +707,10 @@ Guyabano/
     BaizeToolSet
     BaizeResultMapper
 
-  Coding/ExternalProvider/
-    ExternalCodingExecutor
-    ExternalProcessRunner
-    ExternalResultMapper
+  Coding/A2A/
+    A2ACodingExecutor
+    A2ATaskReconciler
+    A2AResultMapper
 
   Workspace/
     IWorkspaceManager
@@ -457,8 +725,9 @@ Guyabano/
     RequirementReviewer
 ```
 
-This is a target responsibility map, not a requirement to create every type or
-directory before it is needed.
+This is the pre-extraction responsibility map. Phase 5 moves only its proven
+coding contracts and implementations into Luban; workspace lifecycle,
+authoritative evidence collection, and workflow policy remain in Guyabano.
 
 ## Near-term implementation order
 
@@ -468,10 +737,17 @@ directory before it is needed.
 4. Keep build, test, review, and completion decisions in the Guyabano workflow.
 5. Add workspace identity, baseline revision, and exclusive mutation ownership.
 6. Capture actual diff and authoritative validation evidence independently.
-7. Implement one substantially different external executor.
-8. Reassess the common contract before adding capability interfaces.
-9. Map the resulting workflow and evidence model onto Zhinu.
-10. Consider extraction only after the boundary has proven stable.
+7. Extract the proven core and Baize vertical into `Penghou.Luban` preview
+   packages.
+8. Implement `Penghou.Luban.A2A` and one real agent gateway.
+9. Reassess the common contract before adding capability or streaming
+   interfaces.
+10. Map the resulting workflow and evidence model onto Zhinu.
+11. Introduce the long-lived Guyabano session identity and append-only event log.
+12. Add interactive clarification, approval, cascade preview, and selective
+    Zhinu rerun behavior with Cangjie and Hetu revision correspondence.
+13. Add cross-store session reconciliation and the vertical audit dogfood test.
+14. Stabilize Luban only after both executors prove the boundary.
 
 ## Success measures
 
@@ -483,8 +759,11 @@ directory before it is needed.
 - Process loss resumes without duplicating an acknowledged coding execution.
 - Adding the second executor requires composition, not conditionals throughout
   Guyabano.
-- The common abstraction remains small after real use by two providers.
+- The common abstraction remains small after real use by the Baize and A2A
+  execution branches.
 - Guyabano's methodology can later be represented as a validated Zhinu artifact.
+- A session remains auditable and selectively rerunnable after UI, process, or
+  transient chat history is lost.
 
 ## Relationship to the Zhinu roadmap
 
@@ -498,7 +777,7 @@ directory before it is needed.
 | Build/test/review results | Revision-bound evidence |
 | Executor selection | Activity binding |
 | Baize model calls | Bounded AI activities |
-| External coding harness | Open-ended activity escape hatch |
+| A2A coding task | Remote activity invocation and reconciliation |
 | Review/fix loop | Deterministic quality gate and bounded loop |
 
 Guyabano is the first vertical proving the compiled-workflow direction. Zhinu should

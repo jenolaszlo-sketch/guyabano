@@ -102,6 +102,7 @@ public sealed class ContextIndexingArtifactRepository(
                     StringComparer.Ordinal)
                 {
                     ["workflowId"] = envelope.WorkflowId,
+                    ["sessionId"] = envelope.SessionId ?? string.Empty,
                     ["stageKey"] = envelope.StageKey,
                     ["artifactKind"] = reference.Kind,
                     ["schemaVersion"] =
@@ -115,6 +116,7 @@ public sealed class ContextIndexingArtifactRepository(
                 [
                     "artifact",
                     $"workflow:{envelope.WorkflowId}",
+                    $"session:{envelope.SessionId ?? "unknown"}",
                     $"stage:{envelope.StageKey}",
                     $"kind:{reference.Kind}",
                     $"status:{envelope.Status}"

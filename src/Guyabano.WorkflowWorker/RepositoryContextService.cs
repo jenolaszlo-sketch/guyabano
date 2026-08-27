@@ -25,6 +25,7 @@ internal sealed class RepositoryContextService(
         ArgumentNullException.ThrowIfNull(request);
         Validate(request.Repository);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkflowRunId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.SessionId);
 
         var attempt = CodeGenerationActivityExecutionContext.Current.Info.Attempt;
         var runId = new CodeIndexRunId(
@@ -154,6 +155,7 @@ internal sealed class RepositoryContextService(
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.WorkflowRunId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.SessionId);
         var selection = request.Selection;
         var revision = selection.Revision;
         var scope = RepositoryScope(revision.RepositoryId);
@@ -178,15 +180,18 @@ internal sealed class RepositoryContextService(
                         ProducerVersion = selection.StrategyVersion,
                         Attributes = ProvenanceAttributes(
                             revision,
-                            request.WorkflowRunId)
+                            request.WorkflowRunId,
+                            request.SessionId)
                     },
                     Metadata = MergeMetadata(
                         observation.Metadata,
-                        revision),
+                        revision,
+                        request.SessionId),
                     Tags =
                     [
                         "repository-context",
                         $"repository:{revision.RepositoryId}",
+                        $"session:{request.SessionId}",
                         $"workspace-revision:{revision.WorkspaceRevision}"
                     ]
                 },
@@ -228,7 +233,7 @@ internal sealed class RepositoryContextService(
             .DistinctBy(item => item.Id)
             .ToList();
         var snapshotId = DeterministicGuid(
-            $"{request.WorkflowRunId}\n{revision.IndexRunId}\n{selection.Strategy}\n{selection.StrategyVersion}");
+            $"{request.SessionId}\n{request.WorkflowRunId}\n{revision.IndexRunId}\n{selection.Strategy}\n{selection.StrategyVersion}");
         var snapshot = await contextStore.StoreSnapshotAsync(
             new ContextSnapshot
             {
@@ -242,6 +247,7 @@ internal sealed class RepositoryContextService(
                 Metadata = new Dictionary<string, string>
                 {
                     ["repositoryId"] = revision.RepositoryId,
+                    ["sessionId"] = request.SessionId,
                     ["workspaceRevision"] = revision.WorkspaceRevision,
                     ["hetuIndexRunId"] = revision.IndexRunId
                 }
@@ -340,13 +346,15 @@ internal sealed class RepositoryContextService(
 
     private static IReadOnlyDictionary<string, string> ProvenanceAttributes(
         RepositoryRevision revision,
-        string workflowRunId) =>
+        string workflowRunId,
+        string sessionId) =>
         new Dictionary<string, string>
         {
             ["repositoryId"] = revision.RepositoryId,
             ["workspaceRevision"] = revision.WorkspaceRevision,
             ["hetuIndexRunId"] = revision.IndexRunId,
             ["workflowRunId"] = workflowRunId,
+            ["sessionId"] = sessionId,
             ["providerSnapshotIdentity"] =
                 revision.ProviderSnapshotIdentity ?? string.Empty,
             ["isConsistentSnapshot"] =
@@ -355,11 +363,13 @@ internal sealed class RepositoryContextService(
 
     private static IReadOnlyDictionary<string, string> MergeMetadata(
         IReadOnlyDictionary<string, string>? metadata,
-        RepositoryRevision revision)
+        RepositoryRevision revision,
+        string sessionId)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["repositoryId"] = revision.RepositoryId,
+            ["sessionId"] = sessionId,
             ["workspaceRevision"] = revision.WorkspaceRevision,
             ["hetuIndexRunId"] = revision.IndexRunId
         };

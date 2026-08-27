@@ -5,6 +5,7 @@
     <Project Path="tests/Guyabano.CodeGeneration.Validation.Tests/Guyabano.CodeGeneration.Validation.Tests.csproj" />
     <Project Path="tests/Guyabano.CodeGeneration.Planning.Tests/Guyabano.CodeGeneration.Planning.Tests.csproj" />
     <Project Path="tests/Guyabano.Llm.CodeGeneration.Tests/Guyabano.Llm.CodeGeneration.Tests.csproj" Id="74fa29cf-609c-444e-a7b5-a73bd09899ce" />
+    <Project Path="tests/Guyabano.Session.Tests/Guyabano.Session.Tests.csproj" />
     <Project Path="tests/Guyabano.WorkflowProgress.Tests/Guyabano.WorkflowProgress.Tests.csproj" />
   </Folder>
   <Folder Name="/Tools/">
@@ -22,6 +23,7 @@
   <Project Path="src/Guyabano.Llm.CodeGeneration/Guyabano.Llm.CodeGeneration.csproj" Id="a34663bb-e74f-44cd-bb3d-0a801647dcc2" />
   <Project Path="src/Guyabano.Llm.Prompting/Guyabano.Llm.Prompting.csproj" Id="346cccb9-5bcd-42fe-b561-4fd92a3e5b90" />
   <Project Path="src/Guyabano.Messaging/Guyabano.Messaging.csproj" />
+  <Project Path="src/Guyabano.Session/Guyabano.Session.csproj" />
   <Project Path="src/Guyabano.WebTerminal/Guyabano.WebTerminal.csproj" />
   <Project Path="src/Guyabano.WorkflowWorker/Guyabano.WorkflowWorker.csproj" Id="bed79c51-1626-432f-9370-e41982d049ee" />
 </Solution>

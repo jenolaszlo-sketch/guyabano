@@ -3,6 +3,7 @@ using Penghou.Baize;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Planning;
 using Guyabano.CodeGeneration.Workflows;
+using Guyabano.Llm.Prompting;
 using Guyabano.Messaging;
 
 namespace Guyabano.WorkflowWorker;
@@ -15,6 +16,7 @@ public sealed class CodeGenerationArchitectureActivities(
     IArtifactRepository artifactRepository,
     IWorkflowProgressPublisher progressPublisher,
     IOptions<CodeGenerationWorkerOptions> options,
+    CodeGenerationWorkspaceResolver workspaceResolver,
     ILogger<CodeGenerationArchitectureActivities> logger)
 {
     public async Task<ArchitectureReviewWorkflowResult> ReviewAsync(
@@ -24,6 +26,13 @@ public sealed class CodeGenerationArchitectureActivities(
         var context = CodeGenerationActivityExecutionContext.Current;
         var info = context.Info;
         var workflowId = GetWorkflowId(info);
+        var workspace = await workspaceResolver.ResolveWorkflowAsync(
+            workflowId,
+            context.CancellationToken);
+        using var correlationScope = LlmRequestCorrelationScope.Push(new(
+            workspace.SessionId.ToString(),
+            workflowId,
+            info.ActivityId));
         var transportAttempt = info.Attempt;
         const int maximumAttempts =
             CodeGenerationWorkflowConstants.MaximumArchitectureTransportAttempts;
@@ -238,6 +247,13 @@ public sealed class CodeGenerationArchitectureActivities(
         var context = CodeGenerationActivityExecutionContext.Current;
         var info = context.Info;
         var workflowId = GetWorkflowId(info);
+        var workspace = await workspaceResolver.ResolveWorkflowAsync(
+            workflowId,
+            context.CancellationToken);
+        using var correlationScope = LlmRequestCorrelationScope.Push(new(
+            workspace.SessionId.ToString(),
+            workflowId,
+            info.ActivityId));
         var stage = $"Resolve architecture gap {request.Finding.Id}";
         const int maximumAttempts =
             CodeGenerationWorkflowConstants.MaximumArchitectureModelOutputAttempts;
@@ -385,6 +401,13 @@ public sealed class CodeGenerationArchitectureActivities(
         var context = CodeGenerationActivityExecutionContext.Current;
         var info = context.Info;
         var workflowId = GetWorkflowId(info);
+        var workspace = await workspaceResolver.ResolveWorkflowAsync(
+            workflowId,
+            context.CancellationToken);
+        using var correlationScope = LlmRequestCorrelationScope.Push(new(
+            workspace.SessionId.ToString(),
+            workflowId,
+            info.ActivityId));
         var transportAttempt = info.Attempt;
         const int maximumAttempts =
             CodeGenerationWorkflowConstants.MaximumArchitectureTransportAttempts;

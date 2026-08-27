@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Guyabano.Artifacts\Guyabano.Artifacts.csproj" />
     <ProjectReference Include="..\Guyabano.CodeGeneration.Planning\Guyabano.CodeGeneration.Planning.csproj" />
+    <ProjectReference Include="..\Guyabano.Session\Guyabano.Session.csproj" />
   </ItemGroup>
 
 </Project>

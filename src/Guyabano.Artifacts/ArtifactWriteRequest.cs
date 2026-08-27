@@ -7,4 +7,7 @@ public sealed record ArtifactWriteRequest<TPayload>(
     string StageKey,
     ArtifactStatus Status,
     TPayload Payload,
-    IReadOnlyList<ArtifactReference>? Inputs = null);
+    IReadOnlyList<ArtifactReference>? Inputs = null)
+{
+    public string? SessionId { get; init; }
+}

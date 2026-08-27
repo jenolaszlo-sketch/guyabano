@@ -42,6 +42,8 @@ public sealed class ContextIndexingArtifactRepositoryTests : IDisposable
 
         indexed.Should().ContainSingle();
         indexed[0].Item.Metadata["workflowId"].Should().Be("workflow-1");
+        indexed[0].Item.Metadata["sessionId"].Should().Be("session-1");
+        indexed[0].Item.Tags.Should().Contain("session:session-1");
         indexed[0].Item.Content.Should().Contain("output");
         var relations = await contextStore.GetRelationsAsync(
             indexed[0].Item.Id,
@@ -122,7 +124,10 @@ public sealed class ContextIndexingArtifactRepositoryTests : IDisposable
             stage,
             ArtifactStatus.Validated,
             new TestPayload(value),
-            inputs);
+            inputs)
+        {
+            SessionId = "session-1"
+        };
 
     public void Dispose()
     {

@@ -40,5 +40,6 @@
     <ProjectReference Include="..\Guyabano.Llm.CodeGeneration\Guyabano.Llm.CodeGeneration.csproj" />
     <ProjectReference Include="..\Guyabano.Llm.Prompting\Guyabano.Llm.Prompting.csproj" />
     <ProjectReference Include="..\Guyabano.Messaging\Guyabano.Messaging.csproj" />
+    <ProjectReference Include="..\Guyabano.Session\Guyabano.Session.csproj" />
   </ItemGroup>
 </Project>

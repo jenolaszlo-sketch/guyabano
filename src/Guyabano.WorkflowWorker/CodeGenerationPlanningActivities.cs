@@ -3,6 +3,7 @@ using Penghou.Baize;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Planning;
 using Guyabano.CodeGeneration.Workflows;
+using Guyabano.Llm.Prompting;
 using Guyabano.Messaging;
 
 namespace Guyabano.WorkflowWorker;
@@ -23,6 +24,10 @@ public sealed class CodeGenerationPlanningActivities(
         var workflowId = info.WorkflowId ??
             throw new InvalidOperationException(
                 "Workflow activity information did not include a workflow ID.");
+        using var correlationScope = LlmRequestCorrelationScope.Push(new(
+            request.SessionId.ToString(),
+            workflowId,
+            info.ActivityId));
         var transportAttempt = info.Attempt;
         const int maximumAttempts =
             CodeGenerationWorkflowConstants.MaximumPlanningTransportAttempts;

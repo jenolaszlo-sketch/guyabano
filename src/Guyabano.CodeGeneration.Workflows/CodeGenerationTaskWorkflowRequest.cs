@@ -9,4 +9,5 @@ public sealed record CodeGenerationTaskWorkflowRequest(
     CodeGenerationBuildCorrection? Correction = null,
     int StartingModelTier = 1,
     bool IsBuildRepair = false,
-    int BuildRepairCycle = 0);
+    int BuildRepairCycle = 0,
+    RepositoryContextReference? RepositoryContext = null);

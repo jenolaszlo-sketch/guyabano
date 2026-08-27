@@ -42,6 +42,16 @@ public sealed class CodeGenerationWorkerOptions
 
     public string CiRelativePath { get; set; } = ".";
 
+    public bool RepositoryContextEnabled { get; set; } = true;
+
+    public string RepositoryId { get; set; } = "repo:guyabano-generated";
+
+    public List<string> RepositorySymbolSeeds { get; set; } = [];
+
+    public bool IncludeRepositoryContextInPrompts { get; set; }
+
+    public int RepositoryContextMaximumPromptCharacters { get; set; } = 40_000;
+
     public int DefaultMaxTokens { get; set; } = 8000;
 
     public int DefaultRetryMaxTokens { get; set; } = 16000;

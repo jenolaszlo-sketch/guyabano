@@ -5,7 +5,10 @@ Guyabano is an opinionated, deterministic software-development workflow for
 implementation, build/test, correction, and validation phases using
 [Zhinu](https://github.com/jenolaszlo-sketch/penghou-zhinu) for durable
 workflow execution and [Baize](https://github.com/jenolaszlo-sketch/penghou-baize)
-for model communication.
+for model communication. [Hetu](https://github.com/jenolaszlo-sketch/penghou-hetu)
+indexes repository structure, while
+[Cangjie](https://github.com/jenolaszlo-sketch/penghou-cangjie) records the exact
+source-derived context selected for a workflow.
 
 > Guyabano decides what must happen. Zhinu durably enforces the process.
 > A coding executor attempts one bounded workspace change.
@@ -35,6 +38,9 @@ operation is a typed, keyed Zhinu workflow step implemented in
 
 ```text
 CodeGenerationWorkflow
+  -> IndexRepositoryStep
+  -> SelectRepositoryContextStep
+  -> CaptureRepositoryContextStep
   -> PlanCodeGenerationStep
   -> Review / resolve / integrate architecture steps
   -> DecomposeCodeGenerationTaskStep
@@ -46,13 +52,60 @@ CodeGenerationWorkflow
 
 Zhinu resolves every execution attempt in a fresh DI scope. Completed-step
 replay resolves no implementation, and the durable step key remains separate
-from the keyed implementation identity. Guyabano does not enable Zhinu
+from the keyed implementation identity. Shared typed step references bind each
+registration and invocation to the same input/output contract at compile time.
+Guyabano does not enable Zhinu
 compensation for these steps because filesystem, model, CI, and artifact
 operations do not yet have a truthful reversible contract.
 
-Workflow definition version `2` introduces these durable implementation
-identities. Version-1 histories remain distinct instead of being replayed
-against a changed execution binding.
+Workflow definition version `3` adds the repository-intelligence steps.
+Earlier histories remain distinct instead of being replayed against changed
+execution bindings.
+
+## Repository intelligence
+
+Repository context is enabled by default for the configured output workspace.
+Guyabano incrementally indexes it into a durable embedded Hetu graph, derives a
+content-addressed workspace revision, selects a bounded public surface or
+configured symbol neighborhoods, and stores the rendered observations in
+Cangjie. An immutable Cangjie snapshot ID and its Hetu publication identity are
+carried through workflow results, task requests, and checkpoints for exact
+restart replay.
+
+Guyabano uses Hetu's exact published index identity and a publication-bound
+query view. If the repository is reindexed while context selection is running,
+selection fails explicitly instead of combining facts from different graph
+generations. Selected observations enter Cangjie as one atomic batch, and
+deterministic snapshot retries reuse the original immutable snapshot without a
+read-before-create race.
+
+Hetu remains authoritative for current code structure. Cangjie stores only the
+bounded textual observations selected for a workflow; Guyabano does not copy the
+entire graph into memory.
+
+The durable graph uses LadybugDB. Hosts must provide a matching native runtime;
+on Windows, LadybugDB also requires the OpenSSL 3 runtime libraries described by
+the Hetu package documentation. Advanced hosts may register their own
+`HetuHost` before calling `AddGuyabanoCodeGeneration` to replace the default
+filesystem provider, C# plugin, or Ladybug store.
+
+```json
+{
+  "CodeGeneration": {
+    "RepositoryContextEnabled": true,
+    "RepositoryId": "repo:guyabano-generated",
+    "RepositorySymbolSeeds": [],
+    "IncludeRepositoryContextInPrompts": false,
+    "RepositoryContextMaximumPromptCharacters": 40000
+  }
+}
+```
+
+Source-derived context is local-only by default. Set
+`IncludeRepositoryContextInPrompts` to `true` only when the selected model route
+is permitted to receive repository information. The character limit is applied
+before disclosure, and prompt text labels the snapshot as untrusted reference
+data rather than instructions.
 
 ## Status
 

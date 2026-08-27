@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Penghou.Baize.Claude;
 using Penghou.Baize.Diagnostics;
@@ -10,6 +11,9 @@ using Penghou.Baize.Router.Extensions;
 using Penghou.Baize.Tools.Extensions;
 using Penghou.Cangjie;
 using Penghou.Cangjie.Sqlite;
+using Penghou.Hetu;
+using Penghou.Hetu.CSharp;
+using Penghou.Hetu.Ladybug;
 using Penghou.Zhinu.Hosting;
 using Penghou.Zhinu.Sqlite;
 using Guyabano.Artifacts;
@@ -77,6 +81,13 @@ public static class ServiceCollectionExtensions
                 options => !string.IsNullOrWhiteSpace(options.OutputRoot),
                 "CodeGeneration:OutputRoot is required.")
             .Validate(
+                options => !options.RepositoryContextEnabled ||
+                    !string.IsNullOrWhiteSpace(options.RepositoryId),
+                "CodeGeneration:RepositoryId is required when repository context is enabled.")
+            .Validate(
+                options => options.RepositoryContextMaximumPromptCharacters > 0,
+                "CodeGeneration:RepositoryContextMaximumPromptCharacters must be positive.")
+            .Validate(
                 options => options.DefaultMaxTokens > 0 &&
                     options.DefaultRetryMaxTokens > 0 &&
                     options.ModelTokenBudgets.Values.All(budget =>
@@ -101,6 +112,13 @@ public static class ServiceCollectionExtensions
         {
             options.DatabasePath = Path.Combine(stateRoot, "cangjie.db");
         });
+        services.TryAddSingleton(_ => new HetuHostBuilder()
+            .AddCSharpPlugin()
+            .UseLadybugStore(Path.Combine(stateRoot, "hetu"))
+            .Build());
+        services.TryAddSingleton<
+            IRepositoryContextService,
+            RepositoryContextService>();
         services.AddZhinuSqlite(options =>
         {
             options.DatabasePath = Path.Combine(stateRoot, "zhinu.db");
@@ -117,55 +135,31 @@ public static class ServiceCollectionExtensions
             CodeGenerationWorkflowConstants.WorkflowName,
             CodeGenerationWorkflowConstants.WorkflowVersion);
         services.AddSingleton<CodeGenerationActivityHeartbeatStore>();
-        services.AddZhinuStep<
-            PlanCodeGenerationStep,
-            CodeGenerationWorkflowRequest,
-            CodeGenerationWorkflowResult>(
+        services.AddZhinuStep<IndexRepositoryStep>(
+                CodeGenerationWorkflowConstants.IndexRepositoryStep);
+        services.AddZhinuStep<SelectRepositoryContextStep>(
+                CodeGenerationWorkflowConstants.SelectRepositoryContextStep);
+        services.AddZhinuStep<CaptureRepositoryContextStep>(
+                CodeGenerationWorkflowConstants.CaptureRepositoryContextStep);
+        services.AddZhinuStep<PlanCodeGenerationStep>(
                 CodeGenerationWorkflowConstants.PlanStep);
-        services.AddZhinuStep<
-            DecomposeCodeGenerationTaskStep,
-            CodeGenerationDecompositionWorkflowRequest,
-            CodeGenerationDecompositionWorkflowResult>(
+        services.AddZhinuStep<DecomposeCodeGenerationTaskStep>(
                 CodeGenerationWorkflowConstants.DecomposeTaskStep);
-        services.AddZhinuStep<
-            ReviewCodeGenerationArchitectureStep,
-            ArchitectureReviewWorkflowRequest,
-            ArchitectureReviewWorkflowResult>(
+        services.AddZhinuStep<ReviewCodeGenerationArchitectureStep>(
                 CodeGenerationWorkflowConstants.ReviewArchitectureStep);
-        services.AddZhinuStep<
-            ResolveCodeGenerationArchitectureGapStep,
-            ArchitectureGapResolutionWorkflowRequest,
-            ArchitectureGapResolutionWorkflowResult>(
+        services.AddZhinuStep<ResolveCodeGenerationArchitectureGapStep>(
                 CodeGenerationWorkflowConstants.ResolveArchitectureGapStep);
-        services.AddZhinuStep<
-            IntegrateCodeGenerationArchitectureStep,
-            ArchitectureDecisionIntegrationWorkflowRequest,
-            ArchitectureDecisionIntegrationWorkflowResult>(
+        services.AddZhinuStep<IntegrateCodeGenerationArchitectureStep>(
                 CodeGenerationWorkflowConstants.IntegrateArchitectureStep);
-        services.AddZhinuStep<
-            ScaffoldCodeGenerationStep,
-            CodeGenerationScaffoldingRequest,
-            CodeGenerationScaffoldingResult>(
+        services.AddZhinuStep<ScaffoldCodeGenerationStep>(
                 CodeGenerationWorkflowConstants.ScaffoldStep);
-        services.AddZhinuStep<
-            GenerateCodeTaskStep,
-            CodeGenerationTaskWorkflowRequest,
-            CodeGenerationTaskWorkflowResult>(
+        services.AddZhinuStep<GenerateCodeTaskStep>(
                 CodeGenerationWorkflowConstants.GenerateTaskStep);
-        services.AddZhinuStep<
-            BuildGeneratedCodeStep,
-            CodeGenerationBuildRequest,
-            CodeGenerationBuildResult>(
+        services.AddZhinuStep<BuildGeneratedCodeStep>(
                 CodeGenerationWorkflowConstants.BuildStep);
-        services.AddZhinuStep<
-            LoadCodeGenerationCheckpointStep,
-            CodeGenerationCheckpointLoadRequest,
-            CodeGenerationRunCheckpoint>(
+        services.AddZhinuStep<LoadCodeGenerationCheckpointStep>(
                 CodeGenerationWorkflowConstants.LoadCheckpointStep);
-        services.AddZhinuStep<
-            SaveCodeGenerationCheckpointStep,
-            CodeGenerationCheckpointRequest,
-            Guyabano.Artifacts.ArtifactReference>(
+        services.AddZhinuStep<SaveCodeGenerationCheckpointStep>(
                 CodeGenerationWorkflowConstants.SaveCheckpointStep);
 
         services.AddSingleton<FileSystemArtifactRepository>(provider =>

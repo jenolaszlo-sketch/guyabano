@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Penghou.Baize" Version="0.3.0-preview.4" />
-    <PackageReference Include="Penghou.Zhinu" Version="0.1.0-preview.8" />
+    <PackageReference Include="Penghou.Zhinu" Version="0.1.0-preview.9" />
   </ItemGroup>
 
   <ItemGroup>

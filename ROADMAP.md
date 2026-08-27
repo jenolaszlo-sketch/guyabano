@@ -59,6 +59,16 @@ The central boundary is:
 - Records revision-bound evidence and audit history as those contracts mature
 - Does not own Guyabano's coding methodology or provider-specific harness behavior
 
+### Hetu and Cangjie
+
+- Hetu owns the durable, incrementally published structural code graph.
+- Cangjie owns attributable textual observations and immutable context snapshots.
+- Guyabano owns repository identity, selection strategy, disclosure policy, and
+  prompt composition.
+- Zhinu persists the index, selection, and snapshot references as ordinary typed
+  workflow-step results.
+- Structural graph facts are not duplicated wholesale into Cangjie.
+
 ## Explicit non-goals
 
 Do not introduce these concepts into the common coding-executor abstraction:
@@ -327,6 +337,8 @@ Current foundation:
 - The code-first workflow uses typed, keyed class-based Zhinu steps for
   planning, architecture, decomposition, scaffolding, generation, build, and
   checkpoints.
+- Shared `WorkflowStepReference<TInput,TOutput>` values bind workflow calls and
+  DI registrations to one compile-time contract.
 - Orchestration, bounded review/repair loops, scheduling waves, and completion
   decisions remain visible in `CodeGenerationWorkflow.RunAsync`.
 - Step implementations and their dependencies are resolved in a fresh scope
@@ -335,6 +347,25 @@ Current foundation:
   isolated by workflow run, durable step key, and revision.
 - No compensation is declared until an operation has a genuine reversible
   contract.
+- Workflow version 3 indexes the configured repository through Hetu, selects a
+  bounded public surface or symbol neighborhood, and pins the exact rendered
+  selection in a Cangjie snapshot before planning.
+- Repository selection is bound to Hetu's exact publication receipt and fails
+  if a newer graph publication appears between index and selection.
+- Cangjie persists selected observations atomically and treats equivalent
+  deterministic snapshot writes as safe retries.
+- Repository context remains local unless the host explicitly enables bounded
+  prompt disclosure.
+
+Repository-intelligence follow-ups:
+
+- Reindex after accepted workspace mutations and bind build, test, and review
+  evidence to the resulting workspace revision.
+- Record reviewed architecture decisions and failure lessons as keyed Cangjie
+  revisions, then relate them to the evidence and artifacts they derive from.
+- Add task-aware Hetu seed selection from planned contracts and affected files.
+- Add a host-visible disclosure preview showing which Cangjie snapshot and how
+  many characters will be sent before a model route receives repository context.
 
 ```text
 Analyze

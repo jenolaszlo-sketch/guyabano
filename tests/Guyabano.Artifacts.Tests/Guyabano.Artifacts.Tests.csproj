@@ -13,7 +13,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0-pre.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
     <PackageReference Include="FluentAssertions" Version="7.*" />
-    <PackageReference Include="Penghou.Cangjie.Sqlite" Version="0.1.0-preview.2" />
+    <PackageReference Include="Penghou.Cangjie.Sqlite" Version="0.1.0-preview.3" />
   </ItemGroup>
 
   <ItemGroup>

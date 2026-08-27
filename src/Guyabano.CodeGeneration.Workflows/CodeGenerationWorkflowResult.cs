@@ -68,4 +68,6 @@ public sealed record CodeGenerationWorkflowResult(
     { get; init; } = [];
 
     public CodeGenerationContinuationInfo? Continuation { get; init; }
+
+    public RepositoryContextReference? RepositoryContext { get; init; }
 }

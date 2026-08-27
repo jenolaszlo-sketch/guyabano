@@ -62,6 +62,44 @@ internal sealed class PlanCodeGenerationStep(
         activities.PlanAsync(input);
 }
 
+internal sealed class IndexRepositoryStep(
+    IRepositoryContextService repositoryContext,
+    CodeGenerationActivityHeartbeatStore heartbeatStore) :
+    CodeGenerationWorkflowStep<RepositoryIndexRequest, RepositoryRevision>(
+        heartbeatStore)
+{
+    protected override Task<RepositoryRevision> ExecuteCoreAsync(
+        RepositoryIndexRequest input,
+        CancellationToken cancellationToken) =>
+        repositoryContext.IndexAsync(input, cancellationToken);
+}
+
+internal sealed class SelectRepositoryContextStep(
+    IRepositoryContextService repositoryContext,
+    CodeGenerationActivityHeartbeatStore heartbeatStore) :
+    CodeGenerationWorkflowStep<
+        RepositoryContextSelectionRequest,
+        RepositoryContextSelection>(heartbeatStore)
+{
+    protected override Task<RepositoryContextSelection> ExecuteCoreAsync(
+        RepositoryContextSelectionRequest input,
+        CancellationToken cancellationToken) =>
+        repositoryContext.SelectAsync(input, cancellationToken);
+}
+
+internal sealed class CaptureRepositoryContextStep(
+    IRepositoryContextService repositoryContext,
+    CodeGenerationActivityHeartbeatStore heartbeatStore) :
+    CodeGenerationWorkflowStep<
+        RepositoryContextCaptureRequest,
+        RepositoryContextReference>(heartbeatStore)
+{
+    protected override Task<RepositoryContextReference> ExecuteCoreAsync(
+        RepositoryContextCaptureRequest input,
+        CancellationToken cancellationToken) =>
+        repositoryContext.CaptureAsync(input, cancellationToken);
+}
+
 internal sealed class DecomposeCodeGenerationTaskStep(
     CodeGenerationDecompositionActivities activities,
     CodeGenerationActivityHeartbeatStore heartbeatStore) :

@@ -1,10 +1,13 @@
 using Penghou.Zhinu;
 using Guyabano.CodeGeneration.Workflows;
+using Guyabano.WorkflowWorker;
+using Microsoft.Extensions.Options;
 
 namespace Guyabano.WebTerminal.Services;
 
 internal sealed class CodeGenerationWorkflowClient(
-    WorkflowEngine workflowEngine)
+    WorkflowEngine workflowEngine,
+    IOptions<CodeGenerationWorkerOptions> options)
     : ICodeGenerationWorkflowClient
 {
     public async Task<string> StartAsync(
@@ -26,14 +29,27 @@ internal sealed class CodeGenerationWorkflowClient(
         }
 
         var workflowId = Guid.NewGuid();
+        var settings = options.Value;
+        var request = new CodeGenerationWorkflowRequest(
+            prompt,
+            resumeFromWorkflowId,
+            continuationMode,
+            resumeFallback);
+        if (settings.RepositoryContextEnabled)
+        {
+            request = request with
+            {
+                Repository = new RepositoryReference(
+                    settings.RepositoryId,
+                    Path.GetFullPath(settings.OutputRoot),
+                    settings.RepositorySymbolSeeds)
+            };
+        }
+
         await workflowEngine.StartAsync(
             CodeGenerationWorkflowConstants.WorkflowName,
             CodeGenerationWorkflowConstants.WorkflowVersion,
-            new CodeGenerationWorkflowRequest(
-                prompt,
-                resumeFromWorkflowId,
-                continuationMode,
-                resumeFallback),
+            request,
             workflowId,
             cancellationToken: cancellationToken);
 

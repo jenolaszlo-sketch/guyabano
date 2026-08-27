@@ -18,6 +18,11 @@ public sealed class CodeGenerationWorkflow
                 workflow,
                 cancellationToken);
 
+        request = await PrepareRepositoryContextAsync(
+            workflow,
+            request,
+            cancellationToken);
+
         var planningResult = await workflow.StepAsync<
             CodeGenerationWorkflowRequest,
             CodeGenerationWorkflowResult>(
@@ -405,7 +410,8 @@ public sealed class CodeGenerationWorkflow
                         new CodeGenerationTaskWorkflowRequest(
                             planningResult.Plan,
                             node.Parent.Id,
-                            node.Leaf),
+                            node.Leaf,
+                            RepositoryContext: planningResult.RepositoryContext),
                         TaskActivityOptions(startingModelTier: 1),
                         cancellationToken))
                 .ToArray();
@@ -582,8 +588,13 @@ public sealed class CodeGenerationWorkflow
                 repairCycle: buildAttempt,
                 previousBuild: buildAttempts.Count > 1
                     ? buildAttempts[^2]
-                    : null);
-            if (repairRequests.Count == 0)
+                    : null)
+                .Select(item => item with
+                {
+                    RepositoryContext = currentResult.RepositoryContext
+                })
+                .ToArray();
+            if (repairRequests.Length == 0)
             {
                 var stalled = ApplyBuildResult(
                     currentResult,
@@ -652,6 +663,62 @@ public sealed class CodeGenerationWorkflow
                 result),
             CheckpointActivityOptions(),
             cancellationToken);
+
+    private static async Task<CodeGenerationWorkflowRequest>
+        PrepareRepositoryContextAsync(
+            WorkflowContext workflow,
+            CodeGenerationWorkflowRequest request,
+            CancellationToken cancellationToken)
+    {
+        if (request.Repository is null)
+            return request;
+
+        var revision = await workflow.StepAsync<
+            RepositoryIndexRequest,
+            RepositoryRevision>(
+                "repository/index",
+                CodeGenerationWorkflowConstants.IndexRepositoryStep,
+                new RepositoryIndexRequest(
+                    request.Repository,
+                    workflow.WorkflowRunId.ToString("D")),
+                RepositoryContextActivityOptions(TimeSpan.FromMinutes(15)),
+                cancellationToken);
+        var selection = await workflow.StepAsync<
+            RepositoryContextSelectionRequest,
+            RepositoryContextSelection>(
+                "repository/select",
+                CodeGenerationWorkflowConstants.SelectRepositoryContextStep,
+                new RepositoryContextSelectionRequest(
+                    revision,
+                    request.Repository.SymbolSeeds ?? []),
+                RepositoryContextActivityOptions(TimeSpan.FromMinutes(5)),
+                cancellationToken);
+        var captured = await workflow.StepAsync<
+            RepositoryContextCaptureRequest,
+            RepositoryContextReference>(
+                "repository/capture",
+                CodeGenerationWorkflowConstants.CaptureRepositoryContextStep,
+                new RepositoryContextCaptureRequest(
+                    selection,
+                    workflow.WorkflowRunId.ToString("D"),
+                    request.Prompt),
+                RepositoryContextActivityOptions(TimeSpan.FromMinutes(2)),
+                cancellationToken);
+        return request with { RepositoryContext = captured };
+    }
+
+    private static StepOptions RepositoryContextActivityOptions(
+        TimeSpan timeout) => new()
+    {
+        ExecutionTimeout = timeout,
+        Retry = new RetryPolicy
+        {
+            InitialDelay = TimeSpan.FromSeconds(2),
+            BackoffCoefficient = 2,
+            MaximumDelay = TimeSpan.FromSeconds(10),
+            MaxAttempts = 2
+        }
+    };
 
     private static StepOptions CheckpointActivityOptions() => new()
     {

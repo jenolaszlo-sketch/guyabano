@@ -24,6 +24,7 @@ source-derived context selected for a workflow.
 | `Guyabano.Llm.Prompting` | Prompt building and template engine (Scriban) |
 | `Guyabano.Artifacts` | Artifact storage with integrity verification |
 | `Guyabano.Session` | Long-lived session identity, event contracts, and projections |
+| `Guyabano.Session.Sqlite` | Penghou.Siming-backed transactional session event ledger |
 | `Guyabano.Messaging` | Workflow progress publishing/subscribing |
 | `Guyabano.CI.Contracts` | Build/test/scaffold contracts |
 | `Guyabano.CI.Server` | HTTP CI server (build, test, JetBrains analysis) |
@@ -108,6 +109,23 @@ Source-derived context is local-only by default. Set
 is permitted to receive repository information. The character limit is applied
 before disclosure, and prompt text labels the snapshot as untrusted reference
 data rather than instructions.
+
+## Session event ledger
+
+Guyabano persists each session's authoritative event history through
+`Penghou.Siming.Sqlite`. Every session has an independently verifiable,
+contiguously ordered ledger at
+`<OutputRoot>/.gen/sessions/{session-id}/session.db`.
+
+Rebuildable current-state projections live in
+`<OutputRoot>/.gen/session-catalog.db`. Projection failure cannot roll back or
+erase an event; replay or a complete ledger scan repairs the projection. Each
+projection cursor is bound to its ledger head hash as well as its sequence.
+
+Every immutable event uses envelope schema v1 and records payload sensitivity.
+Callers choose whether payload content is retained, replaced by a versioned
+SHA-256 digest, or omitted before append. This makes disclosure and retention an
+append-time decision; later redaction never rewrites the audit chain.
 
 ## Status
 

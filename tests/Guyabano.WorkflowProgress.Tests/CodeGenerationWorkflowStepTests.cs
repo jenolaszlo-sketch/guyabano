@@ -3,6 +3,7 @@ using Penghou.Zhinu;
 using Guyabano.CodeGeneration.Workflows;
 using Guyabano.WorkflowWorker;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 
 namespace Guyabano.WorkflowProgressTests;
 
@@ -45,7 +46,7 @@ public sealed class CodeGenerationWorkflowStepTests
         try
         {
             using var store = new FileSystemCrossStoreOperationStore(root);
-            using var events = new FileSystemSessionEventStore(
+            using var events = new SimingSessionEventStore(
                 Path.Combine(root, "events"));
             var heartbeats = new CodeGenerationActivityHeartbeatStore(
                 TimeProvider.System);

@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Guyabano.Session\Guyabano.Session.csproj" />
+    <ProjectReference Include="..\..\src\Guyabano.Session.Sqlite\Guyabano.Session.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>

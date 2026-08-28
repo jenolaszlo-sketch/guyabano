@@ -2,6 +2,7 @@ using FluentAssertions;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 using Guyabano.WorkflowWorker;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
@@ -48,7 +49,7 @@ public sealed class SessionConsistencyAuditTests : IDisposable
         var inner = new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen"));
         var indexing = new ContextIndexingArtifactRepository(inner, contextStore);
         var artifacts = new ZhinuPublishingArtifactRepository(indexing, resolver);
-        var sessionEvents = new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events"));
+        using var sessionEvents = new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events"));
 
         // Real engine run publishes validation-evidence, baize-execution, and repository-publication
         var workflow = new PublishEvidenceWorkflow(artifacts, workspaceHash, session.Id);
@@ -100,7 +101,7 @@ public sealed class SessionConsistencyAuditTests : IDisposable
         var inner = new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen"));
         var indexing = new ContextIndexingArtifactRepository(inner, contextStore);
         var artifacts = new ZhinuPublishingArtifactRepository(indexing, resolver);
-        var sessionEvents = new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events"));
+        using var sessionEvents = new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events"));
 
         var workflow = new PublishEvidenceWorkflow(artifacts, workspaceHash, session.Id);
         var store = new SqliteWorkflowStore(new ZhinuSqliteOptions

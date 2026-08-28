@@ -100,7 +100,9 @@ internal sealed class CodeGenerationWorkflowClient(
             OccurredAt: DateTimeOffset.UtcNow,
             CorrelationId: workflowId,
             CrossSystemRefs: workflowRefs,
-            PayloadJson: System.Text.Json.JsonSerializer.Serialize(new { prompt }))).ConfigureAwait(false);
+            PayloadJson: System.Text.Json.JsonSerializer.Serialize(new { prompt }),
+            PayloadSensitivity: SessionPayloadSensitivity.Confidential,
+            PayloadRetention: SessionPayloadRetention.Retain)).ConfigureAwait(false);
         await sessionEvents.AppendAsync(new SessionEventRequest(
             session.Id,
             Actor: "guyabano",

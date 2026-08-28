@@ -3,6 +3,7 @@ using FluentAssertions;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 using Guyabano.WorkflowWorker;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -107,7 +108,7 @@ public sealed class ImpactAnalysisTests : IDisposable
         var restartService = new CodeGenerationWorkflowRestartService(
             engine,
             sessionStore,
-            new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
             NullLogger<CodeGenerationWorkflowRestartService>.Instance);
         var impactService = new CodeGenerationImpactAnalysisService(
             hetu, contextStore, artifacts, restartService, resolver, options);
@@ -178,7 +179,7 @@ public sealed class ImpactAnalysisTests : IDisposable
         var restartService = new CodeGenerationWorkflowRestartService(
             engine,
             sessionStore,
-            new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
             NullLogger<CodeGenerationWorkflowRestartService>.Instance);
         var impactService = new CodeGenerationImpactAnalysisService(hetu, contextStore, artifacts, restartService, resolver, options);
 

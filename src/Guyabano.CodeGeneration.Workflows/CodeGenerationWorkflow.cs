@@ -1000,16 +1000,16 @@ public sealed class CodeGenerationWorkflow
 
     private static StepOptions RepositoryContextActivityOptions(
         TimeSpan timeout) => new()
-    {
-        ExecutionTimeout = timeout,
-        Retry = new RetryPolicy
         {
-            InitialDelay = TimeSpan.FromSeconds(2),
-            BackoffCoefficient = 2,
-            MaximumDelay = TimeSpan.FromSeconds(10),
-            MaxAttempts = 2
-        }
-    };
+            ExecutionTimeout = timeout,
+            Retry = new RetryPolicy
+            {
+                InitialDelay = TimeSpan.FromSeconds(2),
+                BackoffCoefficient = 2,
+                MaximumDelay = TimeSpan.FromSeconds(10),
+                MaxAttempts = 2
+            }
+        };
 
     private static StepOptions CheckpointActivityOptions() => new()
     {

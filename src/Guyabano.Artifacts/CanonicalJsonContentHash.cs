@@ -109,7 +109,7 @@ public static class CanonicalJsonContentHash
         {
             var prefix = formatted[..(exponent + 1)];
             var suffix = formatted[(exponent + 1)..];
-        var negative = suffix.StartsWith("-", StringComparison.Ordinal);
+            var negative = suffix.StartsWith("-", StringComparison.Ordinal);
             suffix = suffix.TrimStart('+', '-').TrimStart('0');
             if (suffix.Length == 0)
                 suffix = "0";

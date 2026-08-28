@@ -12,11 +12,11 @@ handover notes, completed review narratives, or speculative feature lists.
 
 ## Current state
 
-Last reviewed: **2026-08-28**
+Last reviewed: **2026-08-29**
 
 - The session foundation and consolidated integration work are committed on
   `main` through `aa47e3d`.
-- The full solution passes **309 tests**.
+- The full solution passes **319 tests**.
 - `git diff --check` passes with only existing LF-to-CRLF warnings.
 - The P0 review defects are corrected: Baize streaming and overload coverage,
   invocation-specific Cangjie snapshots, task-scoped file ownership,
@@ -91,8 +91,8 @@ git diff --check
   while retaining streaming and cancellation evidence.
 - [x] Staging baseline fencing, validation, promotion, rollback, and safe
   mutation path validation.
-- [x] Filesystem session events, timeline projection, consistency audit, and a
-  canonical vertical scenario as prototypes.
+- [x] Per-session Siming ledgers, durable timeline projection, consistency audit,
+  and a canonical vertical scenario.
 
 ## Remaining work
 
@@ -172,13 +172,22 @@ validated, and promoted.
 
 ### 4. Durable SQLite session events and projections
 
-- [ ] Add `Guyabano.Session.Sqlite` with atomic multi-process sequence allocation,
-  append, idempotency, pagination, and interrupted-write recovery.
-- [ ] Version event envelopes and classify/redact payloads by sensitivity and
-  retention policy.
-- [ ] Persist current-state, pending-input, timeline, approval, reconciliation,
-  and current-workspace projections.
-- [ ] Retire JSONL as the default after migration tests exist.
+- [x] Add `Guyabano.Session.Sqlite` backed by `Penghou.Siming.Sqlite`, with one
+  independently verifiable ledger per session, contiguous sequence allocation,
+  append, idempotency, concurrency, and interrupted-write recovery.
+- [x] Add bounded cursor-based timeline pages while retaining the compatibility
+  full-read API for bounded internal uses.
+- [x] Version event envelopes and classify payload sensitivity; append-time
+  retention can keep content, keep only a versioned digest, or omit it without
+  rewriting immutable history.
+- [x] Persist rebuildable current-state projections covering timeline head,
+  pending input, workflow, and current-workspace state; projection gaps fail
+  explicitly, each projected sequence is bound to its ledger head hash, and a
+  ledger scan can rebuild the catalog.
+- [x] Make Siming the default session event store. No JSONL migration is needed
+  because Guyabano has no retained user session data.
+- [x] Remove the prototype JSONL implementation and run all session/workflow
+  tests against the Siming adapter used in production.
 
 Acceptance: multiple processes append safely and timeline reads do not scan the
 complete event history.

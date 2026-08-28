@@ -27,11 +27,13 @@ public static class SessionEventTypes
 }
 
 /// <summary>
-/// An immutable, ordered, append-only session event envelope. Sequence numbers
-/// and the previous-event hash chain provide tamper evidence and full ordering.
+/// An immutable, ordered session event envelope. Sequence is contiguous within
+/// the session's authoritative ledger.
 /// </summary>
 public sealed record SessionEvent
 {
+    public required int SchemaVersion { get; init; }
+
     public required long Sequence { get; init; }
 
     public required Guid EventId { get; init; }
@@ -44,6 +46,9 @@ public sealed record SessionEvent
 
     public required DateTimeOffset OccurredAt { get; init; }
 
+    /// <summary>Time assigned atomically by the authoritative ledger.</summary>
+    public required DateTimeOffset CommittedAt { get; init; }
+
     public Guid? CausationId { get; init; }
 
     public Guid? CorrelationId { get; init; }
@@ -53,6 +58,13 @@ public sealed record SessionEvent
     public IReadOnlyDictionary<string, string>? CrossSystemRefs { get; init; }
 
     public string? PayloadJson { get; init; }
+
+    public required SessionPayloadSensitivity PayloadSensitivity { get; init; }
+
+    public required SessionPayloadRetention PayloadRetention { get; init; }
+
+    /// <summary>SHA-256 of the original UTF-8 payload when retained or digest-only.</summary>
+    public string? PayloadDigest { get; init; }
 
     public string? PreviousHash { get; init; }
 

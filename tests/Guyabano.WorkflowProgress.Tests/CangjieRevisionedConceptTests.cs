@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using Penghou.Cangjie;
 using Penghou.Cangjie.Sqlite;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 
 namespace Guyabano.WorkflowProgressTests;
 
@@ -32,7 +33,7 @@ public sealed class CangjieRevisionedConceptTests : IDisposable
         var contextStore = CreateStore();
         using var operations = new FileSystemCrossStoreOperationStore(
             Path.Combine(rootPath, "operations"));
-        using var events = new FileSystemSessionEventStore(
+        using var events = new SimingSessionEventStore(
             Path.Combine(rootPath, "events"));
         var sessionId = GuyabanoSessionId.New();
         var runId = Guid.CreateVersion7();

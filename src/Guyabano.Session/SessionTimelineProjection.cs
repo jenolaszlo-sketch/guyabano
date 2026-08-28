@@ -7,7 +7,31 @@ public sealed record SessionCurrentState(
     IReadOnlyList<string> PendingInputEventIds,
     string? CurrentWorkspaceRevision,
     Guid? LastWorkflowRunId,
-    DateTimeOffset? SessionCreatedAt);
+    DateTimeOffset? SessionCreatedAt,
+    DateTimeOffset? LastCommittedAt = null);
+
+public sealed record SessionProjectionSnapshot(
+    GuyabanoSessionId SessionId,
+    long AppliedSequence,
+    string HeadHash,
+    SessionCurrentState State);
+
+public interface ISessionProjectionStore
+{
+    Task ApplyAsync(SessionEvent sessionEvent, CancellationToken cancellationToken = default);
+
+    Task<SessionProjectionSnapshot?> GetAsync(
+        GuyabanoSessionId sessionId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SessionProjectionSnapshot>> ListAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<SessionProjectionSnapshot?> RebuildAsync(
+        GuyabanoSessionId sessionId,
+        IReadOnlyList<SessionEvent> events,
+        CancellationToken cancellationToken = default);
+}
 
 public static class SessionTimelineProjection
 {
@@ -45,7 +69,36 @@ public static class SessionTimelineProjection
             PendingInputEventIds: pending.OrderBy(id => id, StringComparer.Ordinal).ToArray(),
             CurrentWorkspaceRevision: promotion,
             LastWorkflowRunId: lastWorkflowRun,
-            SessionCreatedAt: events.FirstOrDefault()?.OccurredAt);
+            SessionCreatedAt: events.FirstOrDefault()?.OccurredAt,
+            LastCommittedAt: last?.CommittedAt);
+    }
+
+    public static SessionCurrentState Apply(SessionCurrentState? state, SessionEvent sessionEvent)
+    {
+        ArgumentNullException.ThrowIfNull(sessionEvent);
+        var pending = (state?.PendingInputEventIds ?? [])
+            .ToHashSet(StringComparer.Ordinal);
+        if (sessionEvent.EventType == SessionEventTypes.InputRequested)
+            pending.Add(sessionEvent.EventId.ToString("D"));
+        else if (sessionEvent.EventType == SessionEventTypes.InputProvided && sessionEvent.CausationId is not null)
+            pending.Remove(sessionEvent.CausationId.Value.ToString("D"));
+
+        var workspaceRevision = state?.CurrentWorkspaceRevision;
+        if (sessionEvent.EventType == SessionEventTypes.WorkspacePromoted)
+            workspaceRevision = sessionEvent.CrossSystemRefs?.GetValueOrDefault("toRevision") ?? workspaceRevision;
+        var workflowRunId = state?.LastWorkflowRunId;
+        if (sessionEvent.EventType is SessionEventTypes.WorkflowStarted or SessionEventTypes.WorkflowCompleted or SessionEventTypes.WorkflowFailed)
+            workflowRunId = sessionEvent.CorrelationId ?? workflowRunId;
+
+        return new SessionCurrentState(
+            (state?.TotalEvents ?? 0) + 1,
+            sessionEvent.EventType,
+            sessionEvent.OccurredAt,
+            pending.OrderBy(id => id, StringComparer.Ordinal).ToArray(),
+            workspaceRevision,
+            workflowRunId,
+            state?.SessionCreatedAt ?? sessionEvent.OccurredAt,
+            sessionEvent.CommittedAt);
     }
 
     /// <summary>

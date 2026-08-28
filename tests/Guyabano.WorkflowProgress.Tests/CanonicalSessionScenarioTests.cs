@@ -2,6 +2,7 @@ using FluentAssertions;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 using Guyabano.WorkflowWorker;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -51,7 +52,7 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
         var inner = new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen"));
         var indexing = new ContextIndexingArtifactRepository(inner, contextStore);
         var artifacts = new ZhinuPublishingArtifactRepository(indexing, resolver);
-        var sessionEvents = new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events"));
+        using var sessionEvents = new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events"));
         var options = Options.Create(new CodeGenerationWorkerOptions
         {
             OutputRoot = rootPath,

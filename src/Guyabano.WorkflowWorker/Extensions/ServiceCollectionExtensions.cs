@@ -25,6 +25,7 @@ using Guyabano.Llm.Prompting.Extensions;
 using Guyabano.Messaging.Extensions;
 using Guyabano.Messaging;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 
 namespace Guyabano.WorkflowWorker.Extensions;
 
@@ -113,9 +114,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IGuyabanoSessionStore>(
             new FileSystemGuyabanoSessionStore(
                 Path.Combine(stateRoot, "sessions")));
-        services.AddSingleton<ISessionEventStore>(
-            new FileSystemSessionEventStore(
-                Path.Combine(stateRoot, "sessions", "events")));
+        var sessionProjections = new SqliteSessionProjectionStore(
+            Path.Combine(stateRoot, "session-catalog.db"));
+        services.AddSingleton<ISessionProjectionStore>(sessionProjections);
+        services.AddSingleton<ISessionEventStore>(new SimingSessionEventStore(
+            Path.Combine(stateRoot, "sessions"),
+            projectionStore: sessionProjections));
         services.AddSingleton<ICrossStoreOperationStore>(
             new FileSystemCrossStoreOperationStore(
                 Path.Combine(stateRoot, "operations")));

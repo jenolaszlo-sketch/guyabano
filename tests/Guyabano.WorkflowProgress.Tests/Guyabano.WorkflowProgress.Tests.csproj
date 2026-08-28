@@ -31,6 +31,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Guyabano.WebTerminal\Guyabano.WebTerminal.csproj" />
     <ProjectReference Include="..\..\src\Guyabano.WorkflowWorker\Guyabano.WorkflowWorker.csproj" />
+    <ProjectReference Include="..\..\src\Guyabano.Session.Sqlite\Guyabano.Session.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>

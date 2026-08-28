@@ -130,6 +130,11 @@ Providers may use any of these internally. They must not leak into the minimum
 common contract unless two substantially different implementations prove a
 portable need.
 
+This does not prohibit a small, typed application-level capability gateway.
+Such a gateway describes an outcome Guyabano needs, such as read-only web
+research, and remains separate from `ICodingExecutor`. It must not expose MCP
+tool schemas, arbitrary nested agent tools, or provider-specific session types.
+
 Do not extract a new Penghou package before the initial Baize vertical,
 workspace-safety boundary, and authoritative-evidence semantics are proven
 inside Guyabano. A deliberately unstable preview package may then enable the
@@ -496,6 +501,83 @@ Exit criteria:
 - Provider-specific settings remain outside `CodingTask` unless they prove
   portable across implementations.
 
+## Phase 6A — Agent capability gateways
+
+After session provenance and the first real dogfood run are reliable, introduce
+a narrow boundary through which workflows request typed logical capabilities
+from external agents. Capability routing is distinct from model routing,
+coding-executor selection, and Zhinu workflow routing:
+
+```text
+Guyabano workflow
+  -> typed capability request
+  -> capability router
+  -> Codex, OpenCode, or a later native provider
+  -> normalized, validated result
+  -> immutable session evidence
+```
+
+Start with read-only `WebResearch`. Useful Guyabano cases include current
+official documentation, package/version research, vulnerability research, and
+later model-pricing snapshots. Do not begin with repository mutation, shell
+execution, arbitrary tool invocation, or a generic capability schema; those
+overlap existing workspace and executor trust boundaries and require separate
+evidence.
+
+Initial contracts should remain internal to Guyabano and small:
+
+- stable `CapabilityId` and explicit availability states such as `Available`,
+  `QuotaLimited`, `AuthenticationRequired`, `TemporarilyUnavailable`, and
+  `Unsupported`;
+- a provider registry and deterministic priority router;
+- a typed `IWebResearchProvider` request/result contract;
+- source URLs, retrieval time, provider/agent/model identity when available,
+  duration, outcome, and fallback-chain provenance;
+- cancellation and typed failure classification distinguishing quota,
+  authentication, permission, transient, malformed-result, and policy failures;
+- preferred and required source-domain policy, with primary sources required
+  for sensitive structured facts such as model pricing.
+
+Codex should be the first provider when its programmatic integration is
+available. OpenCode may later provide the same capability using its own tool or
+MCP ecosystem. Guyabano must not know which underlying search tool or protocol
+was used. Native MCP may eventually become another provider without changing
+workflow contracts; implementing an MCP client is not part of this phase.
+
+Capability results are untrusted external data, never executable instructions.
+Guyabano validates their schema and source policy, publishes the normalized
+result as a typed immutable artifact, records it in the session ledger, and
+pins its identity into the consuming Zhinu step. Replay reuses the recorded
+result; provider availability or pricing changes must not silently alter an
+already-started workflow run.
+
+Fallback is allowed only for explicitly recoverable failures. Quota exhaustion
+is a routing signal, not something Guyabano attempts to bypass. Permission or
+policy rejection must remain visible and must not trigger repeated hidden
+retries.
+
+Required tests:
+
+- registration, capability discovery, availability filtering, explicit
+  preference, deterministic priority, and no-provider behavior;
+- quota/transient fallback versus authentication/permission/policy rejection;
+- cancellation, invalid-result rejection, source-domain enforcement, and full
+  provenance preservation;
+- a reusable provider conformance suite;
+- one optional Codex integration test that validates shape, provenance, and
+  official-source policy without asserting volatile facts or prices.
+
+Exit criteria:
+
+- A Guyabano workflow can request official-source web research without knowing
+  whether Codex, OpenCode, or a native implementation supplied it.
+- The normalized result and routing decision are auditable and reproducible
+  from session/workflow evidence.
+- Adding a second provider requires composition and conformance tests, not
+  workflow conditionals.
+- No MCP, arbitrary tool, or provider-native type leaks into workflow or
+  capability contracts.
+
 ## Phase 7 — Formalize the Guyabano workflow on Zhinu
 
 First express the methodology as an ordinary code-first Zhinu workflow:
@@ -730,16 +812,15 @@ authoritative evidence collection, and workflow policy remain in Guyabano.
 
 ## Near-term implementation order
 
-1. Review and commit the current session/state integration implementation.
-2. Add the cross-store operation and reconciliation state machine.
-3. Replace the prototype JSONL session store with SQLite and durable projections.
-4. Bind impact, approval, validation, graph publication, and promotion to one
+1. Bind impact, approval, validation, graph publication, and promotion to one
    accepted workspace revision.
-5. Add operator query APIs and interactive Zhinu input/resume behavior.
-6. Prove the complete flow with a real dogfood generation and store-level audit.
-7. Extract workflow phase collaborators without hiding the explicit Zhinu graph.
-8. Add CI-server authorization, `.editorconfig`, and missing host/UI tests.
-9. Resume executor/Luban extraction only after the session and workspace
+2. Add operator query APIs and interactive Zhinu input/resume behavior.
+3. Prove the complete flow with a real dogfood generation and store-level audit.
+4. Prove the minimal typed capability gateway with Codex-backed read-only web
+   research and immutable session/workflow provenance.
+5. Extract workflow phase collaborators without hiding the explicit Zhinu graph.
+6. Add CI-server authorization, `.editorconfig`, and missing host/UI tests.
+7. Resume executor/Luban extraction only after the session and workspace
    contracts are stable under real use.
 
 The detailed acceptance criteria and current evidence for items 1–6 live in

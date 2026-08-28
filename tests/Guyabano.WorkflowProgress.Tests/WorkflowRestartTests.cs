@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 using Guyabano.WorkflowWorker;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -190,7 +191,7 @@ public sealed class WorkflowRestartTests : IDisposable
         return new CodeGenerationWorkflowRestartService(
             engine,
             sessionStore,
-            new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
             NullLogger<CodeGenerationWorkflowRestartService>.Instance);
     }
 

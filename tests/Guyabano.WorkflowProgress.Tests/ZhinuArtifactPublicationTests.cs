@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Guyabano.Artifacts;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 using Guyabano.WorkflowWorker;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
@@ -40,7 +41,7 @@ public sealed class ZhinuArtifactPublicationTests : IDisposable
             sessionStore);
         using var operations = new FileSystemCrossStoreOperationStore(
             Path.Combine(rootPath, ".gen", "operations"));
-        using var sessionEvents = new FileSystemSessionEventStore(
+        using var sessionEvents = new SimingSessionEventStore(
             Path.Combine(rootPath, ".gen", "events"));
         var operation = await operations.StartAsync(
             new StartCrossStoreOperationRequest(

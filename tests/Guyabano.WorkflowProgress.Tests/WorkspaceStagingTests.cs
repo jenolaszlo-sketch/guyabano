@@ -2,6 +2,7 @@ using FluentAssertions;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
 using Guyabano.WorkflowWorker;
 using Microsoft.Extensions.Options;
 
@@ -27,7 +28,7 @@ public sealed class WorkspaceStagingTests : IDisposable
             sessionStore);
         using var operations = new FileSystemCrossStoreOperationStore(
             Path.Combine(rootPath, ".gen", "operations"));
-        using var sessionEvents = new FileSystemSessionEventStore(
+        using var sessionEvents = new SimingSessionEventStore(
             Path.Combine(rootPath, ".gen", "session-events"));
         var operation = await operations.StartAsync(
             new StartCrossStoreOperationRequest(
@@ -141,7 +142,7 @@ public sealed class WorkspaceStagingTests : IDisposable
             sessionStore,
             new FileSystemArtifactRepository(
                 Path.Combine(rootPath, ".gen", "artifacts-first")),
-            new FileSystemSessionEventStore(
+            new SimingSessionEventStore(
                 Path.Combine(rootPath, ".gen", "events-first")),
             Options.Create(new CodeGenerationWorkerOptions
             {
@@ -196,7 +197,7 @@ public sealed class WorkspaceStagingTests : IDisposable
             resolver,
             sessionStore,
             new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen", "artifacts")),
-            new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));
 
         var workspace = resolver.Resolve(session.Id);
@@ -242,7 +243,7 @@ public sealed class WorkspaceStagingTests : IDisposable
             resolver,
             sessionStore,
             new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen", "artifacts")),
-            new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));
 
         var workspace = resolver.Resolve(session.Id);

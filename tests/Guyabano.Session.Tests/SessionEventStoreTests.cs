@@ -1,5 +1,7 @@
 using FluentAssertions;
 using Guyabano.Session;
+using Guyabano.Session.Sqlite;
+using Microsoft.Data.Sqlite;
 
 namespace Guyabano.SessionTests;
 
@@ -14,7 +16,7 @@ public sealed class SessionEventStoreTests : IDisposable
     public async Task Append_OrdersSequencesAndHashChains()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var store = new FileSystemSessionEventStore(rootPath);
+        await using var store = new SimingSessionEventStore(rootPath);
         var sessionId = GuyabanoSessionId.New();
         var correlation = Guid.NewGuid();
 
@@ -45,7 +47,7 @@ public sealed class SessionEventStoreTests : IDisposable
     public async Task Append_WithIdempotencyKey_IsRetrySafeAndRejectsConflict()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var store = new FileSystemSessionEventStore(rootPath);
+        await using var store = new SimingSessionEventStore(rootPath);
         var sessionId = GuyabanoSessionId.New();
         var request = new SessionEventRequest(
             sessionId,
@@ -77,28 +79,34 @@ public sealed class SessionEventStoreTests : IDisposable
     public async Task VerifyChain_DetectsTampering()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var store = new FileSystemSessionEventStore(rootPath);
         var sessionId = GuyabanoSessionId.New();
-        await store.AppendAsync(new SessionEventRequest(
-            sessionId, "user", SessionEventTypes.UserMessage, DateTimeOffset.UtcNow), ct);
-        await store.AppendAsync(new SessionEventRequest(
-            sessionId, "guyabano", SessionEventTypes.WorkflowStarted, DateTimeOffset.UtcNow), ct);
+        var sessionPath = Path.Combine(rootPath, sessionId.ToString(), "session.db");
+        await using (var store = new SimingSessionEventStore(rootPath))
+        {
+            await store.AppendAsync(new SessionEventRequest(
+                sessionId, "user", SessionEventTypes.UserMessage, DateTimeOffset.UtcNow), ct);
+            await store.AppendAsync(new SessionEventRequest(
+                sessionId, "guyabano", SessionEventTypes.WorkflowStarted, DateTimeOffset.UtcNow), ct);
+        }
 
-        // Tamper with the first event's actor in the file
-        var path = Path.Combine(rootPath, sessionId.ToString(), "events.jsonl");
-        var lines = await File.ReadAllLinesAsync(path, ct);
-        var tampered = lines[0].Replace("\"actor\":\"user\"", "\"actor\":\"attacker\"");
-        await File.WriteAllLinesAsync(path, [tampered, .. lines.Skip(1)], ct);
+        await using (var connection = new SqliteConnection($"Data Source={sessionPath}"))
+        {
+            await connection.OpenAsync(ct);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TRIGGER ledger_entries_no_update; UPDATE ledger_entries SET event_type = 'changed' WHERE sequence = 1;";
+            await command.ExecuteNonQueryAsync(ct);
+        }
 
-        var act = () => store.VerifyChainAsync(sessionId, ct);
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        await using var verifier = new SimingSessionEventStore(rootPath);
+        var act = () => verifier.VerifyChainAsync(sessionId, ct);
+        await act.Should().ThrowAsync<Penghou.Siming.Sqlite.SimingSchemaCompatibilityException>();
     }
 
     [Fact]
     public async Task Projection_TracksPendingInputsWorkspaceRevisionAndLastWorkflow()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var store = new FileSystemSessionEventStore(rootPath);
+        await using var store = new SimingSessionEventStore(rootPath);
         var sessionId = GuyabanoSessionId.New();
         var workflowRun = Guid.NewGuid();
         var inputEvent = await store.AppendAsync(new SessionEventRequest(
@@ -135,7 +143,7 @@ public sealed class SessionEventStoreTests : IDisposable
     public async Task ReconstructsWhoWhatWhenWhyAfterRestart()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var store = new FileSystemSessionEventStore(rootPath);
+        await using var store = new SimingSessionEventStore(rootPath);
         var sessionId = GuyabanoSessionId.New();
         var workflowRun = Guid.NewGuid();
 
@@ -181,6 +189,7 @@ public sealed class SessionEventStoreTests : IDisposable
 
     public void Dispose()
     {
+        SqliteConnection.ClearAllPools();
         if (Directory.Exists(rootPath))
             Directory.Delete(rootPath, recursive: true);
     }

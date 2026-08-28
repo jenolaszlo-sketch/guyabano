@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
 using Guyabano.WorkflowWorker;
 using Penghou.Cangjie.Sqlite;
@@ -37,6 +38,7 @@ public sealed class RepositoryContextServiceTests : IDisposable
         var revision = await ExecuteAsync(
             new IndexRepositoryStep(
                 service,
+                new FileSystemArtifactRepository(Path.Combine(root, ".gen", "artifacts")),
                 new CodeGenerationActivityHeartbeatStore(
                     TimeProvider.System)),
             new RepositoryIndexRequest(
@@ -112,6 +114,7 @@ public sealed class RepositoryContextServiceTests : IDisposable
         var original = await ExecuteAsync(
             new IndexRepositoryStep(
                 service,
+                new FileSystemArtifactRepository(Path.Combine(root, ".gen", "artifacts")),
                 new CodeGenerationActivityHeartbeatStore(TimeProvider.System)),
             new RepositoryIndexRequest(
                 new RepositoryReference("repo:changing", root),
@@ -128,6 +131,7 @@ public sealed class RepositoryContextServiceTests : IDisposable
         var current = await ExecuteAsync(
             new IndexRepositoryStep(
                 service,
+                new FileSystemArtifactRepository(Path.Combine(root, ".gen", "artifacts")),
                 new CodeGenerationActivityHeartbeatStore(TimeProvider.System)),
             new RepositoryIndexRequest(
                 new RepositoryReference("repo:changing", root),
@@ -271,7 +275,8 @@ public sealed class RepositoryContextServiceTests : IDisposable
                 Guid.NewGuid(),
                 stepKey,
                 attempt: 1,
-                revision: 0),
+                revision: 0,
+                isCompensation: false),
             input,
             TestContext.Current.CancellationToken);
 }

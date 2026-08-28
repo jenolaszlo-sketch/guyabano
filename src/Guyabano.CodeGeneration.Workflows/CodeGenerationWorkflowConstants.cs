@@ -55,6 +55,10 @@ public static class CodeGenerationWorkflowConstants
         CodeGenerationRunCheckpoint> LoadCheckpointStep =
         new(new("guyabano.load-code-generation-checkpoint"));
     public static readonly WorkflowStepReference<
+        RepositoryReindexRequest,
+        RepositoryReindexReceipt> ReindexStep =
+        new(new("guyabano.reindex-generated-workspace"));
+    public static readonly WorkflowStepReference<
         CodeGenerationCheckpointRequest,
         Guyabano.Artifacts.ArtifactReference> SaveCheckpointStep =
         new(new("guyabano.save-code-generation-checkpoint"));

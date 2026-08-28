@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Penghou.Baize;
+using Penghou.Cangjie;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Planning;
 using Guyabano.CodeGeneration.Workflows;
@@ -13,6 +14,7 @@ public sealed class CodeGenerationDecompositionActivities(
     IResolvedDependencyContextBuilder dependencyContextBuilder,
     IComponentWorkContextBuilder workContextBuilder,
     IArtifactRepository artifactRepository,
+    IContextStore contextStore,
     IWorkflowProgressPublisher progressPublisher,
     IOptions<CodeGenerationWorkerOptions> options,
     CodeGenerationWorkspaceResolver workspaceResolver,
@@ -30,10 +32,45 @@ public sealed class CodeGenerationDecompositionActivities(
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             workflowId,
             context.CancellationToken);
-        using var correlationScope = LlmRequestCorrelationScope.Push(new(
-            workspace.SessionId.ToString(),
-            workflowId,
-            info.ActivityId));
+        ContextSnapshot? decompositionSnapshot = null;
+        try
+        {
+            decompositionSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
+                contextStore,
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
+                queryIdentity: $"guyabano:{workflowId}:decomposition:{request.ParentTaskId}",
+                strategy: "decomposition",
+                strategyVersion: "1",
+                purpose: "decomposition",
+                workspaceRevision: null,
+                hetuIndexRunId: null,
+                hetuIndexIdentity: null,
+                itemIds: [],
+                cancellationToken: context.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Unable to create Cangjie snapshot for decomposition {ParentId} workflow {WorkflowId}", request.ParentTaskId, workflowId);
+        }
+
+        using var correlationScope = decompositionSnapshot is not null
+            ? LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CangjieSnapshotId: decompositionSnapshot.Id,
+                CangjieStrategy: decompositionSnapshot.Strategy,
+                CangjieStrategyVersion: decompositionSnapshot.StrategyVersion,
+                CangjieQueryIdentity: decompositionSnapshot.QueryIdentity,
+                CangjiePurpose: decompositionSnapshot.Purpose,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId));
         var parent = request.Plan.Tasks.Single(item => item.Id.Equals(
             request.ParentTaskId,
             StringComparison.Ordinal));

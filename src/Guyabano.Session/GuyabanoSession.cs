@@ -11,4 +11,10 @@ public sealed record GuyabanoSession
     public required DateTimeOffset CreatedAt { get; init; }
 
     public IReadOnlyList<Guid> WorkflowRunIds { get; init; } = [];
+
+    /// <summary>
+    /// The accepted (promoted) workspace revision. Identifies the exact current
+    /// workspace content; used to fence concurrent staging promotions.
+    /// </summary>
+    public string? CurrentWorkspaceRevision { get; init; }
 }

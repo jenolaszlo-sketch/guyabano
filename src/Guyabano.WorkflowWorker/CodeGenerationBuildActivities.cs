@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Guyabano.Artifacts;
 using Guyabano.CI.Client;
 using Guyabano.CI.Contracts;
 using Guyabano.CodeGeneration.Workflows;
@@ -8,8 +10,11 @@ namespace Guyabano.WorkflowWorker;
 
 public sealed class CodeGenerationBuildActivities(
     IGuyabanoCiClient ciClient,
+    IArtifactRepository artifactRepository,
+    CangjieRevisionedConceptService cangjieConcepts,
     IWorkflowProgressPublisher progressPublisher,
     CodeGenerationWorkspaceResolver workspaceResolver,
+    IOptions<CodeGenerationWorkerOptions> options,
     ILogger<CodeGenerationBuildActivities> logger)
 {
     public async Task<CodeGenerationBuildResult> BuildAsync(
@@ -91,6 +96,81 @@ public sealed class CodeGenerationBuildActivities(
                     paths,
                     succeeded,
                     diagnostics);
+            var buildResult = new CodeGenerationBuildResult(
+                succeeded,
+                resultEvent?.ExitCode,
+                error,
+                diagnostics.Select(MapDiagnostic).ToArray());
+
+            // Publish validation evidence as authoritative artifact before durable progress
+            try
+            {
+                var zhinuContext = CodeGenerationZhinuStepScope.Current;
+                var stepKey = zhinuContext?.StepKey ?? info.ActivityId;
+                var stepRevision = zhinuContext?.Revision ?? request.BuildAttempt;
+                var evidence = new ValidationEvidencePayload(
+                    BuildResult: buildResult,
+                    SessionId: workspace.SessionId.ToString(),
+                    WorkflowRunId: workflowId,
+                    StepKey: stepKey,
+                    StepRevision: stepRevision,
+                    WorkspaceHostPath: workspace.HostPath,
+                    WorkspaceCiPath: workspace.CiRelativePath,
+                    EvaluatedFiles: paths,
+                    PublishedAt: DateTimeOffset.UtcNow,
+                    WorkspaceRevisionId: request.WorkspaceRevisionId);
+                await artifactRepository.WriteAsync(
+                    new ArtifactWriteRequest<ValidationEvidencePayload>(
+                        WorkflowId: workflowId,
+                        Kind: "validation-evidence",
+                        SchemaVersion: 1,
+                        StageKey: $"build-{request.BuildAttempt}",
+                        Status: ArtifactStatus.Validated,
+                        Payload: evidence),
+                    context.CancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Unable to publish validation evidence for workflow {WorkflowId}.", workflowId);
+            }
+
+            try
+            {
+                var cangjieContext = CodeGenerationZhinuStepScope.Current;
+                var cangjieStepKey = cangjieContext?.StepKey ?? info.ActivityId;
+                var cangjieStepRevision = cangjieContext?.Revision ?? request.BuildAttempt;
+                var repositoryId = options.Value.RepositoryContextEnabled ? options.Value.RepositoryId : null;
+                var evidenceKey = $"build:{workflowId}:{request.BuildAttempt}";
+                var evidenceContent = JsonSerializer.Serialize(buildResult, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                await cangjieConcepts.StoreEvidenceAsync(
+                    sessionId: workspace.SessionId.ToString(),
+                    evidenceKey: evidenceKey,
+                    content: evidenceContent,
+                    workflowRunId: workflowId,
+                    stepKey: cangjieStepKey,
+                    stepRevision: cangjieStepRevision,
+                    repositoryId: repositoryId,
+                    cancellationToken: context.CancellationToken);
+                if (!buildResult.Succeeded && !string.IsNullOrWhiteSpace(buildResult.Error))
+                {
+                    var knowledgeKey = $"build-failure:{buildResult.Error!.GetHashCode():X}";
+                    var knowledgeContent = $"Build failed: {buildResult.Error} with {diagnostics.Count} diagnostics. Lesson: inspect diagnostics and repair.";
+                    await cangjieConcepts.StoreKnowledgeAsync(
+                        sessionId: workspace.SessionId.ToString(),
+                        knowledgeKey: knowledgeKey,
+                        content: knowledgeContent,
+                        workflowRunId: workflowId,
+                        stepKey: cangjieStepKey,
+                        stepRevision: cangjieStepRevision,
+                        repositoryId: repositoryId,
+                        cancellationToken: context.CancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Unable to store Cangjie evidence for workflow {WorkflowId}", workflowId);
+            }
+
             await PublishSafelyAsync(workflowId, new WorkflowProgress(
                 succeeded
                     ? WorkflowProgressEventType.Completed
@@ -112,11 +192,7 @@ public sealed class CodeGenerationBuildActivities(
                     request.BuildAttempt < request.MaximumBuildAttempts,
                 FileChecks: fileChecks));
 
-            return new CodeGenerationBuildResult(
-                succeeded,
-                resultEvent?.ExitCode,
-                error,
-                diagnostics.Select(MapDiagnostic).ToArray());
+            return buildResult;
         }
         catch (OperationCanceledException)
         {

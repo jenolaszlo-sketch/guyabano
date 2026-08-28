@@ -3,7 +3,16 @@ namespace Guyabano.Llm.Prompting;
 public sealed record LlmRequestCorrelation(
     string SessionId,
     string WorkflowRunId,
-    string WorkflowStepKey);
+    string WorkflowStepKey,
+    Guid? CangjieSnapshotId = null,
+    string? CangjieStrategy = null,
+    string? CangjieStrategyVersion = null,
+    string? CangjieQueryIdentity = null,
+    string? CangjiePurpose = null,
+    string? HetuIndexRunId = null,
+    string? HetuIndexIdentity = null,
+    string? WorkspaceRevision = null,
+    int? WorkflowStepRevision = null);
 
 public static class LlmRequestCorrelationScope
 {

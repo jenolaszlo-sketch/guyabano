@@ -26,9 +26,8 @@ The central boundary is:
 > Guyabano decides what must happen. Zhinu durably enforces the process. A coding
 > executor attempts one bounded workspace change.
 
-The executable near-term handoff for session identity, cross-product state
-integration, selective reruns, and auditability is maintained in
-[`docs/plans/session-and-state-integration.md`](docs/plans/session-and-state-integration.md).
+Detailed session progress, remaining work, and verification evidence are tracked
+only in [`docs/session-backlog.md`](docs/session-backlog.md).
 
 The target execution plane has two intentionally different branches:
 
@@ -731,23 +730,21 @@ authoritative evidence collection, and workflow policy remain in Guyabano.
 
 ## Near-term implementation order
 
-1. Characterize the current execution path with tests.
-2. Introduce `ICodingExecutor`, `CodingTask`, and `CodingResult` inside Guyabano.
-3. Move current behavior into `BaizeCodingExecutor` through composition.
-4. Keep build, test, review, and completion decisions in the Guyabano workflow.
-5. Add workspace identity, baseline revision, and exclusive mutation ownership.
-6. Capture actual diff and authoritative validation evidence independently.
-7. Extract the proven core and Baize vertical into `Penghou.Luban` preview
-   packages.
-8. Implement `Penghou.Luban.A2A` and one real agent gateway.
-9. Reassess the common contract before adding capability or streaming
-   interfaces.
-10. Map the resulting workflow and evidence model onto Zhinu.
-11. Introduce the long-lived Guyabano session identity and append-only event log.
-12. Add interactive clarification, approval, cascade preview, and selective
-    Zhinu rerun behavior with Cangjie and Hetu revision correspondence.
-13. Add cross-store session reconciliation and the vertical audit dogfood test.
-14. Stabilize Luban only after both executors prove the boundary.
+1. Review and commit the current session/state integration implementation.
+2. Add the cross-store operation and reconciliation state machine.
+3. Replace the prototype JSONL session store with SQLite and durable projections.
+4. Bind impact, approval, validation, graph publication, and promotion to one
+   accepted workspace revision.
+5. Add operator query APIs and interactive Zhinu input/resume behavior.
+6. Prove the complete flow with a real dogfood generation and store-level audit.
+7. Extract workflow phase collaborators without hiding the explicit Zhinu graph.
+8. Add CI-server authorization, `.editorconfig`, and missing host/UI tests.
+9. Resume executor/Luban extraction only after the session and workspace
+   contracts are stable under real use.
+
+The detailed acceptance criteria and current evidence for items 1–6 live in
+[`docs/session-backlog.md`](docs/session-backlog.md); do not duplicate their
+checkboxes here.
 
 ## Success measures
 

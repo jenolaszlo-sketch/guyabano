@@ -64,6 +64,24 @@ public abstract class PromptBuilderBase<TContext>(
         metadata.TryAdd("guyabano.session_id", correlation.SessionId);
         metadata.TryAdd("guyabano.workflow_run_id", correlation.WorkflowRunId);
         metadata.TryAdd("guyabano.workflow_step_key", correlation.WorkflowStepKey);
+        if (correlation.CangjieSnapshotId is not null)
+            metadata.TryAdd("guyabano.cangjie_snapshot_id", correlation.CangjieSnapshotId.Value.ToString("D"));
+        if (correlation.CangjieStrategy is not null)
+            metadata.TryAdd("guyabano.cangjie_strategy", correlation.CangjieStrategy);
+        if (correlation.CangjieStrategyVersion is not null)
+            metadata.TryAdd("guyabano.cangjie_strategy_version", correlation.CangjieStrategyVersion);
+        if (correlation.CangjieQueryIdentity is not null)
+            metadata.TryAdd("guyabano.cangjie_query_identity", correlation.CangjieQueryIdentity);
+        if (correlation.CangjiePurpose is not null)
+            metadata.TryAdd("guyabano.cangjie_purpose", correlation.CangjiePurpose);
+        if (correlation.HetuIndexRunId is not null)
+            metadata.TryAdd("guyabano.hetu_index_run_id", correlation.HetuIndexRunId);
+        if (correlation.HetuIndexIdentity is not null)
+            metadata.TryAdd("guyabano.hetu_index_identity", correlation.HetuIndexIdentity);
+        if (correlation.WorkspaceRevision is not null)
+            metadata.TryAdd("guyabano.workspace_revision", correlation.WorkspaceRevision);
+        if (correlation.WorkflowStepRevision is not null)
+            metadata.TryAdd("guyabano.workflow_step_revision", correlation.WorkflowStepRevision.Value);
         return metadata;
     }
 }

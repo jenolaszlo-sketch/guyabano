@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Guyabano.Artifacts;
 using Guyabano.CI.Client;
 using Guyabano.CI.Contracts;
 using Guyabano.CodeGeneration.Planning;
@@ -10,6 +11,7 @@ namespace Guyabano.WorkflowWorker;
 
 public sealed class CodeGenerationScaffoldingActivities(
     IGuyabanoCiClient ciClient,
+    IArtifactRepository artifactRepository,
     IWorkflowProgressPublisher progressPublisher,
     CodeGenerationWorkspaceResolver workspaceResolver,
     ILogger<CodeGenerationScaffoldingActivities> logger)
@@ -71,6 +73,33 @@ public sealed class CodeGenerationScaffoldingActivities(
                 ? null
                 : serviceError ??
                   $"dotnet scaffolding exited with code {resultEvent?.ExitCode?.ToString() ?? "unknown"}.";
+
+            if (succeeded)
+            {
+                var zhinuContext = CodeGenerationZhinuStepScope.Current;
+                var stepKey = zhinuContext?.StepKey ?? info.ActivityId;
+                var stepRevision = zhinuContext?.Revision ?? info.Attempt;
+                var manifest = await GeneratedFileManifestFactory.CreateForScaffoldingAsync(
+                    sessionId: workspace.SessionId.ToString(),
+                    workflowRunId: workflowId,
+                    stepKey: stepKey,
+                    stepRevision: stepRevision,
+                    workspaceHostPath: workspace.HostPath,
+                    workspaceCiPath: workspace.CiRelativePath,
+                    taskId: scaffoldingTask.Id,
+                    artifacts: artifacts,
+                    cancellationToken: context.CancellationToken).ConfigureAwait(false);
+
+                await artifactRepository.WriteAsync(
+                    new ArtifactWriteRequest<GeneratedFileManifest>(
+                        WorkflowId: workflowId,
+                        Kind: "generated-file-manifest",
+                        SchemaVersion: 1,
+                        StageKey: scaffoldingTask.Id,
+                        Status: ArtifactStatus.Validated,
+                        Payload: manifest),
+                    context.CancellationToken).ConfigureAwait(false);
+            }
 
             await PublishSafelyAsync(workflowId, new WorkflowProgress(
                 succeeded

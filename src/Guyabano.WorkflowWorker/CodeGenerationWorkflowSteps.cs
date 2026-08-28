@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Penghou.Zhinu;
+using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
 
 namespace Guyabano.WorkflowWorker;
@@ -65,14 +66,41 @@ internal sealed class PlanCodeGenerationStep(
 
 internal sealed class IndexRepositoryStep(
     IRepositoryContextService repositoryContext,
+    IArtifactRepository artifactRepository,
     CodeGenerationActivityHeartbeatStore heartbeatStore) :
     CodeGenerationWorkflowStep<RepositoryIndexRequest, RepositoryRevision>(
         heartbeatStore)
 {
-    protected override Task<RepositoryRevision> ExecuteCoreAsync(
+    protected override async Task<RepositoryRevision> ExecuteCoreAsync(
         RepositoryIndexRequest input,
-        CancellationToken cancellationToken) =>
-        repositoryContext.IndexAsync(input, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var revision = await repositoryContext.IndexAsync(input, cancellationToken)
+            .ConfigureAwait(false);
+        var zhinuContext = CodeGenerationZhinuStepScope.Current;
+        var stepKey = zhinuContext?.StepKey ?? "repository/index";
+        var stepRevision = zhinuContext?.Revision ?? 1;
+        var payload = new RepositoryPublicationPayload(
+            Revision: revision,
+            SessionId: input.SessionId,
+            WorkflowRunId: input.WorkflowRunId,
+            StepKey: stepKey,
+            StepRevision: stepRevision,
+            PublishedAt: DateTimeOffset.UtcNow);
+        await artifactRepository.WriteAsync(
+            new ArtifactWriteRequest<RepositoryPublicationPayload>(
+                WorkflowId: input.WorkflowRunId,
+                Kind: "repository-publication",
+                SchemaVersion: 1,
+                StageKey: input.Repository.RepositoryId,
+                Status: ArtifactStatus.Validated,
+                Payload: payload)
+            {
+                SessionId = input.SessionId
+            },
+            cancellationToken).ConfigureAwait(false);
+        return revision;
+    }
 }
 
 internal sealed class SelectRepositoryContextStep(
@@ -193,6 +221,18 @@ internal sealed class BuildGeneratedCodeStep(
         CodeGenerationBuildRequest input,
         CancellationToken cancellationToken) =>
         activities.BuildAsync(input);
+}
+
+internal sealed class ReindexGeneratedWorkspaceStep(
+    CodeGenerationRepositoryReindexer reindexer,
+    CodeGenerationActivityHeartbeatStore heartbeatStore) :
+    CodeGenerationWorkflowStep<RepositoryReindexRequest, RepositoryReindexReceipt>(
+        heartbeatStore)
+{
+    protected override Task<RepositoryReindexReceipt> ExecuteCoreAsync(
+        RepositoryReindexRequest input,
+        CancellationToken cancellationToken) =>
+        reindexer.ReindexAsync(input, cancellationToken);
 }
 
 internal sealed class LoadCodeGenerationCheckpointStep(

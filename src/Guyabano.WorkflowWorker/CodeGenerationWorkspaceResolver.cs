@@ -42,6 +42,58 @@ public sealed class CodeGenerationWorkspaceResolver(
         return Resolve(session.Id);
     }
 
+    public CodeGenerationStaging ResolveStaging(
+        GuyabanoSessionId sessionId,
+        string mutationId)
+    {
+        ValidateMutationId(mutationId);
+        var sessionSegment = sessionId.ToString();
+        var settings = options.Value;
+        var hostPath = Path.GetFullPath(Path.Combine(
+            settings.OutputRoot,
+            "sessions",
+            sessionSegment,
+            "staging",
+            mutationId,
+            "workspace"));
+        var ciPath = CombineRelative(
+            settings.CiRelativePath,
+            "sessions",
+            sessionSegment,
+            "staging",
+            mutationId,
+            "workspace");
+        return new CodeGenerationStaging(sessionId, mutationId, hostPath, ciPath);
+    }
+
+    public string ResolveStagingRoot(
+        GuyabanoSessionId sessionId,
+        string mutationId)
+    {
+        ValidateMutationId(mutationId);
+        return Path.GetFullPath(Path.Combine(
+            options.Value.OutputRoot,
+            "sessions",
+            sessionId.ToString(),
+            "staging",
+            mutationId));
+    }
+
+    private static void ValidateMutationId(string mutationId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mutationId);
+        if (mutationId is "." or ".." ||
+            Path.IsPathRooted(mutationId) ||
+            mutationId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            mutationId.Contains(Path.DirectorySeparatorChar) ||
+            mutationId.Contains(Path.AltDirectorySeparatorChar))
+        {
+            throw new ArgumentException(
+                "The mutation ID must be one safe path segment.",
+                nameof(mutationId));
+        }
+    }
+
     private static string CombineRelative(params string[] segments) =>
         string.Join(
             '/',
@@ -52,6 +104,12 @@ public sealed class CodeGenerationWorkspaceResolver(
                         StringSplitOptions.TrimEntries))
                 .Where(segment => segment != "."));
 }
+
+public sealed record CodeGenerationStaging(
+    GuyabanoSessionId SessionId,
+    string MutationId,
+    string HostPath,
+    string CiRelativePath);
 
 public sealed record CodeGenerationWorkspace(
     GuyabanoSessionId SessionId,

@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Penghou.Baize;
+using Penghou.Cangjie;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Planning;
 using Guyabano.CodeGeneration.Workflows;
@@ -14,6 +16,8 @@ public sealed class CodeGenerationArchitectureActivities(
     IArchitectureGapResolutionService resolutionService,
     IArchitecturePracticeProvider practiceProvider,
     IArtifactRepository artifactRepository,
+    CangjieRevisionedConceptService cangjieConcepts,
+    IContextStore contextStore,
     IWorkflowProgressPublisher progressPublisher,
     IOptions<CodeGenerationWorkerOptions> options,
     CodeGenerationWorkspaceResolver workspaceResolver,
@@ -163,6 +167,43 @@ public sealed class CodeGenerationArchitectureActivities(
                     context.CancellationToken);
                 artifact = envelope.Reference;
             }
+            try
+            {
+                var cangjieStepContext = CodeGenerationZhinuStepScope.Current;
+                var cangjieStepKey = cangjieStepContext?.StepKey ?? info.ActivityId;
+                var cangjieStepRevision = cangjieStepContext?.Revision ?? 1;
+                var repositoryId = settings.RepositoryContextEnabled ? settings.RepositoryId : null;
+                var evidenceKey = $"architecture-review:{request.ArchitectureVersion}:{request.ReviewPass}";
+                var evidenceContent = JsonSerializer.Serialize(outcome.Review, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                var evidenceItem = await cangjieConcepts.StoreEvidenceAsync(
+                    sessionId: workspace.SessionId.ToString(),
+                    evidenceKey: evidenceKey,
+                    content: evidenceContent,
+                    workflowRunId: workflowId,
+                    stepKey: cangjieStepKey,
+                    stepRevision: cangjieStepRevision,
+                    repositoryId: repositoryId,
+                    cancellationToken: context.CancellationToken);
+                if (accepted)
+                {
+                    foreach (var decision in request.Plan.Decisions)
+                    {
+                        await cangjieConcepts.StoreDecisionAsync(
+                            sessionId: workspace.SessionId.ToString(),
+                            decision: decision,
+                            workflowRunId: workflowId,
+                            stepKey: cangjieStepKey,
+                            stepRevision: cangjieStepRevision,
+                            repositoryId: repositoryId,
+                            derivedFromIds: [evidenceItem.Id],
+                            cancellationToken: context.CancellationToken);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Unable to store Cangjie concepts for workflow {WorkflowId}", workflowId);
+            }
             {
                 await PublishAsync(workflowId, new(
                     WorkflowProgressEventType.Completed,
@@ -250,10 +291,45 @@ public sealed class CodeGenerationArchitectureActivities(
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             workflowId,
             context.CancellationToken);
-        using var correlationScope = LlmRequestCorrelationScope.Push(new(
-            workspace.SessionId.ToString(),
-            workflowId,
-            info.ActivityId));
+        ContextSnapshot? gapSnapshot = null;
+        try
+        {
+            gapSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
+                contextStore,
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
+                queryIdentity: $"guyabano:{workflowId}:architecture-gap:{request.Finding.Id}",
+                strategy: "architecture-gap-resolution",
+                strategyVersion: "1",
+                purpose: "architecture-gap-resolution",
+                workspaceRevision: null,
+                hetuIndexRunId: null,
+                hetuIndexIdentity: null,
+                itemIds: [],
+                cancellationToken: context.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Unable to create Cangjie snapshot for gap {GapId} workflow {WorkflowId}", request.Finding.Id, workflowId);
+        }
+
+        using var correlationScope = gapSnapshot is not null
+            ? LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CangjieSnapshotId: gapSnapshot.Id,
+                CangjieStrategy: gapSnapshot.Strategy,
+                CangjieStrategyVersion: gapSnapshot.StrategyVersion,
+                CangjieQueryIdentity: gapSnapshot.QueryIdentity,
+                CangjiePurpose: gapSnapshot.Purpose,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId));
         var stage = $"Resolve architecture gap {request.Finding.Id}";
         const int maximumAttempts =
             CodeGenerationWorkflowConstants.MaximumArchitectureModelOutputAttempts;
@@ -404,14 +480,52 @@ public sealed class CodeGenerationArchitectureActivities(
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             workflowId,
             context.CancellationToken);
-        using var correlationScope = LlmRequestCorrelationScope.Push(new(
-            workspace.SessionId.ToString(),
-            workflowId,
-            info.ActivityId));
+        var nextVersion = request.ArchitectureVersion + 1;
+        ContextSnapshot? integrationSnapshot = null;
+        try
+        {
+            integrationSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
+                contextStore,
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
+                queryIdentity: $"guyabano:{workflowId}:architecture-integration:{nextVersion}",
+                strategy: "architecture-integration",
+                strategyVersion: "1",
+                purpose: "architecture-integration",
+                workspaceRevision: null,
+                hetuIndexRunId: null,
+                hetuIndexIdentity: null,
+                itemIds: [],
+                cancellationToken: context.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Unable to create Cangjie snapshot for architecture integration {WorkflowId} step {StepKey}", workflowId, info.ActivityId);
+        }
+
+        using var correlationScope = integrationSnapshot is not null
+            ? LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CangjieSnapshotId: integrationSnapshot.Id,
+                CangjieStrategy: integrationSnapshot.Strategy,
+                CangjieStrategyVersion: integrationSnapshot.StrategyVersion,
+                CangjieQueryIdentity: integrationSnapshot.QueryIdentity,
+                CangjiePurpose: integrationSnapshot.Purpose,
+                HetuIndexRunId: integrationSnapshot.Metadata.TryGetValue("hetuIndexRunId", out var hetuRun2) ? hetuRun2 : null,
+                HetuIndexIdentity: integrationSnapshot.Metadata.TryGetValue("hetuIndexIdentity", out var hetuId2) ? hetuId2 : null,
+                WorkspaceRevision: integrationSnapshot.Metadata.TryGetValue("workspaceRevision", out var wsRev2) ? wsRev2 : null,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId));
         var transportAttempt = info.Attempt;
         const int maximumAttempts =
             CodeGenerationWorkflowConstants.MaximumArchitectureTransportAttempts;
-        var nextVersion = request.ArchitectureVersion + 1;
         var stage = $"Architecture decision integration v{nextVersion}";
 
         await PublishAsync(workflowId, new(

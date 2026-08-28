@@ -20,4 +20,15 @@ public interface IGuyabanoSessionStore
         GuyabanoSessionId sessionId,
         Guid workflowRunId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Compare-and-swap the accepted workspace revision. Returns the updated
+    /// session when <paramref name="expectedRevision"/> matches the stored value,
+    /// or <c>null</c> when another promotion already advanced the revision.
+    /// </summary>
+    Task<GuyabanoSession?> UpdateWorkspaceRevisionAsync(
+        GuyabanoSessionId sessionId,
+        string? expectedRevision,
+        string replacementRevision,
+        CancellationToken cancellationToken = default);
 }

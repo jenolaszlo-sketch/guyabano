@@ -23,6 +23,7 @@ source-derived context selected for a workflow.
 | `Guyabano.Llm.CodeGeneration` | LLM-driven code emission and file management |
 | `Guyabano.Llm.Prompting` | Prompt building and template engine (Scriban) |
 | `Guyabano.Artifacts` | Artifact storage with integrity verification |
+| `Guyabano.Session` | Long-lived session identity, event contracts, and projections |
 | `Guyabano.Messaging` | Workflow progress publishing/subscribing |
 | `Guyabano.CI.Contracts` | Build/test/scaffold contracts |
 | `Guyabano.CI.Server` | HTTP CI server (build, test, JetBrains analysis) |
@@ -58,7 +59,8 @@ Guyabano does not enable Zhinu
 compensation for these steps because filesystem, model, CI, and artifact
 operations do not yet have a truthful reversible contract.
 
-Workflow definition version `3` adds the repository-intelligence steps.
+Workflow definition version `4` adds session identity and cross-product state
+correlation around the repository-intelligence steps.
 Earlier histories remain distinct instead of being replayed against changed
 execution bindings.
 
@@ -109,5 +111,6 @@ data rather than instructions.
 
 ## Status
 
-Pre-release scaffolding. See [ROADMAP.md](ROADMAP.md) and
-[docs/architecture-review.md](docs/architecture-review.md).
+Pre-release scaffolding. See [ROADMAP.md](ROADMAP.md) for product direction and
+[docs/session-backlog.md](docs/session-backlog.md) for the active implementation
+tracker.

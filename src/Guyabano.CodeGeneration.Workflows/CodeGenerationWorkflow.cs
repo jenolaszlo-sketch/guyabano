@@ -23,6 +23,9 @@ public sealed class CodeGenerationWorkflow
             request,
             cancellationToken);
 
+        var planningDependsOn = request.Repository is null
+            ? []
+            : new[] { "repository/capture" };
         var planningResult = await workflow.StepAsync<
             CodeGenerationWorkflowRequest,
             CodeGenerationWorkflowResult>(
@@ -40,7 +43,8 @@ public sealed class CodeGenerationWorkflow
                         MaxAttempts =
                             CodeGenerationWorkflowConstants
                                 .MaximumPlanningTransportAttempts
-                    }
+                    },
+                    DependsOn = planningDependsOn
                 },
                 cancellationToken);
 
@@ -55,15 +59,17 @@ public sealed class CodeGenerationWorkflow
         var architectureIntegrations =
             new List<ArchitectureDecisionIntegrationWorkflowResult>();
         var architectureApproved = false;
+        var architectureReviewDependsOn = "planning";
 
         for (var pass = 1;
              pass <= CodeGenerationWorkflowConstants.MaximumArchitectureReviewPasses;
              pass++)
         {
+            var reviewStepKey = $"architecture-review/{architectureResult.ArchitectureVersion}/{pass}";
             var review = await workflow.StepAsync<
                 ArchitectureReviewWorkflowRequest,
                 ArchitectureReviewWorkflowResult>(
-                $"architecture-review/{architectureResult.ArchitectureVersion}/{pass}",
+                reviewStepKey,
                 CodeGenerationWorkflowConstants.ReviewArchitectureStep,
                 new ArchitectureReviewWorkflowRequest(
                     architecturePlan,
@@ -72,7 +78,10 @@ public sealed class CodeGenerationWorkflow
                     architectureResult.ArchitectureVersion,
                     architectureResult.ArchitectureArtifact,
                     ArchitectureInputs(architectureResult)),
-                ArchitectureActivityOptions(),
+                ArchitectureActivityOptions() with
+                {
+                    DependsOn = [architectureReviewDependsOn]
+                },
                 cancellationToken);
             architectureReviews.Add(review);
             architectureResult = MergeArchitectureReview(
@@ -108,11 +117,17 @@ public sealed class CodeGenerationWorkflow
                 architectureResult,
                 architectureReviews,
                 architectureIntegrations,
+                reviewStepKey,
                 cancellationToken);
             architectureResult = sequence.Result;
             if (!sequence.Completed)
                 return architectureResult;
             architecturePlan = sequence.Plan;
+            // Next review depends on last integration produced by the sequence
+            if (sequence.LastIntegrationStepKey is not null)
+                architectureReviewDependsOn = sequence.LastIntegrationStepKey;
+            else
+                architectureReviewDependsOn = reviewStepKey;
         }
 
         if (!architectureApproved)
@@ -125,6 +140,7 @@ public sealed class CodeGenerationWorkflow
             Failure = "None",
             Error = null
         };
+        var finalArchitectureStepKey = architectureReviewDependsOn;
 
         var decompositionResults =
             new List<CodeGenerationDecompositionWorkflowResult>();
@@ -133,6 +149,7 @@ public sealed class CodeGenerationWorkflow
                 CodeGenerationWorkflowConstants
                     .MaximumDecompositionArchitectureIntegrations);
         IReadOnlyList<GenerationTaskPlan> architectureTasks;
+        var decompositionBaseDependency = finalArchitectureStepKey;
         while (true)
         {
             architectureTasks = OrderCodeGenerationTasks(planningResult.Plan!);
@@ -171,28 +188,40 @@ public sealed class CodeGenerationWorkflow
                     .Where(parent => pendingIds.Contains(parent.Id))
                     .ToArray();
                 var waveTasks = waveParents
-                    .Select(parent => workflow.StepAsync<
-                        CodeGenerationDecompositionWorkflowRequest,
-                        CodeGenerationDecompositionWorkflowResult>(
-                        $"decomposition/{planningResult.ArchitectureVersion}/{parent.Id}",
-                        CodeGenerationWorkflowConstants.DecomposeTaskStep,
-                        new CodeGenerationDecompositionWorkflowRequest(
-                            planningResult.Plan,
-                            parent.Id,
-                            upstreamArtifacts,
-                            planningResult.ArchitectureVersion,
-                            planningResult.ArchitectureArtifact),
-                        new StepOptions
-                        {
-                            ExecutionTimeout = TimeSpan.FromMinutes(15),
-                            Retry = new RetryPolicy
+                    .Select(parent =>
+                    {
+                        var decompositionStepKey = $"decomposition/{planningResult.ArchitectureVersion}/{parent.Id}";
+                        var logicalDeps = parent.DependsOn
+                            .Where(depId => decompositionResults.Any(r => r.ParentTaskId == depId))
+                            .Select(depId => $"decomposition/{planningResult.ArchitectureVersion}/{depId}")
+                            .ToArray();
+                        var effectiveDeps = logicalDeps.Length > 0
+                            ? logicalDeps
+                            : new[] { decompositionBaseDependency };
+                        return workflow.StepAsync<
+                            CodeGenerationDecompositionWorkflowRequest,
+                            CodeGenerationDecompositionWorkflowResult>(
+                            decompositionStepKey,
+                            CodeGenerationWorkflowConstants.DecomposeTaskStep,
+                            new CodeGenerationDecompositionWorkflowRequest(
+                                planningResult.Plan,
+                                parent.Id,
+                                upstreamArtifacts,
+                                planningResult.ArchitectureVersion,
+                                planningResult.ArchitectureArtifact),
+                            new StepOptions
                             {
-                                MaxAttempts =
-                                    CodeGenerationWorkflowConstants
-                                        .MaximumDecompositionAttempts
-                            }
-                        },
-                        cancellationToken))
+                                ExecutionTimeout = TimeSpan.FromMinutes(15),
+                                Retry = new RetryPolicy
+                                {
+                                    MaxAttempts =
+                                        CodeGenerationWorkflowConstants
+                                            .MaximumDecompositionAttempts
+                                },
+                                DependsOn = effectiveDeps
+                            },
+                            cancellationToken);
+                    })
                     .ToArray();
                 var waveResults = await Task.WhenAll(waveTasks);
                 decompositionResults.AddRange(waveResults);
@@ -233,6 +262,7 @@ public sealed class CodeGenerationWorkflow
             }
 
             var gapReview = CreateArchitectureGapReview(architectureGap);
+            var gapReviewDependsOn = $"decomposition/{planningResult.ArchitectureVersion}/{architectureGap.ParentTaskId}";
             var gapSequence = await ResolveArchitectureFindingsSequentiallyAsync(
                 workflow,
                 architecturePlan,
@@ -240,21 +270,26 @@ public sealed class CodeGenerationWorkflow
                 architectureResult,
                 architectureReviews,
                 architectureIntegrations,
+                gapReviewDependsOn,
                 cancellationToken);
             architectureResult = gapSequence.Result;
             if (!gapSequence.Completed)
                 return architectureResult;
             architecturePlan = gapSequence.Plan;
+            if (gapSequence.LastIntegrationStepKey is not null)
+                decompositionBaseDependency = gapSequence.LastIntegrationStepKey;
             var coherenceReviewNeededIntegration = false;
             var integrationApproved = false;
+            var coherenceReviewDependsOn = gapSequence.LastIntegrationStepKey ?? gapReviewDependsOn;
             for (var pass = 1;
                  pass <= CodeGenerationWorkflowConstants.MaximumArchitectureReviewPasses;
                  pass++)
             {
+                var coherenceReviewStepKey = $"architecture-review/{architectureResult.ArchitectureVersion}/{pass}";
                 var review = await workflow.StepAsync<
                     ArchitectureReviewWorkflowRequest,
                     ArchitectureReviewWorkflowResult>(
-                    $"architecture-review/{architectureResult.ArchitectureVersion}/{pass}",
+                    coherenceReviewStepKey,
                     CodeGenerationWorkflowConstants.ReviewArchitectureStep,
                     new ArchitectureReviewWorkflowRequest(
                         architecturePlan,
@@ -263,7 +298,10 @@ public sealed class CodeGenerationWorkflow
                         architectureResult.ArchitectureVersion,
                         architectureResult.ArchitectureArtifact,
                         ArchitectureInputs(architectureResult)),
-                    ArchitectureActivityOptions(),
+                    ArchitectureActivityOptions() with
+                    {
+                        DependsOn = [coherenceReviewDependsOn]
+                    },
                     cancellationToken);
                 architectureReviews.Add(review);
                 architectureResult = MergeArchitectureReview(
@@ -297,11 +335,15 @@ public sealed class CodeGenerationWorkflow
                         architectureResult,
                         architectureReviews,
                         architectureIntegrations,
+                        coherenceReviewStepKey,
                         cancellationToken);
                 architectureResult = coherenceSequence.Result;
                 if (!coherenceSequence.Completed)
                     return architectureResult;
                 architecturePlan = coherenceSequence.Plan;
+                coherenceReviewDependsOn = coherenceSequence.LastIntegrationStepKey ?? coherenceReviewStepKey;
+                if (coherenceSequence.LastIntegrationStepKey is not null)
+                    decompositionBaseDependency = coherenceSequence.LastIntegrationStepKey;
             }
 
             if (!integrationApproved)
@@ -337,10 +379,14 @@ public sealed class CodeGenerationWorkflow
             decompositionResults,
             failed: null);
 
+        var scaffoldingDependsOn = decompositionResults.Count > 0
+            ? decompositionResults.Select(r => $"decomposition/{planningResult.ArchitectureVersion}/{r.ParentTaskId}").ToArray()
+            : new[] { decompositionBaseDependency };
+        var scaffoldingStepKey = $"scaffolding/{planningResult.ArchitectureVersion}";
         var scaffoldingResult = await workflow.StepAsync<
             CodeGenerationScaffoldingRequest,
             CodeGenerationScaffoldingResult>(
-                $"scaffolding/{planningResult.ArchitectureVersion}",
+                scaffoldingStepKey,
                 CodeGenerationWorkflowConstants.ScaffoldStep,
                 new CodeGenerationScaffoldingRequest(planningResult.Plan),
                 new StepOptions
@@ -349,7 +395,8 @@ public sealed class CodeGenerationWorkflow
                     Retry = new RetryPolicy
                     {
                         MaxAttempts = 1
-                    }
+                    },
+                    DependsOn = scaffoldingDependsOn
                 },
                 cancellationToken);
 
@@ -368,6 +415,7 @@ public sealed class CodeGenerationWorkflow
             return scaffoldedResult;
 
         var taskResults = new List<CodeGenerationTaskWorkflowResult>();
+        var allGenerationStepKeys = new List<string>();
         var decompositionsByParent = decompositionResults
             .Where(item => item.Succeeded && item.Decomposition is not null)
             .ToDictionary(
@@ -401,19 +449,37 @@ public sealed class CodeGenerationWorkflow
                 throw new InvalidOperationException(
                     "The implementation graph has pending tasks but no ready nodes.");
 
+            allGenerationStepKeys.AddRange(readyNodes.Select(n => $"generation/{n.Parent.Id}/{n.Leaf.Id}"));
+
             var waveTasks = readyNodes
-                .Select(node => workflow.StepAsync<
-                    CodeGenerationTaskWorkflowRequest,
-                    CodeGenerationTaskWorkflowResult>(
-                        $"generation/{node.Parent.Id}/{node.Leaf.Id}",
+                .Select(node =>
+                {
+                    var generationStepKey = $"generation/{node.Parent.Id}/{node.Leaf.Id}";
+                    var leafDeps = node.Leaf.DependsOn
+                        .Select(dep => $"generation/{node.Parent.Id}/{dep}")
+                        .ToArray();
+                    var generationDependsOn = new List<string>
+                    {
+                        scaffoldingStepKey,
+                        $"decomposition/{planningResult.ArchitectureVersion}/{node.Parent.Id}"
+                    };
+                    generationDependsOn.AddRange(leafDeps);
+                    return workflow.StepAsync<
+                        CodeGenerationTaskWorkflowRequest,
+                        CodeGenerationTaskWorkflowResult>(
+                        generationStepKey,
                         CodeGenerationWorkflowConstants.GenerateTaskStep,
                         new CodeGenerationTaskWorkflowRequest(
                             planningResult.Plan,
                             node.Parent.Id,
                             node.Leaf,
                             RepositoryContext: planningResult.RepositoryContext),
-                        TaskActivityOptions(startingModelTier: 1),
-                        cancellationToken))
+                        TaskActivityOptions(startingModelTier: 1) with
+                        {
+                            DependsOn = generationDependsOn.Distinct(StringComparer.Ordinal).ToArray()
+                        },
+                        cancellationToken);
+                })
                 .ToArray();
             var waveResults = await Task.WhenAll(waveTasks);
             taskResults.AddRange(waveResults);
@@ -448,22 +514,59 @@ public sealed class CodeGenerationWorkflow
             scaffoldedResult,
             taskResults,
             failedTask: null);
+        var generatedCheckpointDependsOn = allGenerationStepKeys.Count > 0
+            ? allGenerationStepKeys.ToArray()
+            : new[] { scaffoldingStepKey };
         await SaveCheckpointAsync(
             workflow,
             request.Prompt,
             generatedResult,
             "generated",
-            cancellationToken);
+            cancellationToken,
+            generatedCheckpointDependsOn);
+        var initialBuildDependsOn = allGenerationStepKeys.Count > 0
+            ? allGenerationStepKeys.ToArray()
+            : new[] { scaffoldingStepKey };
         var finalResult = await RunBuildAndRepairAsync(
             workflow,
             generatedResult,
-            cancellationToken);
+            cancellationToken,
+            initialBuildDependsOn);
+        var finalCheckpointDependsOn = finalResult.Build is not null
+            ? new[] { $"build/{finalResult.BuildAttempts.Count}" }
+            : generatedCheckpointDependsOn;
+        if (finalResult.Succeeded && finalResult.Build is not null)
+        {
+            // Reindex the validated workspace and persist the publication before the final checkpoint.
+            await workflow.StepAsync<
+                RepositoryReindexRequest,
+                RepositoryReindexReceipt>(
+                "repository/reindex-post-generation",
+                CodeGenerationWorkflowConstants.ReindexStep,
+                new RepositoryReindexRequest(
+                    workflow.WorkflowRunId.ToString("D")),
+                new StepOptions
+                {
+                    ExecutionTimeout = TimeSpan.FromMinutes(15),
+                    Retry = new RetryPolicy
+                    {
+                        InitialDelay = TimeSpan.FromSeconds(2),
+                        BackoffCoefficient = 2,
+                        MaximumDelay = TimeSpan.FromSeconds(10),
+                        MaxAttempts = 2
+                    },
+                    DependsOn = [$"build/{finalResult.BuildAttempts.Count}"]
+                },
+                cancellationToken);
+            finalCheckpointDependsOn = ["repository/reindex-post-generation"];
+        }
         await SaveCheckpointAsync(
             workflow,
             request.Prompt,
             finalResult,
             "final",
-            cancellationToken);
+            cancellationToken,
+            finalCheckpointDependsOn);
         return finalResult;
     }
 
@@ -518,17 +621,47 @@ public sealed class CodeGenerationWorkflow
             checkpoint.Prompt,
             resumed,
             "continuation-loaded",
-            cancellationToken);
+            cancellationToken,
+            ["continuation/load-checkpoint"]);
         var finalResult = await RunBuildAndRepairAsync(
             workflow,
             resumed,
-            cancellationToken);
+            cancellationToken,
+            ["checkpoint/continuation-loaded"]);
+        var continuationFinalDependsOn = finalResult.Build is not null
+            ? new[] { $"build/{finalResult.BuildAttempts.Count}" }
+            : new[] { "checkpoint/continuation-loaded" };
+        if (finalResult.Succeeded && finalResult.Build is not null)
+        {
+            await workflow.StepAsync<
+                RepositoryReindexRequest,
+                RepositoryReindexReceipt>(
+                "repository/reindex-post-generation",
+                CodeGenerationWorkflowConstants.ReindexStep,
+                new RepositoryReindexRequest(
+                    workflow.WorkflowRunId.ToString("D")),
+                new StepOptions
+                {
+                    ExecutionTimeout = TimeSpan.FromMinutes(15),
+                    Retry = new RetryPolicy
+                    {
+                        InitialDelay = TimeSpan.FromSeconds(2),
+                        BackoffCoefficient = 2,
+                        MaximumDelay = TimeSpan.FromSeconds(10),
+                        MaxAttempts = 2
+                    },
+                    DependsOn = [$"build/{finalResult.BuildAttempts.Count}"]
+                },
+                cancellationToken);
+            continuationFinalDependsOn = ["repository/reindex-post-generation"];
+        }
         await SaveCheckpointAsync(
             workflow,
             checkpoint.Prompt,
             finalResult,
             "continuation-final",
-            cancellationToken);
+            cancellationToken,
+            continuationFinalDependsOn);
         return finalResult;
     }
 
@@ -536,35 +669,40 @@ public sealed class CodeGenerationWorkflow
         RunBuildAndRepairAsync(
             WorkflowContext workflow,
             CodeGenerationWorkflowResult generatedResult,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IReadOnlyCollection<string>? initialBuildDependsOn = null)
     {
         var currentResult = generatedResult;
         var buildAttempts = new List<CodeGenerationBuildResult>();
         var buildRepairs = new List<CodeGenerationTaskWorkflowResult>();
 
+        var nextBuildDependsOn = initialBuildDependsOn ?? [];
         for (var buildAttempt = 1;
              buildAttempt <=
                  CodeGenerationWorkflowConstants.MaximumBuildAttempts;
              buildAttempt++)
         {
+            var buildStepKey = $"build/{buildAttempt}";
             var buildResult = await workflow.StepAsync<
                 CodeGenerationBuildRequest,
                 CodeGenerationBuildResult>(
-                    $"build/{buildAttempt}",
+                    buildStepKey,
                     CodeGenerationWorkflowConstants.BuildStep,
                     new CodeGenerationBuildRequest(
                         currentResult.WrittenFiles,
                         currentResult.Plan!.Solution.Path,
                         buildAttempt,
                         CodeGenerationWorkflowConstants
-                            .MaximumBuildAttempts),
+                            .MaximumBuildAttempts,
+                        currentResult.RepositoryContext?.Revision.WorkspaceRevision),
                     new StepOptions
                     {
                         ExecutionTimeout = TimeSpan.FromMinutes(15),
                         Retry = new RetryPolicy
                         {
                             MaxAttempts = 1
-                        }
+                        },
+                        DependsOn = nextBuildDependsOn
                     },
                     cancellationToken);
             buildAttempts.Add(buildResult);
@@ -610,17 +748,23 @@ public sealed class CodeGenerationWorkflow
                     };
             }
 
+            var repairDependsOn = new[] { buildStepKey };
             foreach (var repairRequest in repairRequests)
             {
+                var repairStepKey = $"build-repair/{buildAttempt}/{repairRequest.ParentTaskId}/{repairRequest.Task.Id}";
                 var repairResult = await workflow.StepAsync<
                     CodeGenerationTaskWorkflowRequest,
                     CodeGenerationTaskWorkflowResult>(
-                    $"build-repair/{buildAttempt}/{repairRequest.ParentTaskId}/{repairRequest.Task.Id}",
+                    repairStepKey,
                     CodeGenerationWorkflowConstants.GenerateTaskStep,
                     repairRequest,
                     TaskActivityOptions(
-                        repairRequest.StartingModelTier),
+                        repairRequest.StartingModelTier) with
+                    {
+                        DependsOn = repairDependsOn
+                    },
                     cancellationToken);
+                repairDependsOn = [repairStepKey];
                 buildRepairs.Add(repairResult);
                 currentResult = MergeBuildRepairResult(
                     currentResult,
@@ -640,6 +784,7 @@ public sealed class CodeGenerationWorkflow
                     };
                 }
             }
+            nextBuildDependsOn = repairDependsOn;
         }
 
         throw new InvalidOperationException(
@@ -651,7 +796,8 @@ public sealed class CodeGenerationWorkflow
         string prompt,
         CodeGenerationWorkflowResult result,
         string checkpointKey,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        IReadOnlyCollection<string>? dependsOn = null) =>
         _ = await workflow.StepAsync<
             CodeGenerationCheckpointRequest,
             Guyabano.Artifacts.ArtifactReference>(
@@ -661,7 +807,10 @@ public sealed class CodeGenerationWorkflow
                 workflow.WorkflowRunId.ToString("D"),
                 prompt,
                 result),
-            CheckpointActivityOptions(),
+            CheckpointActivityOptions() with
+            {
+                DependsOn = dependsOn ?? []
+            },
             cancellationToken);
 
     private static async Task<CodeGenerationWorkflowRequest>
@@ -692,7 +841,10 @@ public sealed class CodeGenerationWorkflow
                 new RepositoryContextSelectionRequest(
                     revision,
                     request.Repository.SymbolSeeds ?? []),
-                RepositoryContextActivityOptions(TimeSpan.FromMinutes(5)),
+                RepositoryContextActivityOptions(TimeSpan.FromMinutes(5)) with
+                {
+                    DependsOn = ["repository/index"]
+                },
                 cancellationToken);
         var captured = await workflow.StepAsync<
             RepositoryContextCaptureRequest,
@@ -704,7 +856,10 @@ public sealed class CodeGenerationWorkflow
                     workflow.WorkflowRunId.ToString("D"),
                     request.SessionId.ToString(),
                     request.Prompt),
-                RepositoryContextActivityOptions(TimeSpan.FromMinutes(2)),
+                RepositoryContextActivityOptions(TimeSpan.FromMinutes(2)) with
+                {
+                    DependsOn = ["repository/select"]
+                },
                 cancellationToken);
         return request with { RepositoryContext = captured };
     }
@@ -779,7 +934,8 @@ public sealed class CodeGenerationWorkflow
     private sealed record ArchitectureDecisionSequenceResult(
         CodeGenerationPlan Plan,
         CodeGenerationWorkflowResult Result,
-        bool Completed);
+        bool Completed,
+        string? LastIntegrationStepKey = null);
 
     private async Task<ArchitectureDecisionSequenceResult>
         ResolveArchitectureFindingsSequentiallyAsync(
@@ -789,6 +945,7 @@ public sealed class CodeGenerationWorkflow
             CodeGenerationWorkflowResult startingResult,
             IReadOnlyList<ArchitectureReviewWorkflowResult> reviews,
             List<ArchitectureDecisionIntegrationWorkflowResult> integrations,
+            string reviewStepKey,
             CancellationToken cancellationToken)
     {
         if (review.Findings.Count == 0)
@@ -796,12 +953,15 @@ public sealed class CodeGenerationWorkflow
 
         var plan = startingPlan;
         var result = startingResult;
+        string? lastIntegrationKey = null;
+        var resolutionDependsOn = reviewStepKey;
         foreach (var finding in review.Findings)
         {
+            var resolutionStepKey = $"architecture-gap/{result.ArchitectureVersion}/{finding.Id}";
             var resolution = await workflow.StepAsync<
                 ArchitectureGapResolutionWorkflowRequest,
                 ArchitectureGapResolutionWorkflowResult>(
-                $"architecture-gap/{result.ArchitectureVersion}/{finding.Id}",
+                resolutionStepKey,
                 CodeGenerationWorkflowConstants.ResolveArchitectureGapStep,
                 new ArchitectureGapResolutionWorkflowRequest(
                     plan,
@@ -810,7 +970,10 @@ public sealed class CodeGenerationWorkflow
                     result.ArchitectureArtifact,
                     ArchitectureInputs(result),
                     result.ArchitecturePractices),
-                ArchitectureActivityOptions(),
+                ArchitectureActivityOptions() with
+                {
+                    DependsOn = [resolutionDependsOn]
+                },
                 cancellationToken);
             result = MergeArchitectureResolutions(result, [resolution]);
             if (!resolution.Succeeded || resolution.Resolution is null)
@@ -842,10 +1005,11 @@ public sealed class CodeGenerationWorkflow
             var resolvedReview = ApplyResolutions(
                 focusedReview,
                 [resolution]);
+            var integrationStepKey = $"architecture-integration/{result.ArchitectureVersion}/{finding.Id}";
             var integration = await workflow.StepAsync<
                 ArchitectureDecisionIntegrationWorkflowRequest,
                 ArchitectureDecisionIntegrationWorkflowResult>(
-                $"architecture-integration/{result.ArchitectureVersion}/{finding.Id}",
+                integrationStepKey,
                 CodeGenerationWorkflowConstants.IntegrateArchitectureStep,
                 new ArchitectureDecisionIntegrationWorkflowRequest(
                     plan,
@@ -856,7 +1020,10 @@ public sealed class CodeGenerationWorkflow
                     resolution.Artifact is null
                         ? []
                         : [resolution.Artifact]),
-                ArchitectureActivityOptions(),
+                ArchitectureActivityOptions() with
+                {
+                    DependsOn = [resolutionStepKey]
+                },
                 cancellationToken);
             integrations.Add(integration);
             result = MergeArchitectureDecisionIntegration(
@@ -865,12 +1032,14 @@ public sealed class CodeGenerationWorkflow
                 integrations,
                 integration);
             if (!integration.Succeeded || integration.IntegratedPlan is null)
-                return new(plan, result, false);
+                return new(plan, result, false, lastIntegrationKey);
 
             plan = integration.IntegratedPlan;
+            lastIntegrationKey = integrationStepKey;
+            resolutionDependsOn = integrationStepKey;
         }
 
-        return new(plan, result, true);
+        return new(plan, result, true, lastIntegrationKey);
     }
 
     private static IReadOnlyList<Guyabano.Artifacts.ArtifactReference>

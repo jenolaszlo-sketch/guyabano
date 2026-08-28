@@ -10,7 +10,8 @@ internal sealed class CodeGenerationWorkflowClient(
     WorkflowEngine workflowEngine,
     IOptions<CodeGenerationWorkerOptions> options,
     CodeGenerationWorkspaceResolver workspaceResolver,
-    IGuyabanoSessionStore sessionStore)
+    IGuyabanoSessionStore sessionStore,
+    ISessionEventStore sessionEvents)
     : ICodeGenerationWorkflowClient
 {
     public async Task<string> StartAsync(
@@ -85,6 +86,28 @@ internal sealed class CodeGenerationWorkflowClient(
             request,
             workflowId,
             cancellationToken: cancellationToken);
+
+        var workflowRefs = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["sessionId"] = session.Id.ToString(),
+            ["workflowRunId"] = workflowId.ToString("D"),
+            ["continuationMode"] = continuationMode.ToString()
+        };
+        await sessionEvents.AppendAsync(new SessionEventRequest(
+            session.Id,
+            Actor: "user",
+            EventType: SessionEventTypes.UserMessage,
+            OccurredAt: DateTimeOffset.UtcNow,
+            CorrelationId: workflowId,
+            CrossSystemRefs: workflowRefs,
+            PayloadJson: System.Text.Json.JsonSerializer.Serialize(new { prompt }))).ConfigureAwait(false);
+        await sessionEvents.AppendAsync(new SessionEventRequest(
+            session.Id,
+            Actor: "guyabano",
+            EventType: SessionEventTypes.WorkflowStarted,
+            OccurredAt: DateTimeOffset.UtcNow,
+            CorrelationId: workflowId,
+            CrossSystemRefs: workflowRefs)).ConfigureAwait(false);
 
         return workflowId.ToString("D");
     }

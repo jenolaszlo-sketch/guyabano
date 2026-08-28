@@ -113,11 +113,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IGuyabanoSessionStore>(
             new FileSystemGuyabanoSessionStore(
                 Path.Combine(stateRoot, "sessions")));
+        services.AddSingleton<ISessionEventStore>(
+            new FileSystemSessionEventStore(
+                Path.Combine(stateRoot, "sessions", "events")));
 
         services.AddCangjieSqlite(options =>
         {
             options.DatabasePath = Path.Combine(stateRoot, "cangjie.db");
         });
+        services.AddSingleton<CangjieRevisionedConceptService>();
         services.TryAddSingleton(_ => new HetuHostBuilder()
             .AddCSharpPlugin()
             .UseLadybugStore(Path.Combine(stateRoot, "hetu"))
@@ -142,6 +146,9 @@ public static class ServiceCollectionExtensions
             CodeGenerationWorkflowConstants.WorkflowVersion);
         services.AddSingleton<CodeGenerationActivityHeartbeatStore>();
         services.AddSingleton<CodeGenerationWorkspaceResolver>();
+        services.AddSingleton<CodeGenerationRepositoryReindexer>();
+        services.AddZhinuStep<ReindexGeneratedWorkspaceStep>(
+                CodeGenerationWorkflowConstants.ReindexStep);
         services.AddZhinuStep<IndexRepositoryStep>(
                 CodeGenerationWorkflowConstants.IndexRepositoryStep);
         services.AddZhinuStep<SelectRepositoryContextStep>(
@@ -203,6 +210,7 @@ public static class ServiceCollectionExtensions
         services.AddGeminiLlmProvider();
         services.AddOllamaLlmProvider();
         services.AddLlmRouting(configuration);
+        WrapLlmRouterWithProvenance(services);
         services.AddGuyabanoCiClient(configuration);
         services.AddLlmTools();
         services.AddLlmPrompting(
@@ -221,8 +229,56 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CodeGenerationTaskActivities>();
         services.AddScoped<CodeGenerationBuildActivities>();
         services.AddScoped<CodeGenerationCheckpointActivities>();
+        services.AddSingleton<CodeGenerationWorkflowRestartService>();
+        services.AddSingleton<CodeGenerationImpactAnalysisService>();
+        services.AddSingleton<CodeGenerationStagingService>();
+        services.AddSingleton<SessionClarificationService>();
+        services.AddSingleton<SessionConsistencyAuditService>();
         services.AddHostedService<ModelConfigurationLoggingService>();
 
         return services;
+    }
+
+    private sealed class BaizeProvenanceRouterInner
+    {
+        public BaizeProvenanceRouterInner(Penghou.Baize.Router.ILlmRouter inner) => Inner = inner;
+        public Penghou.Baize.Router.ILlmRouter Inner { get; }
+    }
+
+    /// <summary>
+    /// Wraps the Baize <see cref="Penghou.Baize.Router.ILlmRouter"/> registration so every
+    /// model invocation persists bounded execution provenance, without disturbing the
+    /// router factory or its configuration.
+    /// </summary>
+    private static void WrapLlmRouterWithProvenance(IServiceCollection services)
+    {
+        var descriptor = services.LastOrDefault(
+            service => service.ServiceType == typeof(Penghou.Baize.Router.ILlmRouter));
+        if (descriptor is null)
+            return;
+
+        services.Remove(descriptor);
+        services.AddSingleton(provider => new BaizeProvenanceRouterInner(
+            ResolveRouterDescriptor(provider, descriptor)));
+        services.AddSingleton<Penghou.Baize.Router.ILlmRouter>(provider =>
+            new BaizeExecutionProvenanceRouter(
+                provider.GetRequiredService<BaizeProvenanceRouterInner>().Inner,
+                provider.GetRequiredService<IArtifactRepository>(),
+                provider.GetRequiredService<ILogger<BaizeExecutionProvenanceRouter>>()));
+    }
+
+    private static Penghou.Baize.Router.ILlmRouter ResolveRouterDescriptor(
+        IServiceProvider provider,
+        Microsoft.Extensions.DependencyInjection.ServiceDescriptor descriptor)
+    {
+        if (descriptor.ImplementationFactory is not null)
+            return (Penghou.Baize.Router.ILlmRouter)descriptor.ImplementationFactory(provider);
+        if (descriptor.ImplementationInstance is not null)
+            return (Penghou.Baize.Router.ILlmRouter)descriptor.ImplementationInstance;
+        if (descriptor.ImplementationType is not null)
+            return (Penghou.Baize.Router.ILlmRouter)Microsoft.Extensions.DependencyInjection.ActivatorUtilities
+                .CreateInstance(provider, descriptor.ImplementationType);
+        throw new InvalidOperationException(
+            "The Baize router registration cannot be resolved for provenance wrapping.");
     }
 }

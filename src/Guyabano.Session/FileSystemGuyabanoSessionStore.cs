@@ -130,6 +130,44 @@ public sealed class FileSystemGuyabanoSessionStore :
         }
     }
 
+    public async Task<GuyabanoSession?> UpdateWorkspaceRevisionAsync(
+        GuyabanoSessionId sessionId,
+        string? expectedRevision,
+        string replacementRevision,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(replacementRevision);
+
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var session = await ReadAsync(
+                    SessionPath(sessionId),
+                    cancellationToken)
+                .ConfigureAwait(false) ??
+                throw new KeyNotFoundException(
+                    $"Session '{sessionId}' does not exist.");
+            if (!string.Equals(
+                    session.CurrentWorkspaceRevision,
+                    expectedRevision,
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            session = session with
+            {
+                CurrentWorkspaceRevision = replacementRevision
+            };
+            await WriteAsync(session, cancellationToken).ConfigureAwait(false);
+            return session;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public void Dispose() => gate.Dispose();
 
     private string SessionPath(GuyabanoSessionId sessionId) =>

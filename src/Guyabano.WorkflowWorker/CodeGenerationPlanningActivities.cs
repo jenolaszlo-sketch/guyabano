@@ -24,10 +24,32 @@ public sealed class CodeGenerationPlanningActivities(
         var workflowId = info.WorkflowId ??
             throw new InvalidOperationException(
                 "Workflow activity information did not include a workflow ID.");
+        var repositorySnapshot = request.RepositoryContext;
+        // Bounded disclosure preview: log what will be sent to the model
+        if (repositorySnapshot is not null)
+        {
+            var previewLength = repositorySnapshot.Content.Length;
+            var truncated = previewLength > settings.RepositoryContextMaximumPromptCharacters;
+            logger.LogInformation(
+                "Disclosure preview for planning {WorkflowId} step {StepKey}: Cangjie snapshot {SnapshotId} strategy {Strategy}v{Version} query {Query} purpose {Purpose} Hetu run {HetuRun} workspace {Workspace} length {Length} truncated {Truncated}",
+                workflowId, info.ActivityId, repositorySnapshot.SnapshotId, repositorySnapshot.Strategy, repositorySnapshot.StrategyVersion,
+                $"guyabano:{workflowId}:repository-context", "code-generation-planning", repositorySnapshot.Revision.IndexRunId, repositorySnapshot.Revision.WorkspaceRevision,
+                previewLength, truncated);
+        }
+
         using var correlationScope = LlmRequestCorrelationScope.Push(new(
             request.SessionId.ToString(),
             workflowId,
-            info.ActivityId));
+            info.ActivityId,
+            CangjieSnapshotId: repositorySnapshot?.SnapshotId,
+            CangjieStrategy: repositorySnapshot?.Strategy,
+            CangjieStrategyVersion: repositorySnapshot?.StrategyVersion,
+            CangjieQueryIdentity: repositorySnapshot is not null ? $"guyabano:{workflowId}:repository-context" : null,
+            CangjiePurpose: repositorySnapshot is not null ? "code-generation-planning" : null,
+            HetuIndexRunId: repositorySnapshot?.Revision.IndexRunId,
+            HetuIndexIdentity: repositorySnapshot?.Revision.WorkspaceRevision,
+            WorkspaceRevision: repositorySnapshot?.Revision.WorkspaceRevision,
+            WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision));
         var transportAttempt = info.Attempt;
         const int maximumAttempts =
             CodeGenerationWorkflowConstants.MaximumPlanningTransportAttempts;

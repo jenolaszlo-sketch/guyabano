@@ -1,6 +1,7 @@
 using System.Threading;
 using Penghou.Zhinu;
 using Guyabano.Artifacts;
+using Guyabano.Llm.Prompting;
 using Guyabano.Messaging;
 
 namespace Guyabano.WorkflowWorker;
@@ -30,6 +31,13 @@ internal sealed class ZhinuPublishingArtifactRepository(
     IArtifactRepository inner,
     CodeGenerationWorkspaceResolver workspaceResolver) : IArtifactRepository
 {
+    /// <summary>
+    /// Filesystem/Cangjie success + Zhinu publish failure leaves an authoritative
+    /// file on disk. The next Zhinu step retry reuses the same content-hash file
+    /// (FileSystem idempotent) and re-indexes Cangjie idempotently, then republishes.
+    /// Unrecoverable filesystem errors (permission) fail fast; transient IO is retried
+    /// via Zhinu step retry.
+    /// </summary>
     public async Task<ArtifactEnvelope<TPayload>> WriteAsync<TPayload>(
         ArtifactWriteRequest<TPayload> request,
         CancellationToken cancellationToken = default)
@@ -45,6 +53,28 @@ internal sealed class ZhinuPublishingArtifactRepository(
         var context = CodeGenerationZhinuStepScope.Current;
         if (context is not null)
         {
+            var metadata = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["artifactId"] = envelope.Reference.ArtifactId,
+                ["status"] = envelope.Status.ToString(),
+                ["workflowId"] = envelope.WorkflowId,
+                ["sessionId"] = envelope.SessionId!,
+                ["stageKey"] = envelope.StageKey
+            };
+            var correlation = LlmRequestCorrelationScope.Current;
+            if (correlation?.CangjieSnapshotId is not null)
+            {
+                metadata["cangjieSnapshotId"] = correlation.CangjieSnapshotId.Value.ToString("D");
+                if (correlation.CangjieStrategy is not null) metadata["cangjieStrategy"] = correlation.CangjieStrategy;
+                if (correlation.CangjieStrategyVersion is not null) metadata["cangjieStrategyVersion"] = correlation.CangjieStrategyVersion;
+                if (correlation.CangjieQueryIdentity is not null) metadata["cangjieQueryIdentity"] = correlation.CangjieQueryIdentity;
+                if (correlation.CangjiePurpose is not null) metadata["cangjiePurpose"] = correlation.CangjiePurpose;
+                if (correlation.HetuIndexRunId is not null) metadata["hetuIndexRunId"] = correlation.HetuIndexRunId;
+                if (correlation.HetuIndexIdentity is not null) metadata["hetuIndexIdentity"] = correlation.HetuIndexIdentity;
+                if (correlation.WorkspaceRevision is not null) metadata["workspaceRevision"] = correlation.WorkspaceRevision;
+                if (correlation.WorkflowStepRevision is not null) metadata["workflowStepRevision"] = correlation.WorkflowStepRevision.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
             await context.PublishArtifactAsync(
                 new WorkflowArtifactDescriptor
                 {
@@ -55,15 +85,7 @@ internal sealed class ZhinuPublishingArtifactRepository(
                             System.Globalization.CultureInfo.InvariantCulture),
                     Location = envelope.Reference.RelativePath,
                     ContentHash = envelope.Reference.ContentHash,
-                    Metadata = new Dictionary<string, string>(
-                        StringComparer.Ordinal)
-                    {
-                        ["artifactId"] = envelope.Reference.ArtifactId,
-                        ["status"] = envelope.Status.ToString(),
-                        ["workflowId"] = envelope.WorkflowId,
-                        ["sessionId"] = envelope.SessionId!,
-                        ["stageKey"] = envelope.StageKey
-                    }
+                    Metadata = metadata
                 },
                 cancellationToken);
         }

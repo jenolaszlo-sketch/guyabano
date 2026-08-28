@@ -32,7 +32,8 @@ public sealed class ArchitectureReviewPromptBuilder(
                 : JsonSerializer.Serialize(
                     context.PreviousReview,
                     JsonOptions),
-            PlanJson = JsonSerializer.Serialize(context.Plan, JsonOptions)
+            PlanJson = JsonSerializer.Serialize(context.Plan, JsonOptions),
+            SessionContext = SessionContextDisclosureScope.Current
         };
 
     protected override LlmResponseFormat? BuildResponseFormat(

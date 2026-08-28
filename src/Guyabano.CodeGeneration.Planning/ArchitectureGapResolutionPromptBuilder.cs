@@ -28,7 +28,8 @@ public sealed class ArchitectureGapResolutionPromptBuilder(
             FindingJson = PlanningPromptJson.Serialize(context.Finding),
             PracticesJson = PlanningPromptJson.Serialize(context.Practices),
             context.DecisionId,
-            context.PreviousFailure
+            context.PreviousFailure,
+            SessionContext = SessionContextDisclosureScope.Current
         };
 
     protected override LlmResponseFormat? BuildResponseFormat(

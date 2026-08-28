@@ -7,6 +7,8 @@ public sealed class CodeGenerationWorkspaceResolver(
     IOptions<CodeGenerationWorkerOptions> options,
     IGuyabanoSessionStore sessionStore)
 {
+    public string OutputRoot => Path.GetFullPath(options.Value.OutputRoot);
+
     public CodeGenerationWorkspace Resolve(GuyabanoSessionId sessionId)
     {
         var sessionSegment = sessionId.ToString();

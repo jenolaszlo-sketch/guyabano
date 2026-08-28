@@ -42,7 +42,24 @@ public sealed class FileSystemSessionEventStore : ISessionEventStore, IDisposabl
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var last = await ReadLastAsync(path, cancellationToken).ConfigureAwait(false);
+            var events = File.Exists(path)
+                ? await ReadAllAsync(path, cancellationToken).ConfigureAwait(false)
+                : [];
+            if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            {
+                var replay = events.SingleOrDefault(item => string.Equals(
+                    item.IdempotencyKey,
+                    request.IdempotencyKey,
+                    StringComparison.Ordinal));
+                if (replay is not null)
+                {
+                    if (!EquivalentRequest(replay, request))
+                        throw new InvalidOperationException(
+                            $"Session event idempotency key '{request.IdempotencyKey}' is already used by a different event.");
+                    return replay;
+                }
+            }
+            var last = events.LastOrDefault();
             var previousHash = last?.Hash;
             var sequence = (last?.Sequence ?? 0) + 1;
             var eventId = Guid.CreateVersion7();
@@ -56,6 +73,7 @@ public sealed class FileSystemSessionEventStore : ISessionEventStore, IDisposabl
                 OccurredAt = request.OccurredAt,
                 CausationId = request.CausationId,
                 CorrelationId = request.CorrelationId,
+                IdempotencyKey = request.IdempotencyKey,
                 CrossSystemRefs = request.CrossSystemRefs,
                 PayloadJson = request.PayloadJson,
                 PreviousHash = previousHash
@@ -122,16 +140,6 @@ public sealed class FileSystemSessionEventStore : ISessionEventStore, IDisposabl
         gatesGate.Dispose();
     }
 
-    private async Task<SessionEvent?> ReadLastAsync(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        if (!File.Exists(path))
-            return null;
-        var events = await ReadAllAsync(path, cancellationToken).ConfigureAwait(false);
-        return events.LastOrDefault();
-    }
-
     private async Task<IReadOnlyList<SessionEvent>> ReadAllAsync(
         string path,
         CancellationToken cancellationToken)
@@ -177,7 +185,22 @@ public sealed class FileSystemSessionEventStore : ISessionEventStore, IDisposabl
 
     private static string ComputeHash(SessionEvent envelope)
     {
-        var canonical = JsonSerializer.Serialize(new
+        var canonical = envelope.IdempotencyKey is null
+            ? JsonSerializer.Serialize(new
+            {
+                envelope.Sequence,
+                envelope.EventId,
+                sessionId = envelope.SessionId.ToString(),
+                envelope.Actor,
+                envelope.EventType,
+                envelope.OccurredAt,
+                envelope.CausationId,
+                envelope.CorrelationId,
+                envelope.CrossSystemRefs,
+                envelope.PayloadJson,
+                envelope.PreviousHash
+            }, SerializerOptions)
+            : JsonSerializer.Serialize(new
         {
             envelope.Sequence,
             envelope.EventId,
@@ -187,6 +210,7 @@ public sealed class FileSystemSessionEventStore : ISessionEventStore, IDisposabl
             envelope.OccurredAt,
             envelope.CausationId,
             envelope.CorrelationId,
+            envelope.IdempotencyKey,
             envelope.CrossSystemRefs,
             envelope.PayloadJson,
             envelope.PreviousHash
@@ -194,5 +218,26 @@ public sealed class FileSystemSessionEventStore : ISessionEventStore, IDisposabl
         return Convert.ToHexString(
                 SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
             .ToLowerInvariant();
+    }
+
+    private static bool EquivalentRequest(
+        SessionEvent existing,
+        SessionEventRequest replay) =>
+        existing.SessionId == replay.SessionId &&
+        existing.Actor == replay.Actor &&
+        existing.EventType == replay.EventType &&
+        existing.CausationId == replay.CausationId &&
+        existing.CorrelationId == replay.CorrelationId &&
+        EquivalentReferences(existing.CrossSystemRefs, replay.CrossSystemRefs) &&
+        existing.PayloadJson == replay.PayloadJson;
+
+    private static bool EquivalentReferences(
+        IReadOnlyDictionary<string, string>? existing,
+        IReadOnlyDictionary<string, string>? replay)
+    {
+        if (existing is null || replay is null)
+            return existing is null && replay is null;
+        return existing.Count == replay.Count && existing.All(item =>
+            replay.TryGetValue(item.Key, out var value) && value == item.Value);
     }
 }

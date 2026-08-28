@@ -58,7 +58,8 @@ public sealed class CodeGenerationTaskPromptBuilder(
             Artifacts = context.Task.Artifacts ?? [],
             context.Task.Files,
             context.Task.Retry,
-            context.Task.AllowBuildArtifacts
+            context.Task.AllowBuildArtifacts,
+            context.Task.SessionContext
         };
 
     protected override IReadOnlyList<LlmTool> BuildTools(

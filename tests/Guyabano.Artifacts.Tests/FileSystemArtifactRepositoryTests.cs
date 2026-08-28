@@ -37,11 +37,25 @@ public sealed class FileSystemArtifactRepositoryTests : IDisposable
         loaded!.Status.Should().Be(ArtifactStatus.Validated);
         loaded.SessionId.Should().Be("session-1");
         loaded.Payload.Should().BeEquivalentTo(request.Payload);
+        loaded.Reference.HashVersion.Should().Be(
+            CanonicalJsonContentHash.Version);
         File.Exists(Path.Combine(
             _root,
             written.Reference.RelativePath.Replace(
                 '/',
                 Path.DirectorySeparatorChar))).Should().BeTrue();
+    }
+
+    [Fact]
+    public void CanonicalHash_IsIndependentOfObjectPropertyOrderAndNumberSpelling()
+    {
+        using var first = System.Text.Json.JsonDocument.Parse(
+            "{\"z\":1.0,\"a\":{\"b\":2,\"a\":true}}");
+        using var second = System.Text.Json.JsonDocument.Parse(
+            "{\"a\":{\"a\":true,\"b\":2.00},\"z\":1}");
+
+        CanonicalJsonContentHash.Compute(first.RootElement).Should().Be(
+            CanonicalJsonContentHash.Compute(second.RootElement));
     }
 
     [Fact]

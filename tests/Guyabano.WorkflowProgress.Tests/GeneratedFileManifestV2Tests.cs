@@ -174,7 +174,10 @@ public sealed class GeneratedFileManifestV2Tests : IDisposable
         manifestArtifact.ProducerStepKey.Should().Be("generation/task-1/leaf-1");
 
         var envelope = await artifacts.ReadAsync<GeneratedFileManifest>(
-            new ArtifactReference(manifestArtifact.Metadata["artifactId"], manifestArtifact.ArtifactType, 2, manifestArtifact.Location, manifestArtifact.ContentHash!),
+            new ArtifactReference(manifestArtifact.Metadata["artifactId"], manifestArtifact.ArtifactType, 2, manifestArtifact.Location, manifestArtifact.ContentHash!)
+            {
+                HashVersion = manifestArtifact.Metadata["hashVersion"]
+            },
             ct);
         envelope.Should().NotBeNull();
         envelope!.Payload.Files.Should().Contain(f => f.RelativePath == "File.cs" && f.Operation == "Created");

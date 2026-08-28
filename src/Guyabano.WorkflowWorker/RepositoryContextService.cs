@@ -208,25 +208,38 @@ internal sealed class RepositoryContextService(
 
         if (!string.IsNullOrWhiteSpace(request.QueryText))
         {
-            var memories = await contextStore.SearchAsync(
-                new ContextQuery
-                {
-                    Text = request.QueryText.Length <= MaximumMemoryQueryCharacters
-                        ? request.QueryText
-                        : request.QueryText[..MaximumMemoryQueryCharacters],
-                    Scope = scope,
-                    Kinds =
-                    [
-                        ContextKinds.Decision,
-                        ContextKinds.Evidence,
-                        ContextKinds.Knowledge,
-                        ContextKinds.Summary
-                    ],
-                    Limit = MaximumMemoryItems,
-                    SearchMode = ContextSearchMode.AnyTerm
-                },
-                cancellationToken).ConfigureAwait(false);
-            selected.AddRange(memories.Select(hit => hit.Item));
+            var queryText = request.QueryText.Length <= MaximumMemoryQueryCharacters
+                ? request.QueryText
+                : request.QueryText[..MaximumMemoryQueryCharacters];
+            var memoryScopes = new[]
+            {
+                $"guyabano:session:{request.SessionId}",
+                $"guyabano:session:{request.SessionId}:repository:{revision.RepositoryId}"
+            };
+            var memoryItems = new List<ContextItem>();
+            foreach (var memoryScope in memoryScopes)
+            {
+                var memories = await contextStore.SearchAsync(
+                    new ContextQuery
+                    {
+                        Text = queryText,
+                        Scope = memoryScope,
+                        Kinds =
+                        [
+                            ContextKinds.Decision,
+                            ContextKinds.Evidence,
+                            ContextKinds.Knowledge,
+                            ContextKinds.Summary
+                        ],
+                        Limit = MaximumMemoryItems,
+                        SearchMode = ContextSearchMode.AnyTerm
+                    },
+                    cancellationToken).ConfigureAwait(false);
+                memoryItems.AddRange(memories.Select(hit => hit.Item));
+            }
+            selected.AddRange(memoryItems
+                .DistinctBy(item => item.Id)
+                .Take(MaximumMemoryItems));
         }
 
         selected = selected

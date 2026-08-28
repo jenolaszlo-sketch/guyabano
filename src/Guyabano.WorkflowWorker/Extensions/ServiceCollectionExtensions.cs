@@ -116,6 +116,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISessionEventStore>(
             new FileSystemSessionEventStore(
                 Path.Combine(stateRoot, "sessions", "events")));
+        services.AddSingleton<ICrossStoreOperationStore>(
+            new FileSystemCrossStoreOperationStore(
+                Path.Combine(stateRoot, "operations")));
+        services.AddSingleton<CrossStoreOperationReconciliationService>();
 
         services.AddCangjieSqlite(options =>
         {
@@ -147,6 +151,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CodeGenerationActivityHeartbeatStore>();
         services.AddSingleton<CodeGenerationWorkspaceResolver>();
         services.AddSingleton<CodeGenerationRepositoryReindexer>();
+        services.AddZhinuStep<StartSessionOperationStep>(
+                CodeGenerationWorkflowConstants.StartSessionOperationStep);
+        services.AddZhinuStep<AdvanceSessionOperationStep>(
+                CodeGenerationWorkflowConstants.AdvanceSessionOperationStep);
         services.AddZhinuStep<ReindexGeneratedWorkspaceStep>(
                 CodeGenerationWorkflowConstants.ReindexStep);
         services.AddZhinuStep<IndexRepositoryStep>(
@@ -195,7 +203,9 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<
                     ContextIndexingArtifactRepository>(),
                 provider.GetRequiredService<
-                    CodeGenerationWorkspaceResolver>()));
+                    CodeGenerationWorkspaceResolver>(),
+                provider.GetRequiredService<ICrossStoreOperationStore>(),
+                provider.GetRequiredService<ISessionEventStore>()));
 
         services.AddHttpClient("llm", client =>
         {

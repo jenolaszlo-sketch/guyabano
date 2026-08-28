@@ -18,7 +18,8 @@ public sealed class CodeGenerationStagingService(
     IGuyabanoSessionStore sessionStore,
     IArtifactRepository artifactRepository,
     ISessionEventStore sessionEvents,
-    IOptions<CodeGenerationWorkerOptions> options)
+    IOptions<CodeGenerationWorkerOptions> options,
+    ICrossStoreOperationStore? operationStore = null)
 {
     public async Task<WorkspaceStagingMutation> CreateStagingAsync(
         Guid sessionId,
@@ -81,23 +82,58 @@ public sealed class CodeGenerationStagingService(
         string mutationId,
         string expectedBaselineRevision,
         Func<string, CancellationToken, Task<StagingValidationResult>> validate,
+        CancellationToken cancellationToken = default) =>
+        await ValidateAndPromoteAsync(
+            sessionId,
+            mutationId,
+            expectedBaselineRevision,
+            operationId: null,
+            validate,
+            cancellationToken).ConfigureAwait(false);
+
+    public async Task<WorkspacePromotion> ValidateAndPromoteAsync(
+        Guid sessionId,
+        string mutationId,
+        string expectedBaselineRevision,
+        CrossStoreOperationId? operationId,
+        Func<string, CancellationToken, Task<StagingValidationResult>> validate,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mutationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedBaselineRevision);
         ArgumentNullException.ThrowIfNull(validate);
 
-        var workspace = workspaceResolver.Resolve(new GuyabanoSessionId(sessionId));
-        var staging = workspaceResolver.ResolveStaging(new GuyabanoSessionId(sessionId), mutationId);
-        if (!Directory.Exists(staging.HostPath))
-            throw new InvalidOperationException(
-                $"Staging mutation '{mutationId}' does not exist for session '{sessionId}'.");
-
         var session = await sessionStore.GetAsync(
                 new GuyabanoSessionId(sessionId),
                 cancellationToken)
             .ConfigureAwait(false) ??
             throw new KeyNotFoundException($"Session '{sessionId}' does not exist.");
+        var workspace = workspaceResolver.Resolve(new GuyabanoSessionId(sessionId));
+        var staging = workspaceResolver.ResolveStaging(new GuyabanoSessionId(sessionId), mutationId);
+        var latestRunId = session.WorkflowRunIds.LastOrDefault();
+        if (!Directory.Exists(staging.HostPath))
+        {
+            var recovered = latestRunId == Guid.Empty
+                ? null
+                : await artifactRepository.ReadLatestAsync<WorkspacePromotion>(
+                    latestRunId.ToString("D"),
+                    "workspace-promotion",
+                    mutationId,
+                    cancellationToken).ConfigureAwait(false);
+            if (recovered is null || !recovered.Payload.Validated ||
+                recovered.Payload.FromRevision != expectedBaselineRevision ||
+                session.CurrentWorkspaceRevision != recovered.Payload.ToRevision)
+            {
+                throw new InvalidOperationException(
+                    $"Staging mutation '{mutationId}' does not exist for session '{sessionId}'.");
+            }
+            await RecordPromotionAsync(
+                recovered.Payload,
+                latestRunId,
+                operationId,
+                cancellationToken).ConfigureAwait(false);
+            return recovered.Payload;
+        }
         if (!string.Equals(
                 session.CurrentWorkspaceRevision,
                 expectedBaselineRevision,
@@ -188,7 +224,6 @@ public sealed class CodeGenerationStagingService(
             PromotedAt: DateTimeOffset.UtcNow,
             BackupPath: Directory.Exists(backupPath) ? backupPath : null);
 
-        var latestRunId = session.WorkflowRunIds.LastOrDefault();
         if (latestRunId != Guid.Empty)
         {
             await artifactRepository.WriteAsync(
@@ -218,10 +253,80 @@ public sealed class CodeGenerationStagingService(
                     ["fromRevision"] = promotion.FromRevision,
                     ["toRevision"] = promotion.ToRevision
                 },
-                PayloadJson: System.Text.Json.JsonSerializer.Serialize(promotion, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))))
+                PayloadJson: System.Text.Json.JsonSerializer.Serialize(promotion, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
+                IdempotencyKey: $"workspace-promotion:{sessionId:D}:{mutationId}:{toRevision}"))
             .ConfigureAwait(false);
 
+        await RecordPromotionAsync(
+            promotion,
+            latestRunId,
+            operationId,
+            cancellationToken).ConfigureAwait(false);
+
         return promotion;
+    }
+
+    private async Task RecordPromotionAsync(
+        WorkspacePromotion promotion,
+        Guid workflowRunId,
+        CrossStoreOperationId? operationId,
+        CancellationToken cancellationToken)
+    {
+        if (operationStore is null || operationId is null)
+            return;
+        var operation = await operationStore.GetAsync(
+                operationId.Value,
+                cancellationToken)
+            .ConfigureAwait(false) ??
+            throw new KeyNotFoundException(
+                $"Operation '{operationId}' does not exist.");
+        if (operation.SessionId.Value != promotion.SessionId)
+            throw new InvalidOperationException(
+                "Workspace promotion operation belongs to another session.");
+        var participant = $"workspace-promotion:{promotion.MutationId}";
+        var receipt = new CrossStoreParticipantReceipt
+        {
+            Participant = participant,
+            IdempotencyKey = operation.ParticipantIdempotencyKey(participant),
+            State = CrossStoreParticipantState.Applied,
+            RecordedAt = promotion.PromotedAt,
+            BeforeIdentity = promotion.FromRevision,
+            AfterIdentity = promotion.ToRevision,
+            ResultHash = promotion.ToRevision,
+            RecoveryAction =
+                "Verify the session CAS revision and workspace hash, then replay downstream publications."
+        };
+        operation = await operationStore.RecordParticipantAsync(
+                operation.Id,
+                receipt,
+                cancellationToken)
+            .ConfigureAwait(false);
+        operation = await operationStore.TransitionAsync(
+                operation.Id,
+                CrossStoreOperationState.WorkspacePromoted,
+                promotion.PromotedAt,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        await sessionEvents.AppendAsync(
+            new SessionEventRequest(
+                operation.SessionId,
+                "guyabano",
+                SessionEventTypes.OperationTransitioned,
+                promotion.PromotedAt,
+                CorrelationId: workflowRunId == Guid.Empty
+                    ? operation.WorkflowRunId
+                    : workflowRunId,
+                CrossSystemRefs: new Dictionary<string, string>
+                {
+                    ["operationId"] = operation.Id.ToString(),
+                    ["operationState"] = operation.State.ToString(),
+                    ["participant"] = participant,
+                    ["fromRevision"] = promotion.FromRevision,
+                    ["toRevision"] = promotion.ToRevision
+                },
+                IdempotencyKey:
+                    $"{operation.IdempotencyKey}:event:WorkspacePromoted:{participant}"),
+            cancellationToken).ConfigureAwait(false);
     }
 
     public Task DiscardAsync(

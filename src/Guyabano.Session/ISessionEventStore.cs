@@ -27,4 +27,5 @@ public sealed record SessionEventRequest(
     Guid? CausationId = null,
     Guid? CorrelationId = null,
     IReadOnlyDictionary<string, string>? CrossSystemRefs = null,
-    string? PayloadJson = null);
+    string? PayloadJson = null,
+    string? IdempotencyKey = null);

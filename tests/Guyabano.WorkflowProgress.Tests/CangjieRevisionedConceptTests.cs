@@ -4,6 +4,7 @@ using Guyabano.WorkflowWorker;
 using Microsoft.Data.Sqlite;
 using Penghou.Cangjie;
 using Penghou.Cangjie.Sqlite;
+using Guyabano.Session;
 
 namespace Guyabano.WorkflowProgressTests;
 
@@ -23,6 +24,56 @@ public sealed class CangjieRevisionedConceptTests : IDisposable
         AlternativesRejected = ["alt"],
         RelatedPackages = []
     };
+
+    [Fact]
+    public async Task ConceptWrite_RecordsSagaReceiptAndAppendOnlyEvent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var contextStore = CreateStore();
+        using var operations = new FileSystemCrossStoreOperationStore(
+            Path.Combine(rootPath, "operations"));
+        using var events = new FileSystemSessionEventStore(
+            Path.Combine(rootPath, "events"));
+        var sessionId = GuyabanoSessionId.New();
+        var runId = Guid.CreateVersion7();
+        var operation = await operations.StartAsync(
+            new StartCrossStoreOperationRequest(
+                sessionId,
+                runId,
+                "cangjie-proof",
+                $"{runId:D}:cangjie-proof",
+                DateTimeOffset.UtcNow),
+            ct);
+        var service = new CangjieRevisionedConceptService(
+            contextStore,
+            operations,
+            events);
+
+        var item = await service.StoreKnowledgeAsync(
+            sessionId.ToString(),
+            "accepted-clarification",
+            "Use append-only audit history.",
+            runId.ToString("D"),
+            "clarification/promote",
+            1,
+            cancellationToken: ct);
+        await service.StoreKnowledgeAsync(
+            sessionId.ToString(),
+            "accepted-clarification",
+            "Use append-only audit history.",
+            runId.ToString("D"),
+            "clarification/promote",
+            1,
+            cancellationToken: ct);
+
+        var recorded = await operations.GetAsync(operation.Id, ct);
+        recorded!.Participants.Should().ContainSingle(receipt =>
+            receipt.Participant == $"cangjie-publication:{item.Id:D}" &&
+            receipt.State == CrossStoreParticipantState.Applied);
+        (await events.ReadAsync(sessionId, cancellationToken: ct))
+            .Should().ContainSingle(item => item.EventType ==
+                SessionEventTypes.OperationParticipantRecorded);
+    }
 
     [Fact]
     public async Task Decision_RegeneratingSameLogicalKey_ProducesDeterministicHistory()

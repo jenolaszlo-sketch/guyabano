@@ -5,7 +5,15 @@ namespace Guyabano.CodeGeneration.Workflows;
 public static class CodeGenerationWorkflowConstants
 {
     public const string WorkflowName = "guyabano-code-generation";
-    public const string WorkflowVersion = "4";
+    public const string WorkflowVersion = "5";
+    public static readonly WorkflowStepReference<
+        StartSessionOperationRequest,
+        Guyabano.Session.CrossStoreOperation> StartSessionOperationStep =
+        new(new("guyabano.start-session-operation"));
+    public static readonly WorkflowStepReference<
+        AdvanceSessionOperationRequest,
+        Guyabano.Session.CrossStoreOperation> AdvanceSessionOperationStep =
+        new(new("guyabano.advance-session-operation"));
     public static readonly WorkflowStepReference<
         RepositoryIndexRequest,
         RepositoryRevision> IndexRepositoryStep =

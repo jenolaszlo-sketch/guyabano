@@ -20,3 +20,7 @@ Correct that exact structural or semantic failure in this attempt. Return a fres
 {{ end }}
 
 Return the complete review as the schema-conforming JSON response.
+{{ if session_context }}
+Session memory and code-graph context:
+{{ session_context }}
+{{ end }}

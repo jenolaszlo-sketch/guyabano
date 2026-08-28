@@ -2,8 +2,111 @@ using System.Collections.Concurrent;
 using Penghou.Zhinu;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
+using Guyabano.Session;
 
 namespace Guyabano.WorkflowWorker;
+
+internal sealed class StartSessionOperationStep(
+    ICrossStoreOperationStore operationStore,
+    ISessionEventStore sessionEvents,
+    CodeGenerationActivityHeartbeatStore heartbeatStore) :
+    CodeGenerationWorkflowStep<
+        StartSessionOperationRequest,
+        CrossStoreOperation>(heartbeatStore)
+{
+    protected override async Task<CrossStoreOperation> ExecuteCoreAsync(
+        StartSessionOperationRequest input,
+        CancellationToken cancellationToken)
+    {
+        var operation = await operationStore.StartAsync(
+            new StartCrossStoreOperationRequest(
+                input.SessionId,
+                input.WorkflowRunId,
+                input.Kind,
+                input.IdempotencyKey,
+                DateTimeOffset.UtcNow),
+            cancellationToken).ConfigureAwait(false);
+        await sessionEvents.AppendAsync(
+            new SessionEventRequest(
+                operation.SessionId,
+                "guyabano",
+                SessionEventTypes.OperationPrepared,
+                DateTimeOffset.UtcNow,
+                CorrelationId: operation.WorkflowRunId,
+                CrossSystemRefs: new Dictionary<string, string>
+                {
+                    ["operationId"] = operation.Id.ToString(),
+                    ["operationKind"] = operation.Kind,
+                    ["operationState"] = operation.State.ToString()
+                },
+                IdempotencyKey: $"{operation.IdempotencyKey}:event:prepared"),
+            cancellationToken).ConfigureAwait(false);
+        return operation;
+    }
+}
+
+internal sealed class AdvanceSessionOperationStep(
+    ICrossStoreOperationStore operationStore,
+    ISessionEventStore sessionEvents,
+    CodeGenerationActivityHeartbeatStore heartbeatStore) :
+    CodeGenerationWorkflowStep<
+        AdvanceSessionOperationRequest,
+        CrossStoreOperation>(heartbeatStore)
+{
+    protected override async Task<CrossStoreOperation> ExecuteCoreAsync(
+        AdvanceSessionOperationRequest input,
+        CancellationToken cancellationToken)
+    {
+        var operation = await operationStore.GetAsync(
+                input.OperationId,
+                cancellationToken)
+            .ConfigureAwait(false) ??
+            throw new KeyNotFoundException(
+                $"Operation '{input.OperationId}' does not exist.");
+        operation = await operationStore.RecordParticipantAsync(
+                input.OperationId,
+                new CrossStoreParticipantReceipt
+                {
+                    Participant = input.Participant,
+                    IdempotencyKey = operation.ParticipantIdempotencyKey(
+                        input.Participant),
+                    State = input.ParticipantState,
+                    RecordedAt = DateTimeOffset.UtcNow,
+                    BeforeIdentity = input.BeforeIdentity,
+                    AfterIdentity = input.AfterIdentity,
+                    ResultHash = input.ResultHash,
+                    RecoveryAction = input.RecoveryAction
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+        operation = await operationStore.TransitionAsync(
+                input.OperationId,
+                input.TargetState,
+                DateTimeOffset.UtcNow,
+                input.ReconciliationReason,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await sessionEvents.AppendAsync(
+            new SessionEventRequest(
+                operation.SessionId,
+                "guyabano",
+                SessionEventTypes.OperationTransitioned,
+                DateTimeOffset.UtcNow,
+                CorrelationId: operation.WorkflowRunId,
+                CrossSystemRefs: new Dictionary<string, string>
+                {
+                    ["operationId"] = operation.Id.ToString(),
+                    ["operationKind"] = operation.Kind,
+                    ["operationState"] = operation.State.ToString(),
+                    ["participant"] = input.Participant
+                },
+                PayloadJson: input.ReconciliationReason,
+                IdempotencyKey:
+                    $"{operation.IdempotencyKey}:event:{input.TargetState}:{input.Participant}"),
+            cancellationToken).ConfigureAwait(false);
+        return operation;
+    }
+}
 
 internal abstract class CodeGenerationWorkflowStep<TInput, TOutput>(
     CodeGenerationActivityHeartbeatStore heartbeatStore) :

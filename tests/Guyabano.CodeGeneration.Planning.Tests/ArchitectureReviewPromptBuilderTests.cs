@@ -62,4 +62,26 @@ public sealed class ArchitectureReviewPromptBuilderTests
         request.Messages[1].Text().Should().Contain(
             "Do not restart a broad architecture audit");
     }
+
+    [Fact]
+    public async Task BuildAsync_IncludesExplicitlySelectedSessionContext()
+    {
+        var builder = new ArchitectureReviewPromptBuilder(
+            new ScribanPromptTemplateEngine(
+                new FilePromptLoader(Path.Combine(
+                    AppContext.BaseDirectory,
+                    "prompts"))));
+        using var disclosure = SessionContextDisclosureScope.Push(
+            "Cangjie decision and Hetu dependency edge");
+
+        var request = await builder.BuildAsync(
+            new ArchitectureReviewPromptContext(
+                PlanTestData.Create(),
+                1,
+                LlmResponseFormat.JsonSchema("""{"type":"object"}""")),
+            TestContext.Current.CancellationToken);
+
+        request.Messages[1].Text().Should().Contain(
+            "Cangjie decision and Hetu dependency edge");
+    }
 }

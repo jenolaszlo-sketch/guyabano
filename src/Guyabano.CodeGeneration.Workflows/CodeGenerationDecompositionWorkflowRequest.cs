@@ -8,4 +8,7 @@ public sealed record CodeGenerationDecompositionWorkflowRequest(
     string ParentTaskId,
     IReadOnlyList<ArtifactReference> UpstreamDecompositionArtifacts,
     int ArchitectureVersion = 1,
-    ArtifactReference? ArchitectureArtifact = null);
+    ArtifactReference? ArchitectureArtifact = null)
+{
+    public RepositoryContextReference? RepositoryContext { get; init; }
+}

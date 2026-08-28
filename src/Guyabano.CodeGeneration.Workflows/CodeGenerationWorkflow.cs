@@ -1,6 +1,7 @@
 using Penghou.Baize;
 using Penghou.Zhinu;
 using Guyabano.CodeGeneration.Planning;
+using Guyabano.Session;
 
 namespace Guyabano.CodeGeneration.Workflows;
 
@@ -12,19 +13,81 @@ public sealed class CodeGenerationWorkflow
         CodeGenerationWorkflowRequest request,
         CancellationToken cancellationToken)
     {
+        var workflowRunId = workflow.WorkflowRunId;
+        var operation = await workflow.StepAsync<
+            StartSessionOperationRequest,
+            CrossStoreOperation>(
+                "operation/start",
+                CodeGenerationWorkflowConstants.StartSessionOperationStep,
+                new StartSessionOperationRequest(
+                    request.SessionId,
+                    workflowRunId,
+                    "code-generation-run",
+                    $"{workflowRunId:D}:code-generation-run"),
+                SessionOperationOptions(),
+                cancellationToken);
+
+        try
+        {
+            var result = await RunCoreAsync(
+                workflow,
+                request,
+                operation,
+                cancellationToken);
+            if (!result.Succeeded)
+            {
+                await MarkReconciliationRequiredAsync(
+                    workflow,
+                    operation.Id,
+                    result.Failure,
+                    result.Error,
+                    cancellationToken);
+            }
+            return result;
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                await MarkReconciliationRequiredAsync(
+                    workflow,
+                    operation.Id,
+                    exception.GetType().Name,
+                    exception.Message,
+                    CancellationToken.None);
+            }
+            catch
+            {
+                // Preserve the original workflow failure. The prepared operation
+                // remains durable and discoverable as incomplete if recording the
+                // reconciliation transition also fails.
+            }
+            throw;
+        }
+    }
+
+    private async Task<CodeGenerationWorkflowResult> RunCoreAsync(
+        WorkflowContext workflow,
+        CodeGenerationWorkflowRequest request,
+        CrossStoreOperation operation,
+        CancellationToken cancellationToken)
+    {
+
         if (request.ContinuationMode != CodeGenerationContinuationMode.None)
             return await ContinueAsync(
                 request,
                 workflow,
+                operation.Id,
                 cancellationToken);
 
         request = await PrepareRepositoryContextAsync(
             workflow,
             request,
+            ["operation/start"],
             cancellationToken);
 
         var planningDependsOn = request.Repository is null
-            ? []
+            ? new[] { "operation/start" }
             : new[] { "repository/capture" };
         var planningResult = await workflow.StepAsync<
             CodeGenerationWorkflowRequest,
@@ -77,7 +140,10 @@ public sealed class CodeGenerationWorkflow
                     architectureReviews.LastOrDefault()?.Review,
                     architectureResult.ArchitectureVersion,
                     architectureResult.ArchitectureArtifact,
-                    ArchitectureInputs(architectureResult)),
+                    ArchitectureInputs(architectureResult))
+                {
+                    RepositoryContext = request.RepositoryContext
+                },
                 ArchitectureActivityOptions() with
                 {
                     DependsOn = [architectureReviewDependsOn]
@@ -118,6 +184,7 @@ public sealed class CodeGenerationWorkflow
                 architectureReviews,
                 architectureIntegrations,
                 reviewStepKey,
+                request.RepositoryContext,
                 cancellationToken);
             architectureResult = sequence.Result;
             if (!sequence.Completed)
@@ -208,7 +275,10 @@ public sealed class CodeGenerationWorkflow
                                 parent.Id,
                                 upstreamArtifacts,
                                 planningResult.ArchitectureVersion,
-                                planningResult.ArchitectureArtifact),
+                                planningResult.ArchitectureArtifact)
+                            {
+                                RepositoryContext = request.RepositoryContext
+                            },
                             new StepOptions
                             {
                                 ExecutionTimeout = TimeSpan.FromMinutes(15),
@@ -271,6 +341,7 @@ public sealed class CodeGenerationWorkflow
                 architectureReviews,
                 architectureIntegrations,
                 gapReviewDependsOn,
+                request.RepositoryContext,
                 cancellationToken);
             architectureResult = gapSequence.Result;
             if (!gapSequence.Completed)
@@ -297,7 +368,10 @@ public sealed class CodeGenerationWorkflow
                         architectureReviews.LastOrDefault()?.Review,
                         architectureResult.ArchitectureVersion,
                         architectureResult.ArchitectureArtifact,
-                        ArchitectureInputs(architectureResult)),
+                        ArchitectureInputs(architectureResult))
+                    {
+                        RepositoryContext = request.RepositoryContext
+                    },
                     ArchitectureActivityOptions() with
                     {
                         DependsOn = [coherenceReviewDependsOn]
@@ -336,6 +410,7 @@ public sealed class CodeGenerationWorkflow
                         architectureReviews,
                         architectureIntegrations,
                         coherenceReviewStepKey,
+                        request.RepositoryContext,
                         cancellationToken);
                 architectureResult = coherenceSequence.Result;
                 if (!coherenceSequence.Completed)
@@ -538,7 +613,7 @@ public sealed class CodeGenerationWorkflow
         if (finalResult.Succeeded && finalResult.Build is not null)
         {
             // Reindex the validated workspace and persist the publication before the final checkpoint.
-            await workflow.StepAsync<
+            var reindex = await workflow.StepAsync<
                 RepositoryReindexRequest,
                 RepositoryReindexReceipt>(
                 "repository/reindex-post-generation",
@@ -558,7 +633,19 @@ public sealed class CodeGenerationWorkflow
                     DependsOn = [$"build/{finalResult.BuildAttempts.Count}"]
                 },
                 cancellationToken);
-            finalCheckpointDependsOn = ["repository/reindex-post-generation"];
+            await AdvanceOperationAsync(
+                workflow,
+                operation.Id,
+                CrossStoreOperationState.Published,
+                "hetu-reindex-publication",
+                CrossStoreParticipantState.Applied,
+                beforeIdentity: null,
+                afterIdentity: $"{reindex.IndexIdentity}@{reindex.IndexRunId}",
+                resultHash: null,
+                stepKey: "operation/publications-completed",
+                dependsOn: ["repository/reindex-post-generation"],
+                cancellationToken);
+            finalCheckpointDependsOn = ["operation/publications-completed"];
         }
         await SaveCheckpointAsync(
             workflow,
@@ -567,12 +654,28 @@ public sealed class CodeGenerationWorkflow
             "final",
             cancellationToken,
             finalCheckpointDependsOn);
+        if (finalResult.Succeeded && finalResult.Build is not null)
+        {
+            await AdvanceOperationAsync(
+                workflow,
+                operation.Id,
+                CrossStoreOperationState.Completed,
+                "final-checkpoint",
+                CrossStoreParticipantState.Applied,
+                beforeIdentity: null,
+                afterIdentity: "checkpoint/final",
+                resultHash: null,
+                stepKey: "operation/completed",
+                dependsOn: ["checkpoint/final"],
+                cancellationToken);
+        }
         return finalResult;
     }
 
     private async Task<CodeGenerationWorkflowResult> ContinueAsync(
         CodeGenerationWorkflowRequest request,
         WorkflowContext workflow,
+        CrossStoreOperationId operationId,
         CancellationToken cancellationToken)
     {
         if (request.ContinuationMode !=
@@ -633,7 +736,7 @@ public sealed class CodeGenerationWorkflow
             : new[] { "checkpoint/continuation-loaded" };
         if (finalResult.Succeeded && finalResult.Build is not null)
         {
-            await workflow.StepAsync<
+            var reindex = await workflow.StepAsync<
                 RepositoryReindexRequest,
                 RepositoryReindexReceipt>(
                 "repository/reindex-post-generation",
@@ -653,7 +756,19 @@ public sealed class CodeGenerationWorkflow
                     DependsOn = [$"build/{finalResult.BuildAttempts.Count}"]
                 },
                 cancellationToken);
-            continuationFinalDependsOn = ["repository/reindex-post-generation"];
+            await AdvanceOperationAsync(
+                workflow,
+                operationId,
+                CrossStoreOperationState.Published,
+                "hetu-reindex-publication",
+                CrossStoreParticipantState.Applied,
+                beforeIdentity: null,
+                afterIdentity: $"{reindex.IndexIdentity}@{reindex.IndexRunId}",
+                resultHash: null,
+                stepKey: "operation/publications-completed",
+                dependsOn: ["repository/reindex-post-generation"],
+                cancellationToken);
+            continuationFinalDependsOn = ["operation/publications-completed"];
         }
         await SaveCheckpointAsync(
             workflow,
@@ -662,6 +777,21 @@ public sealed class CodeGenerationWorkflow
             "continuation-final",
             cancellationToken,
             continuationFinalDependsOn);
+        if (finalResult.Succeeded && finalResult.Build is not null)
+        {
+            await AdvanceOperationAsync(
+                workflow,
+                operationId,
+                CrossStoreOperationState.Completed,
+                "final-checkpoint",
+                CrossStoreParticipantState.Applied,
+                beforeIdentity: null,
+                afterIdentity: "checkpoint/continuation-final",
+                resultHash: null,
+                stepKey: "operation/completed",
+                dependsOn: ["checkpoint/continuation-final"],
+                cancellationToken);
+        }
         return finalResult;
     }
 
@@ -817,6 +947,7 @@ public sealed class CodeGenerationWorkflow
         PrepareRepositoryContextAsync(
             WorkflowContext workflow,
             CodeGenerationWorkflowRequest request,
+            IReadOnlyCollection<string> dependsOn,
             CancellationToken cancellationToken)
     {
         if (request.Repository is null)
@@ -831,7 +962,10 @@ public sealed class CodeGenerationWorkflow
                     request.Repository,
                     workflow.WorkflowRunId.ToString("D"),
                     request.SessionId.ToString()),
-                RepositoryContextActivityOptions(TimeSpan.FromMinutes(15)),
+                RepositoryContextActivityOptions(TimeSpan.FromMinutes(15)) with
+                {
+                    DependsOn = dependsOn
+                },
                 cancellationToken);
         var selection = await workflow.StepAsync<
             RepositoryContextSelectionRequest,
@@ -885,6 +1019,77 @@ public sealed class CodeGenerationWorkflow
             MaxAttempts = 2
         }
     };
+
+    private static StepOptions SessionOperationOptions() => new()
+    {
+        ExecutionTimeout = TimeSpan.FromMinutes(1),
+        Retry = new RetryPolicy
+        {
+            MaxAttempts = 3
+        }
+    };
+
+    private static async Task AdvanceOperationAsync(
+        WorkflowContext workflow,
+        CrossStoreOperationId operationId,
+        CrossStoreOperationState targetState,
+        string participant,
+        CrossStoreParticipantState participantState,
+        string? beforeIdentity,
+        string? afterIdentity,
+        string? resultHash,
+        string stepKey,
+        IReadOnlyCollection<string> dependsOn,
+        CancellationToken cancellationToken,
+        string? recoveryAction = null,
+        string? reconciliationReason = null) =>
+        _ = await workflow.StepAsync<
+            AdvanceSessionOperationRequest,
+            CrossStoreOperation>(
+                stepKey,
+                CodeGenerationWorkflowConstants.AdvanceSessionOperationStep,
+                new AdvanceSessionOperationRequest(
+                    operationId,
+                    targetState,
+                    participant,
+                    participantState,
+                    beforeIdentity,
+                    afterIdentity,
+                    resultHash,
+                    RecoveryAction: recoveryAction,
+                    ReconciliationReason: reconciliationReason),
+                SessionOperationOptions() with
+                {
+                    DependsOn = dependsOn
+                },
+                cancellationToken);
+
+    private static Task MarkReconciliationRequiredAsync(
+        WorkflowContext workflow,
+        CrossStoreOperationId operationId,
+        string failure,
+        string? error,
+        CancellationToken cancellationToken)
+    {
+        var reason = string.IsNullOrWhiteSpace(error)
+            ? failure
+            : $"{failure}: {error}";
+        return AdvanceOperationAsync(
+            workflow,
+            operationId,
+            CrossStoreOperationState.ReconciliationRequired,
+            "workflow-terminal-failure",
+            CrossStoreParticipantState.Failed,
+            beforeIdentity: null,
+            afterIdentity: null,
+            resultHash: null,
+            stepKey: "operation/reconciliation-required",
+            dependsOn: ["operation/start"],
+            cancellationToken,
+            recoveryAction:
+                "Inspect Zhinu step history and participant receipts, then start a forward recovery operation.",
+            reconciliationReason: reason);
+    }
 
     internal static bool CanAcceptArchitecture(
         ArchitectureReview review,
@@ -946,6 +1151,7 @@ public sealed class CodeGenerationWorkflow
             IReadOnlyList<ArchitectureReviewWorkflowResult> reviews,
             List<ArchitectureDecisionIntegrationWorkflowResult> integrations,
             string reviewStepKey,
+            RepositoryContextReference? repositoryContext,
             CancellationToken cancellationToken)
     {
         if (review.Findings.Count == 0)
@@ -969,7 +1175,10 @@ public sealed class CodeGenerationWorkflow
                     result.ArchitectureVersion,
                     result.ArchitectureArtifact,
                     ArchitectureInputs(result),
-                    result.ArchitecturePractices),
+                    result.ArchitecturePractices)
+                {
+                    RepositoryContext = repositoryContext
+                },
                 ArchitectureActivityOptions() with
                 {
                     DependsOn = [resolutionDependsOn]
@@ -1019,7 +1228,10 @@ public sealed class CodeGenerationWorkflow
                     result.ArchitectureArtifact,
                     resolution.Artifact is null
                         ? []
-                        : [resolution.Artifact]),
+                        : [resolution.Artifact])
+                {
+                    RepositoryContext = repositoryContext
+                },
                 ArchitectureActivityOptions() with
                 {
                     DependsOn = [resolutionStepKey]

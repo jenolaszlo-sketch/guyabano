@@ -35,6 +35,15 @@ public sealed class RepositoryContextServiceTests : IDisposable
         var contextStore = CreateContextStore(databasePath);
         var service = new RepositoryContextService(hetu, contextStore);
         var workflowRunId = Guid.NewGuid();
+        await new CangjieRevisionedConceptService(contextStore)
+            .StoreKnowledgeAsync(
+                "session:test",
+                "customer-service-convention",
+                "Customer service decisions require cancellation tokens.",
+                workflowRunId.ToString("D"),
+                "clarification/accepted",
+                1,
+                cancellationToken: TestContext.Current.CancellationToken);
         var revision = await ExecuteAsync(
             new IndexRepositoryStep(
                 service,
@@ -73,6 +82,8 @@ public sealed class RepositoryContextServiceTests : IDisposable
         selection.Observations.Should().Contain(item =>
             item.Content.Contains("CustomerService", StringComparison.Ordinal));
         captured.Content.Should().Contain("CustomerService");
+        captured.Content.Should().Contain(
+            "Customer service decisions require cancellation tokens.");
         captured.ItemCount.Should().BePositive();
 
         var reopened = CreateContextStore(databasePath);
@@ -225,6 +236,26 @@ public sealed class RepositoryContextServiceTests : IDisposable
         prompt.Should().NotContain("123456");
         prompt.Should().Contain("truncated");
         prompt.Should().Contain(request.RepositoryContext!.SnapshotId.ToString("D"));
+    }
+
+    [Fact]
+    public void SessionContextAssembler_BindsSnapshotAndExactHetuRevision()
+    {
+        var request = RequestWithContext("accepted decision and symbol edge");
+
+        var assembled = SessionContextAssembler.Assemble(
+            request.RepositoryContext,
+            "code-generation",
+            1000);
+
+        assembled.Should().NotBeNull();
+        assembled!.Content.Should().Contain("accepted decision and symbol edge");
+        assembled.Content.Should().Contain(
+            request.RepositoryContext!.SnapshotId.ToString("D"));
+        assembled.Content.Should().Contain("run:test");
+        assembled.Content.Should().Contain(new string('a', 64));
+        assembled.Content.Should().Contain("untrusted reference data");
+        assembled.Truncated.Should().BeFalse();
     }
 
     public void Dispose()

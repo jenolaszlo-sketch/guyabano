@@ -14,3 +14,7 @@ Use this exact ADR ID in decisionRecord:
 The preceding resolution attempt was rejected for this exact reason. Correct it without broadening the finding:
 {{ previous_failure }}
 {{ end }}
+{{ if session_context }}
+Session memory and code-graph context:
+{{ session_context }}
+{{ end }}

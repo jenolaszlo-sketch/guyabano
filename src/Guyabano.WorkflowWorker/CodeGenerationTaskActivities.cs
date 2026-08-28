@@ -81,7 +81,16 @@ public sealed class CodeGenerationTaskActivities(
             {
                 SessionId = workspace.SessionId.ToString(),
                 WorkflowRunId = workflowId,
-                WorkflowStepKey = info.ActivityId
+                WorkflowStepKey = info.ActivityId,
+                SessionContext = settings.IncludeRepositoryContextInPrompts
+                    ? SessionContextAssembler.Assemble(
+                        request.RepositoryContext,
+                        request.IsBuildRepair
+                            ? "code-generation-build-repair"
+                            : "code-generation",
+                        settings.RepositoryContextMaximumPromptCharacters)
+                        ?.Content
+                    : null
             };
             if (previousAttempt is not null)
             {
@@ -98,21 +107,32 @@ public sealed class CodeGenerationTaskActivities(
             ContextSnapshot? generationSnapshot = null;
             try
             {
-                generationSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
-                    contextStore,
-                    workspace.SessionId.ToString(),
-                    workflowId,
-                    info.ActivityId,
-                    CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
-                    queryIdentity: $"guyabano:{workflowId}:generation:{task.Id}",
-                    strategy: "code-generation",
-                    strategyVersion: "1",
-                    purpose: request.IsBuildRepair ? "code-generation-build-repair" : "code-generation",
-                    workspaceRevision: null,
-                    hetuIndexRunId: request.RepositoryContext?.Revision.IndexRunId,
-                    hetuIndexIdentity: request.RepositoryContext?.Revision.WorkspaceRevision,
-                    itemIds: [],
-                    cancellationToken: context.CancellationToken);
+                if (request.RepositoryContext is null)
+                {
+                    generationSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
+                        contextStore,
+                        workspace.SessionId.ToString(),
+                        workflowId,
+                        info.ActivityId,
+                        CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
+                        queryIdentity: $"guyabano:{workflowId}:generation:{task.Id}",
+                        strategy: "code-generation",
+                        strategyVersion: "1",
+                        purpose: request.IsBuildRepair ? "code-generation-build-repair" : "code-generation",
+                        workspaceRevision: null,
+                        hetuIndexRunId: null,
+                        hetuIndexIdentity: null,
+                        itemIds: [],
+                        cancellationToken: context.CancellationToken);
+                }
+                else
+                {
+                    generationSnapshot = (await contextStore.ResolveSnapshotAsync(
+                        request.RepositoryContext.SnapshotId,
+                        context.CancellationToken))?.Snapshot ??
+                        throw new InvalidOperationException(
+                            $"Cangjie snapshot '{request.RepositoryContext.SnapshotId:D}' could not be resolved.");
+                }
                 generationCorrelation = LlmRequestCorrelationScope.Push(new(
                     workspace.SessionId.ToString(),
                     workflowId,

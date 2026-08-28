@@ -9,4 +9,7 @@ public sealed record ArchitectureReviewWorkflowRequest(
     ArchitectureReview? PreviousReview = null,
     int ArchitectureVersion = 1,
     ArtifactReference? PreviousArchitectureArtifact = null,
-    IReadOnlyList<ArtifactReference>? PlanningArtifacts = null);
+    IReadOnlyList<ArtifactReference>? PlanningArtifacts = null)
+{
+    public RepositoryContextReference? RepositoryContext { get; init; }
+}

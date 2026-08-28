@@ -9,4 +9,7 @@ public sealed record ArchitectureDecisionIntegrationWorkflowRequest(
     IReadOnlyList<ArchitectureGapResolution> ResolvedDecisions,
     int ArchitectureVersion,
     ArtifactReference? PreviousArchitectureArtifact = null,
-    IReadOnlyList<ArtifactReference>? ResolutionArtifacts = null);
+    IReadOnlyList<ArtifactReference>? ResolutionArtifacts = null)
+{
+    public RepositoryContextReference? RepositoryContext { get; init; }
+}

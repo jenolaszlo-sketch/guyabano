@@ -28,4 +28,5 @@ public sealed record CodeGenerationTaskContext(
     bool AllowBuildArtifacts = false,
     string? SessionId = null,
     string? WorkflowRunId = null,
-    string? WorkflowStepKey = null);
+    string? WorkflowStepKey = null,
+    string? SessionContext = null);

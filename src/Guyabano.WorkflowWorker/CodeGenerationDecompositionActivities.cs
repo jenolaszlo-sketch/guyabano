@@ -32,6 +32,14 @@ public sealed class CodeGenerationDecompositionActivities(
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             workflowId,
             context.CancellationToken);
+        var assembledContext = settings.IncludeRepositoryContextInPrompts
+            ? SessionContextAssembler.Assemble(
+                request.RepositoryContext,
+                "code-generation-decomposition",
+                settings.RepositoryContextMaximumPromptCharacters)
+            : null;
+        using var disclosureScope = SessionContextDisclosureScope.Push(
+            assembledContext?.Content);
         ContextSnapshot? decompositionSnapshot = null;
         try
         {
@@ -56,7 +64,19 @@ public sealed class CodeGenerationDecompositionActivities(
             logger.LogWarning(ex, "Unable to create Cangjie snapshot for decomposition {ParentId} workflow {WorkflowId}", request.ParentTaskId, workflowId);
         }
 
-        using var correlationScope = decompositionSnapshot is not null
+        using var correlationScope = request.RepositoryContext is not null
+            ? LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CangjieSnapshotId: request.RepositoryContext.SnapshotId,
+                CangjieStrategy: request.RepositoryContext.Strategy,
+                CangjieStrategyVersion: request.RepositoryContext.StrategyVersion,
+                CangjiePurpose: "code-generation-decomposition",
+                HetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
+                HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : decompositionSnapshot is not null
             ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,

@@ -3,6 +3,9 @@ using Penghou.Zhinu;
 using Guyabano.Artifacts;
 using Guyabano.Llm.Prompting;
 using Guyabano.Messaging;
+using Guyabano.Session;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Guyabano.WorkflowWorker;
 
@@ -29,7 +32,9 @@ internal static class CodeGenerationZhinuStepScope
 
 internal sealed class ZhinuPublishingArtifactRepository(
     IArtifactRepository inner,
-    CodeGenerationWorkspaceResolver workspaceResolver) : IArtifactRepository
+    CodeGenerationWorkspaceResolver workspaceResolver,
+    ICrossStoreOperationStore? operationStore = null,
+    ISessionEventStore? sessionEvents = null) : IArtifactRepository
 {
     /// <summary>
     /// Filesystem/Cangjie success + Zhinu publish failure leaves an authoritative
@@ -59,8 +64,21 @@ internal sealed class ZhinuPublishingArtifactRepository(
                 ["status"] = envelope.Status.ToString(),
                 ["workflowId"] = envelope.WorkflowId,
                 ["sessionId"] = envelope.SessionId!,
-                ["stageKey"] = envelope.StageKey
+                ["stageKey"] = envelope.StageKey,
+                ["hashVersion"] = envelope.Reference.HashVersion
             };
+            var envelopeOptions = new JsonSerializerOptions(
+                JsonSerializerDefaults.Web)
+            {
+                WriteIndented = true
+            };
+            envelopeOptions.Converters.Add(new JsonStringEnumConverter());
+            metadata["envelopeHash"] = Convert.ToHexString(
+                    System.Security.Cryptography.SHA256.HashData(
+                        JsonSerializer.SerializeToUtf8Bytes(
+                            envelope,
+                            envelopeOptions)))
+                .ToLowerInvariant();
             var correlation = LlmRequestCorrelationScope.Current;
             if (correlation?.CangjieSnapshotId is not null)
             {
@@ -88,6 +106,53 @@ internal sealed class ZhinuPublishingArtifactRepository(
                     Metadata = metadata
                 },
                 cancellationToken);
+
+            var operation = operationStore is null
+                ? null
+                : await operationStore.FindByWorkflowRunAsync(
+                    context.WorkflowRunId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (operation is not null && sessionEvents is not null)
+            {
+                var participant =
+                    $"artifact-publication:{envelope.Reference.ArtifactId}";
+                var receipt = new CrossStoreParticipantReceipt
+                {
+                    Participant = participant,
+                    IdempotencyKey = operation.ParticipantIdempotencyKey(
+                        participant),
+                    State = CrossStoreParticipantState.Applied,
+                    RecordedAt = DateTimeOffset.UtcNow,
+                    AfterIdentity = envelope.Reference.RelativePath,
+                    ResultHash = envelope.Reference.ContentHash,
+                    RecoveryAction =
+                        "Republish the immutable content-addressed artifact through the producing Zhinu step."
+                };
+                operation = await operationStore!.RecordParticipantAsync(
+                        operation.Id,
+                        receipt,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                await sessionEvents.AppendAsync(
+                    new SessionEventRequest(
+                        operation.SessionId,
+                        "guyabano",
+                        SessionEventTypes.OperationParticipantRecorded,
+                        receipt.RecordedAt,
+                        CorrelationId: operation.WorkflowRunId,
+                        CrossSystemRefs: new Dictionary<string, string>
+                        {
+                            ["operationId"] = operation.Id.ToString(),
+                            ["participant"] = participant,
+                            ["artifactId"] = envelope.Reference.ArtifactId,
+                            ["contentHash"] = envelope.Reference.ContentHash,
+                            ["workflowStepKey"] = context.StepKey
+                        },
+                        IdempotencyKey:
+                            $"{operation.IdempotencyKey}:event:participant:{participant}"),
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return envelope;

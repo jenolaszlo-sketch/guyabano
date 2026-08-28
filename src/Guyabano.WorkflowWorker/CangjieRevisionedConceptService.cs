@@ -4,10 +4,14 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Guyabano.CodeGeneration.Planning;
 using Penghou.Cangjie;
+using Guyabano.Session;
 
 namespace Guyabano.WorkflowWorker;
 
-public sealed class CangjieRevisionedConceptService(IContextStore contextStore)
+public sealed class CangjieRevisionedConceptService(
+    IContextStore contextStore,
+    ICrossStoreOperationStore? operationStore = null,
+    ISessionEventStore? sessionEvents = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -62,9 +66,12 @@ public sealed class CangjieRevisionedConceptService(IContextStore contextStore)
             }
         };
 
-        return await StoreRevisionedAsync(
+        var stored = await StoreRevisionedAsync(
             scope, key, ContextKinds.Decision, content, provenance, metadata, tags,
             derivedFromIds, supportsIds, cancellationToken).ConfigureAwait(false);
+        await RecordPublicationAsync(stored, workflowRunId, cancellationToken)
+            .ConfigureAwait(false);
+        return stored;
     }
 
     public async Task<ContextItem> StoreEvidenceAsync(
@@ -112,7 +119,10 @@ public sealed class CangjieRevisionedConceptService(IContextStore contextStore)
             }
         };
 
-        return await StoreRevisionedAsync(scope, key, ContextKinds.Evidence, content, provenance, metadata, tags, null, supportsIds, cancellationToken).ConfigureAwait(false);
+        var stored = await StoreRevisionedAsync(scope, key, ContextKinds.Evidence, content, provenance, metadata, tags, null, supportsIds, cancellationToken).ConfigureAwait(false);
+        await RecordPublicationAsync(stored, workflowRunId, cancellationToken)
+            .ConfigureAwait(false);
+        return stored;
     }
 
     public async Task<ContextItem> StoreKnowledgeAsync(
@@ -159,7 +169,10 @@ public sealed class CangjieRevisionedConceptService(IContextStore contextStore)
             }
         };
 
-        return await StoreRevisionedAsync(scope, key, ContextKinds.Knowledge, content, provenance, metadata, tags, derivedFromIds, null, cancellationToken).ConfigureAwait(false);
+        var stored = await StoreRevisionedAsync(scope, key, ContextKinds.Knowledge, content, provenance, metadata, tags, derivedFromIds, null, cancellationToken).ConfigureAwait(false);
+        await RecordPublicationAsync(stored, workflowRunId, cancellationToken)
+            .ConfigureAwait(false);
+        return stored;
     }
 
     public Task<ContextItem?> GetLatestDecisionAsync(string sessionId, string decisionId, string? repositoryId = null, CancellationToken cancellationToken = default)
@@ -257,4 +270,58 @@ public sealed class CangjieRevisionedConceptService(IContextStore contextStore)
 
     private static string Hash(string content) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
+
+    private async Task RecordPublicationAsync(
+        ContextItem item,
+        string workflowRunId,
+        CancellationToken cancellationToken)
+    {
+        if (operationStore is null || sessionEvents is null ||
+            !Guid.TryParse(workflowRunId, out var runId))
+            return;
+        var operation = await operationStore.FindByWorkflowRunAsync(
+                runId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (operation is null)
+            return;
+
+        var participant = $"cangjie-publication:{item.Id:D}";
+        var recordedAt = DateTimeOffset.UtcNow;
+        operation = await operationStore.RecordParticipantAsync(
+                operation.Id,
+                new CrossStoreParticipantReceipt
+                {
+                    Participant = participant,
+                    IdempotencyKey = operation.ParticipantIdempotencyKey(
+                        participant),
+                    State = CrossStoreParticipantState.Applied,
+                    RecordedAt = recordedAt,
+                    AfterIdentity = item.Id.ToString("D"),
+                    ResultHash = item.Metadata.TryGetValue(
+                        "contentHash", out var hash) ? hash : null,
+                    RecoveryAction =
+                        "Replay the idempotent Cangjie concept write and its relations."
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+        await sessionEvents.AppendAsync(
+            new SessionEventRequest(
+                operation.SessionId,
+                "guyabano",
+                SessionEventTypes.OperationParticipantRecorded,
+                recordedAt,
+                CorrelationId: operation.WorkflowRunId,
+                CrossSystemRefs: new Dictionary<string, string>
+                {
+                    ["operationId"] = operation.Id.ToString(),
+                    ["participant"] = participant,
+                    ["cangjieItemId"] = item.Id.ToString("D"),
+                    ["contextKind"] = item.Kind,
+                    ["contextKey"] = item.Key ?? "(none)"
+                },
+                IdempotencyKey:
+                    $"{operation.IdempotencyKey}:event:participant:{participant}"),
+            cancellationToken).ConfigureAwait(false);
+    }
 }

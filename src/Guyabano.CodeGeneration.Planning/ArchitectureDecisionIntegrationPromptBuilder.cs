@@ -36,7 +36,8 @@ public sealed class ArchitectureDecisionIntegrationPromptBuilder(
                 JsonOptions),
             ResolvedDecisionsJson = JsonSerializer.Serialize(
                 context.ResolvedDecisions,
-                JsonOptions)
+                JsonOptions),
+            SessionContext = SessionContextDisclosureScope.Current
         };
 
     protected override IReadOnlyList<LlmTool> BuildTools(

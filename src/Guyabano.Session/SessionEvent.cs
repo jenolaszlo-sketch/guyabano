@@ -20,6 +20,10 @@ public static class SessionEventTypes
     public const string RestartApplied = "restart-applied";
     public const string RestartFailed = "restart-failed";
     public const string CangjieKnowledgePromoted = "cangjie-knowledge-promoted";
+    public const string OperationPrepared = "operation-prepared";
+    public const string OperationTransitioned = "operation-transitioned";
+    public const string OperationParticipantRecorded =
+        "operation-participant-recorded";
 }
 
 /// <summary>
@@ -43,6 +47,8 @@ public sealed record SessionEvent
     public Guid? CausationId { get; init; }
 
     public Guid? CorrelationId { get; init; }
+
+    public string? IdempotencyKey { get; init; }
 
     public IReadOnlyDictionary<string, string>? CrossSystemRefs { get; init; }
 

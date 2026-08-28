@@ -30,7 +30,7 @@ public sealed class FileSystemArtifactRepository : IArtifactRepository
             throw new ArgumentOutOfRangeException(nameof(request.SchemaVersion));
 
         var inputs = request.Inputs?.ToArray() ?? [];
-        var contentHash = ComputeContentHash(
+        var contentHash = ComputeCanonicalContentHash(
             request.Kind,
             request.SchemaVersion,
             request.Status,
@@ -48,7 +48,10 @@ public sealed class FileSystemArtifactRepository : IArtifactRepository
             request.Kind,
             request.SchemaVersion,
             relativePath.Replace('\\', '/'),
-            contentHash);
+            contentHash)
+        {
+            HashVersion = CanonicalJsonContentHash.Version
+        };
         var envelope = new ArtifactEnvelope<TPayload>(
             reference,
             request.WorkflowId,
@@ -234,12 +237,23 @@ public sealed class FileSystemArtifactRepository : IArtifactRepository
             throw new ArtifactIntegrityException(
                 $"Artifact reference '{requested.ArtifactId}' does not match its stored envelope.");
 
-        var actualHash = ComputeContentHash(
-            envelope.Reference.Kind,
-            envelope.Reference.SchemaVersion,
-            envelope.Status,
-            envelope.Inputs,
-            envelope.Payload);
+        var actualHash = envelope.Reference.HashVersion switch
+        {
+            CanonicalJsonContentHash.Version => ComputeCanonicalContentHash(
+                envelope.Reference.Kind,
+                envelope.Reference.SchemaVersion,
+                envelope.Status,
+                envelope.Inputs,
+                envelope.Payload),
+            "v1" => ComputeContentHash(
+                envelope.Reference.Kind,
+                envelope.Reference.SchemaVersion,
+                envelope.Status,
+                envelope.Inputs,
+                envelope.Payload),
+            _ => throw new ArtifactIntegrityException(
+                $"Artifact '{requested.ArtifactId}' uses unknown hash contract '{envelope.Reference.HashVersion}'.")
+        };
         if (!actualHash.Equals(
                 requested.ContentHash,
                 StringComparison.OrdinalIgnoreCase))
@@ -269,6 +283,26 @@ public sealed class FileSystemArtifactRepository : IArtifactRepository
         return Convert.ToHexString(
                 SHA256.HashData(bytes))
             .ToLowerInvariant();
+    }
+
+    private static string ComputeCanonicalContentHash<TPayload>(
+        string kind,
+        int schemaVersion,
+        ArtifactStatus status,
+        IReadOnlyList<ArtifactReference> inputs,
+        TPayload payload)
+    {
+        var element = JsonSerializer.SerializeToElement(
+            new ArtifactHashContent<TPayload>(
+                kind,
+                schemaVersion,
+                status,
+                inputs.Select(item => item.ArtifactId)
+                    .OrderBy(item => item, StringComparer.Ordinal)
+                    .ToArray(),
+                payload),
+            SerializerOptions);
+        return CanonicalJsonContentHash.Compute(element);
     }
 
     private string ResolvePath(string relativePath)

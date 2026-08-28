@@ -42,6 +42,38 @@ public sealed class SessionEventStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Append_WithIdempotencyKey_IsRetrySafeAndRejectsConflict()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var store = new FileSystemSessionEventStore(rootPath);
+        var sessionId = GuyabanoSessionId.New();
+        var request = new SessionEventRequest(
+            sessionId,
+            "guyabano",
+            SessionEventTypes.OperationPrepared,
+            DateTimeOffset.UtcNow,
+            CorrelationId: Guid.CreateVersion7(),
+            CrossSystemRefs: new Dictionary<string, string>
+            {
+                ["operationId"] = CrossStoreOperationId.New().ToString()
+            },
+            IdempotencyKey: "operation:prepared");
+
+        var first = await store.AppendAsync(request, ct);
+        var replay = await store.AppendAsync(
+            request with { OccurredAt = request.OccurredAt.AddMinutes(1) }, ct);
+        replay.Should().BeEquivalentTo(first);
+        (await store.ReadAsync(sessionId, cancellationToken: ct))
+            .Should().ContainSingle();
+
+        var conflict = () => store.AppendAsync(
+            request with { EventType = SessionEventTypes.OperationTransitioned },
+            ct);
+        await conflict.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*already used by a different event*");
+    }
+
+    [Fact]
     public async Task VerifyChain_DetectsTampering()
     {
         var ct = TestContext.Current.CancellationToken;

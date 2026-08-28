@@ -38,10 +38,24 @@ public sealed class ZhinuArtifactPublicationTests : IDisposable
                 CiRelativePath = "."
             }),
             sessionStore);
+        using var operations = new FileSystemCrossStoreOperationStore(
+            Path.Combine(rootPath, ".gen", "operations"));
+        using var sessionEvents = new FileSystemSessionEventStore(
+            Path.Combine(rootPath, ".gen", "events"));
+        var operation = await operations.StartAsync(
+            new StartCrossStoreOperationRequest(
+                session.Id,
+                runId,
+                "artifact-proof",
+                $"{runId:D}:artifact-proof",
+                DateTimeOffset.UtcNow),
+            cancellationToken);
         var artifacts = new ZhinuPublishingArtifactRepository(
             new FileSystemArtifactRepository(
                 Path.Combine(rootPath, ".gen", "artifacts")),
-            resolver);
+            resolver,
+            operations,
+            sessionEvents);
         var workflow = new ArtifactPublishingWorkflow(artifacts);
         var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
         {
@@ -73,6 +87,18 @@ public sealed class ZhinuArtifactPublicationTests : IDisposable
         published[0].Metadata!["sessionId"].Should().Be(
             session.Id.ToString());
         published[0].ContentHash.Should().NotBeNullOrWhiteSpace();
+
+        var recorded = await operations.GetAsync(operation.Id, cancellationToken);
+        recorded!.Participants.Should().ContainSingle(item =>
+            item.Participant.StartsWith(
+                "artifact-publication:",
+                StringComparison.Ordinal) &&
+            item.ResultHash == published[0].ContentHash);
+        (await sessionEvents.ReadAsync(
+            session.Id,
+            cancellationToken: cancellationToken)).Should().ContainSingle(item =>
+                item.EventType ==
+                    SessionEventTypes.OperationParticipantRecorded);
     }
 
     public void Dispose()

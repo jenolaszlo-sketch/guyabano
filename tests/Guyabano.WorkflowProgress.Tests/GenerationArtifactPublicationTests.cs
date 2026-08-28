@@ -96,7 +96,10 @@ public sealed class GenerationArtifactPublicationTests : IDisposable
                 manifestArtifact.ArtifactType,
                 int.Parse(manifestArtifact.ArtifactVersion),
                 manifestArtifact.Location,
-                manifestArtifact.ContentHash!),
+                manifestArtifact.ContentHash!)
+            {
+                HashVersion = manifestArtifact.Metadata["hashVersion"]
+            },
             cancellationToken);
         envelope.Should().NotBeNull();
         envelope!.Payload.Files.Should().HaveCount(2);
@@ -117,7 +120,10 @@ public sealed class GenerationArtifactPublicationTests : IDisposable
                 taskContextArtifact.ArtifactType,
                 int.Parse(taskContextArtifact.ArtifactVersion),
                 taskContextArtifact.Location,
-                taskContextArtifact.ContentHash!),
+                taskContextArtifact.ContentHash!)
+            {
+                HashVersion = taskContextArtifact.Metadata["hashVersion"]
+            },
             cancellationToken);
         taskEnvelope.Should().NotBeNull();
         taskEnvelope!.Payload.SessionId.Should().Be(session.Id.ToString());
@@ -216,7 +222,10 @@ public sealed class GenerationArtifactPublicationTests : IDisposable
         artifact.ArtifactVersion.Should().Be("1");
 
         var envelope = await artifacts.ReadAsync<RepositoryPublicationPayload>(
-            new ArtifactReference(artifact.Metadata["artifactId"], artifact.ArtifactType, int.Parse(artifact.ArtifactVersion ?? "1"), artifact.Location, artifact.ContentHash!),
+            new ArtifactReference(artifact.Metadata["artifactId"], artifact.ArtifactType, int.Parse(artifact.ArtifactVersion ?? "1"), artifact.Location, artifact.ContentHash!)
+            {
+                HashVersion = artifact.Metadata["hashVersion"]
+            },
             cancellationToken);
         envelope.Should().NotBeNull();
         envelope!.Payload.Revision.RepositoryId.Should().Be("repo:test");
@@ -261,7 +270,10 @@ public sealed class GenerationArtifactPublicationTests : IDisposable
         artifact.Metadata!["sessionId"].Should().Be(session.Id.ToString());
 
         var envelope = await artifacts.ReadAsync<ValidationEvidencePayload>(
-            new ArtifactReference(artifact.Metadata["artifactId"], artifact.ArtifactType, int.Parse(artifact.ArtifactVersion ?? "1"), artifact.Location, artifact.ContentHash!),
+            new ArtifactReference(artifact.Metadata["artifactId"], artifact.ArtifactType, int.Parse(artifact.ArtifactVersion ?? "1"), artifact.Location, artifact.ContentHash!)
+            {
+                HashVersion = artifact.Metadata["hashVersion"]
+            },
             cancellationToken);
         envelope.Should().NotBeNull();
         envelope!.Payload.BuildResult.Succeeded.Should().BeTrue();

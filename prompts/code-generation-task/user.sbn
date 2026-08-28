@@ -130,6 +130,11 @@ These are reviewed defaults and inferred constraints. Apply them exactly unless 
 - None.
 {{ end }}
 
+{{ if session_context }}
+Session memory and code-graph context:
+{{ session_context }}
+{{ end }}
+
 Current relevant files:
 {{ if files.size > 0 }}
 {{ for file in files }}

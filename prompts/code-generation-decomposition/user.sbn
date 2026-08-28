@@ -186,3 +186,7 @@ These are the complete architecture contracts referenced by upstream artifacts. 
 {{ end }}
 
 Return execution-ready leaves or explicit architecture gaps through {{ result_tool_name }}.
+{{ if session_context }}
+Session memory and code-graph context:
+{{ session_context }}
+{{ end }}

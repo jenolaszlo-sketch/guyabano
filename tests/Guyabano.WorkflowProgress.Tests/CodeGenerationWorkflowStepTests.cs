@@ -2,16 +2,19 @@ using FluentAssertions;
 using Penghou.Zhinu;
 using Guyabano.CodeGeneration.Workflows;
 using Guyabano.WorkflowWorker;
+using Guyabano.Session;
 
 namespace Guyabano.WorkflowProgressTests;
 
 public sealed class CodeGenerationWorkflowStepTests
 {
     [Fact]
-    public void ImplementationKeys_AreUniqueForWorkflowVersionFour()
+    public void ImplementationKeys_AreUniqueForWorkflowVersionFive()
     {
         WorkflowStepReference[] steps =
         {
+            CodeGenerationWorkflowConstants.StartSessionOperationStep,
+            CodeGenerationWorkflowConstants.AdvanceSessionOperationStep,
             CodeGenerationWorkflowConstants.IndexRepositoryStep,
             CodeGenerationWorkflowConstants.SelectRepositoryContextStep,
             CodeGenerationWorkflowConstants.CaptureRepositoryContextStep,
@@ -27,9 +30,74 @@ public sealed class CodeGenerationWorkflowStepTests
             CodeGenerationWorkflowConstants.SaveCheckpointStep
         };
 
-        CodeGenerationWorkflowConstants.WorkflowVersion.Should().Be("4");
+        CodeGenerationWorkflowConstants.WorkflowVersion.Should().Be("5");
         steps.Select(step => step.ImplementationKey.Value)
             .Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public async Task SessionOperationSteps_AreRetrySafeAcrossDurableStore()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "guyabano-operation-step-tests",
+            Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var store = new FileSystemCrossStoreOperationStore(root);
+            using var events = new FileSystemSessionEventStore(
+                Path.Combine(root, "events"));
+            var heartbeats = new CodeGenerationActivityHeartbeatStore(
+                TimeProvider.System);
+            var start = new StartSessionOperationStep(
+                store, events, heartbeats);
+            var advance = new AdvanceSessionOperationStep(
+                store, events, heartbeats);
+            var runId = Guid.CreateVersion7();
+            var request = new StartSessionOperationRequest(
+                GuyabanoSessionId.New(),
+                runId,
+                "code-generation-run",
+                $"{runId:D}:code-generation-run");
+
+            var first = await start.ExecuteAsync(
+                CreateContext(runId, 1), request,
+                TestContext.Current.CancellationToken);
+            var replay = await start.ExecuteAsync(
+                CreateContext(runId, 2), request,
+                TestContext.Current.CancellationToken);
+            replay.Id.Should().Be(first.Id);
+
+            var publication = new AdvanceSessionOperationRequest(
+                first.Id,
+                CrossStoreOperationState.Published,
+                "hetu-reindex-publication",
+                CrossStoreParticipantState.Applied,
+                AfterIdentity: "index:2",
+                ResultHash: "run:2");
+            var published = await advance.ExecuteAsync(
+                CreateContext(runId, 1), publication,
+                TestContext.Current.CancellationToken);
+            var publishedReplay = await advance.ExecuteAsync(
+                CreateContext(runId, 2), publication,
+                TestContext.Current.CancellationToken);
+
+            publishedReplay.State.Should().Be(
+                CrossStoreOperationState.Published);
+            publishedReplay.Version.Should().Be(published.Version);
+            publishedReplay.Participants.Should().ContainSingle();
+            var sessionEvents = await events.ReadAsync(
+                request.SessionId,
+                cancellationToken: TestContext.Current.CancellationToken);
+            sessionEvents.Select(item => item.EventType).Should().Equal(
+                SessionEventTypes.OperationPrepared,
+                SessionEventTypes.OperationTransitioned);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

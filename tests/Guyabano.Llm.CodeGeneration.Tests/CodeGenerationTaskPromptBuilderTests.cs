@@ -159,6 +159,37 @@ public sealed class CodeGenerationTaskPromptBuilderTests
         TextOf(request.Messages[0]).Should().Be("true");
     }
 
+    [Fact]
+    public async Task BuildAsync_DisclosesAssembledSessionContextToGeneration()
+    {
+        var loader = new DictionaryPromptLoader(
+            new Dictionary<string, string>
+            {
+                ["code-generation-task/system.sbn"] = "system",
+                ["code-generation-task/user.sbn"] = "{{ session_context }}"
+            });
+        var builder = new CodeGenerationTaskPromptBuilder(
+            new ScribanPromptTemplateEngine(loader));
+        var tool = new LlmTool(
+            "emit_task_files",
+            "Emits task files.",
+            "{\"type\":\"object\"}");
+        var context = CreateContext() with
+        {
+            SessionContext = "Cangjie decision plus Hetu neighborhood"
+        };
+
+        var request = await builder.BuildAsync(
+            new CodeGenerationTaskPromptContext(
+                context,
+                tool.Name,
+                [tool]),
+            TestContext.Current.CancellationToken);
+
+        TextOf(request.Messages[1]).Should().Be(
+            "Cangjie decision plus Hetu neighborhood");
+    }
+
     private static CodeGenerationTaskContext CreateContext() =>
         new(
             "Build a todo API.",

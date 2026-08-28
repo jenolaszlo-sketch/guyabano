@@ -25,12 +25,25 @@ public sealed class WorkspaceStagingTests : IDisposable
         var resolver = new CodeGenerationWorkspaceResolver(
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }),
             sessionStore);
+        using var operations = new FileSystemCrossStoreOperationStore(
+            Path.Combine(rootPath, ".gen", "operations"));
+        using var sessionEvents = new FileSystemSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
+        var operation = await operations.StartAsync(
+            new StartCrossStoreOperationRequest(
+                session.Id,
+                runId,
+                "workspace-mutation",
+                $"{runId:D}:workspace:mut-1",
+                DateTimeOffset.UtcNow),
+            ct);
         var staging = new CodeGenerationStagingService(
             resolver,
             sessionStore,
             new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen", "artifacts")),
-            new FileSystemSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
-            Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));
+            sessionEvents,
+            Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }),
+            operations);
 
         var workspace = resolver.Resolve(session.Id);
         Directory.CreateDirectory(workspace.HostPath);
@@ -53,6 +66,7 @@ public sealed class WorkspaceStagingTests : IDisposable
             session.Id.Value,
             "mut-1",
             initialRevision,
+            operation.Id,
             (path, token) => Task.FromResult(new StagingValidationResult(true)),
             ct);
 
@@ -74,6 +88,29 @@ public sealed class WorkspaceStagingTests : IDisposable
         artifact.Should().NotBeNull();
         artifact!.Payload.FromRevision.Should().Be(initialRevision);
         artifact.Payload.ToRevision.Should().Be(promotion.ToRevision);
+
+        // A retry after the CAS commit point recovers from the immutable artifact
+        // even though staging has already been promoted and removed.
+        var replay = await staging.ValidateAndPromoteAsync(
+            session.Id.Value,
+            "mut-1",
+            initialRevision,
+            operation.Id,
+            (path, token) => throw new InvalidOperationException(
+                "Validation must not rerun after committed promotion."),
+            ct);
+        replay.Should().BeEquivalentTo(promotion);
+        var recorded = await operations.GetAsync(operation.Id, ct);
+        recorded!.State.Should().Be(CrossStoreOperationState.WorkspacePromoted);
+        recorded.Participants.Should().ContainSingle(item =>
+            item.Participant == "workspace-promotion:mut-1");
+        var events = await sessionEvents.ReadAsync(
+            session.Id,
+            cancellationToken: ct);
+        events.Count(item => item.EventType == SessionEventTypes.WorkspacePromoted)
+            .Should().Be(1);
+        events.Count(item => item.EventType == SessionEventTypes.OperationTransitioned)
+            .Should().Be(1);
     }
 
     [Fact]

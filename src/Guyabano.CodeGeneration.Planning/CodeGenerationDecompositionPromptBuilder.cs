@@ -52,7 +52,8 @@ public sealed class CodeGenerationDecompositionPromptBuilder(
             ResolvedDependencies = work.ResolvedDependencies.Artifacts,
             ResolvedDependencyContracts =
                 work.ResolvedDependencies.EffectiveContracts,
-            work.Decisions
+            work.Decisions,
+            SessionContext = SessionContextDisclosureScope.Current
         };
     }
 

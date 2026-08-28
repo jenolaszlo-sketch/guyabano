@@ -5,4 +5,7 @@ public sealed record ArtifactReference(
     string Kind,
     int SchemaVersion,
     string RelativePath,
-    string ContentHash);
+    string ContentHash)
+{
+    public string HashVersion { get; init; } = "v1";
+}

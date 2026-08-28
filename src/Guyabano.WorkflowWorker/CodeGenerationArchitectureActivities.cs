@@ -33,10 +33,24 @@ public sealed class CodeGenerationArchitectureActivities(
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             workflowId,
             context.CancellationToken);
+        var assembledContext = settings.IncludeRepositoryContextInPrompts
+            ? SessionContextAssembler.Assemble(
+                request.RepositoryContext,
+                "architecture-review",
+                settings.RepositoryContextMaximumPromptCharacters)
+            : null;
+        using var disclosureScope = SessionContextDisclosureScope.Push(
+            assembledContext?.Content);
         using var correlationScope = LlmRequestCorrelationScope.Push(new(
             workspace.SessionId.ToString(),
             workflowId,
-            info.ActivityId));
+            info.ActivityId,
+            CangjieSnapshotId: request.RepositoryContext?.SnapshotId,
+            CangjieStrategy: request.RepositoryContext?.Strategy,
+            CangjieStrategyVersion: request.RepositoryContext?.StrategyVersion,
+            CangjiePurpose: "architecture-review",
+            HetuIndexRunId: request.RepositoryContext?.Revision.IndexRunId,
+            HetuIndexIdentity: request.RepositoryContext?.Revision.WorkspaceRevision));
         var transportAttempt = info.Attempt;
         const int maximumAttempts =
             CodeGenerationWorkflowConstants.MaximumArchitectureTransportAttempts;
@@ -291,6 +305,14 @@ public sealed class CodeGenerationArchitectureActivities(
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             workflowId,
             context.CancellationToken);
+        var assembledContext = settings.IncludeRepositoryContextInPrompts
+            ? SessionContextAssembler.Assemble(
+                request.RepositoryContext,
+                "architecture-gap-resolution",
+                settings.RepositoryContextMaximumPromptCharacters)
+            : null;
+        using var disclosureScope = SessionContextDisclosureScope.Push(
+            assembledContext?.Content);
         ContextSnapshot? gapSnapshot = null;
         try
         {
@@ -315,7 +337,19 @@ public sealed class CodeGenerationArchitectureActivities(
             logger.LogWarning(ex, "Unable to create Cangjie snapshot for gap {GapId} workflow {WorkflowId}", request.Finding.Id, workflowId);
         }
 
-        using var correlationScope = gapSnapshot is not null
+        using var correlationScope = request.RepositoryContext is not null
+            ? LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CangjieSnapshotId: request.RepositoryContext.SnapshotId,
+                CangjieStrategy: request.RepositoryContext.Strategy,
+                CangjieStrategyVersion: request.RepositoryContext.StrategyVersion,
+                CangjiePurpose: "architecture-gap-resolution",
+                HetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
+                HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : gapSnapshot is not null
             ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,
@@ -480,6 +514,14 @@ public sealed class CodeGenerationArchitectureActivities(
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             workflowId,
             context.CancellationToken);
+        var assembledContext = settings.IncludeRepositoryContextInPrompts
+            ? SessionContextAssembler.Assemble(
+                request.RepositoryContext,
+                "architecture-integration",
+                settings.RepositoryContextMaximumPromptCharacters)
+            : null;
+        using var disclosureScope = SessionContextDisclosureScope.Push(
+            assembledContext?.Content);
         var nextVersion = request.ArchitectureVersion + 1;
         ContextSnapshot? integrationSnapshot = null;
         try
@@ -505,7 +547,19 @@ public sealed class CodeGenerationArchitectureActivities(
             logger.LogWarning(ex, "Unable to create Cangjie snapshot for architecture integration {WorkflowId} step {StepKey}", workflowId, info.ActivityId);
         }
 
-        using var correlationScope = integrationSnapshot is not null
+        using var correlationScope = request.RepositoryContext is not null
+            ? LlmRequestCorrelationScope.Push(new(
+                workspace.SessionId.ToString(),
+                workflowId,
+                info.ActivityId,
+                CangjieSnapshotId: request.RepositoryContext.SnapshotId,
+                CangjieStrategy: request.RepositoryContext.Strategy,
+                CangjieStrategyVersion: request.RepositoryContext.StrategyVersion,
+                CangjiePurpose: "architecture-integration",
+                HetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
+                HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : integrationSnapshot is not null
             ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,

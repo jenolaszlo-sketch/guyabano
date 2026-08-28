@@ -15,3 +15,7 @@ Correct only that integration failure. Do not reconsider any resolution or widen
 {{ end }}
 
 Return the minimal structured architecture decision patch through {{ result_tool_name }}.
+{{ if session_context }}
+Session memory and code-graph context:
+{{ session_context }}
+{{ end }}

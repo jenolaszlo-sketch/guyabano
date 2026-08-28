@@ -20,8 +20,7 @@ public sealed class SessionConsistencyAuditService(
     ISessionEventStore sessionEvents,
     IContextStore contextStore,
     IArtifactRepository artifactRepository,
-    CodeGenerationWorkspaceResolver workspaceResolver,
-    IOptions<CodeGenerationWorkerOptions> options)
+    CodeGenerationWorkspaceResolver workspaceResolver)
 {
     public async Task<SessionAuditReport> AuditAsync(
         Guid sessionId,
@@ -223,23 +222,83 @@ public sealed class SessionConsistencyAuditService(
             return false;
         }
 
-        var fullPath = Path.GetFullPath(Path.Combine(
-            options.Value.OutputRoot,
-            ".gen",
-            artifact.Location));
-        if (!File.Exists(fullPath))
+        if (artifact.Metadata is null ||
+            !artifact.Metadata.TryGetValue("artifactId", out var artifactId) ||
+            !artifact.Metadata.TryGetValue("envelopeHash", out var envelopeHash) ||
+            !artifact.Metadata.TryGetValue("hashVersion", out var hashVersion) ||
+            !int.TryParse(
+                artifact.ArtifactVersion,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var schemaVersion))
             return false;
 
         try
         {
-            var json = await File.ReadAllTextAsync(fullPath, cancellationToken)
-                .ConfigureAwait(false);
-            using var document = JsonDocument.Parse(json);
-            var storedHash = document.RootElement
-                .GetProperty("reference")
-                .GetProperty("contentHash")
-                .GetString();
-            return string.Equals(storedHash, artifact.ContentHash, StringComparison.OrdinalIgnoreCase);
+            var reference = new ArtifactReference(
+                artifactId,
+                artifact.ArtifactType,
+                schemaVersion,
+                artifact.Location,
+                artifact.ContentHash)
+            {
+                HashVersion = hashVersion
+            };
+            var artifactRoot = Path.GetFullPath(Path.Combine(
+                workspaceResolver.OutputRoot,
+                ".gen"));
+            if (Path.IsPathRooted(reference.RelativePath))
+                return false;
+            var path = Path.GetFullPath(Path.Combine(
+                artifactRoot,
+                reference.RelativePath));
+            var rootPrefix = artifactRoot.EndsWith(Path.DirectorySeparatorChar)
+                ? artifactRoot
+                : artifactRoot + Path.DirectorySeparatorChar;
+            if (!path.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists(path))
+                return false;
+            await using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 16 * 1024, useAsync: true);
+            var actualEnvelopeHash = Convert.ToHexString(
+                    await System.Security.Cryptography.SHA256.HashDataAsync(
+                        stream,
+                        cancellationToken))
+                .ToLowerInvariant();
+            if (!actualEnvelopeHash.Equals(
+                    envelopeHash,
+                    StringComparison.OrdinalIgnoreCase))
+                return false;
+            stream.Position = 0;
+            using var document = await JsonDocument.ParseAsync(
+                stream,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            var storedReference = document.RootElement.GetProperty("reference");
+            var versionMatches = storedReference.TryGetProperty(
+                    "hashVersion", out var storedVersion)
+                ? storedVersion.GetString() == reference.HashVersion
+                : reference.HashVersion == "v1";
+            var referencesMatch = storedReference.GetProperty("artifactId").GetString() ==
+                    reference.ArtifactId &&
+                storedReference.GetProperty("kind").GetString() == reference.Kind &&
+                storedReference.GetProperty("schemaVersion").GetInt32() ==
+                    reference.SchemaVersion &&
+                storedReference.GetProperty("relativePath").GetString() ==
+                    reference.RelativePath &&
+                string.Equals(
+                    storedReference.GetProperty("contentHash").GetString(),
+                    reference.ContentHash,
+                    StringComparison.OrdinalIgnoreCase) &&
+                versionMatches;
+            if (!referencesMatch)
+                return false;
+            return reference.HashVersion == CanonicalJsonContentHash.Version
+                ? CanonicalJsonContentHash.ComputeEnvelopeContent(
+                        document.RootElement)
+                    .Equals(
+                        reference.ContentHash,
+                        StringComparison.OrdinalIgnoreCase)
+                : reference.HashVersion == "v1";
         }
         catch
         {

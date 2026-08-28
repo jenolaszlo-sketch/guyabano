@@ -63,8 +63,7 @@ public sealed class SessionConsistencyAuditTests : IDisposable
         await engine.WaitForCompletionAsync<string>(runId, cancellationToken: ct);
 
         var auditService = new SessionConsistencyAuditService(
-            engine, sessionStore, sessionEvents, contextStore, artifacts, resolver,
-            Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));
+            engine, sessionStore, sessionEvents, contextStore, artifacts, resolver);
 
         var report = await auditService.AuditAsync(session.Id.Value, ct);
         report.WorkflowRunsChecked.Should().Be(1);
@@ -120,8 +119,7 @@ public sealed class SessionConsistencyAuditTests : IDisposable
         File.Delete(Path.Combine(rootPath, ".gen", evidence.Location));
 
         var auditService = new SessionConsistencyAuditService(
-            engine, sessionStore, sessionEvents, contextStore, artifacts, resolver,
-            Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));
+            engine, sessionStore, sessionEvents, contextStore, artifacts, resolver);
         var report = await auditService.AuditAsync(session.Id.Value, ct);
 
         report.ArtifactsResolved.Should().Be(2);

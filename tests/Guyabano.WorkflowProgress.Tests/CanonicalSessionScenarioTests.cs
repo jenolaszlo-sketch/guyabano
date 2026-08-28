@@ -125,7 +125,7 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
 
         // 8. Reconstruct the audit timeline
         var auditService = new SessionConsistencyAuditService(
-            engine, sessionStore, sessionEvents, contextStore, artifacts, resolver, options);
+            engine, sessionStore, sessionEvents, contextStore, artifacts, resolver);
         var audit = await auditService.AuditAsync(session.Id.Value, ct);
         audit.WorkflowRunsChecked.Should().Be(1);
         audit.Findings.Should().NotContain(f => f.Severity == SessionAuditSeverity.Error);

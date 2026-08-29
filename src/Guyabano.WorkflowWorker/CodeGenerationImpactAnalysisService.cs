@@ -1,10 +1,19 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Options;
 using Penghou.Cangjie;
 using Penghou.Hetu;
+using Penghou.Zhinu;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
+using Guyabano.Session;
 
 namespace Guyabano.WorkflowWorker;
+
+public sealed record CodeGenerationRestartApplicationResult(
+    CodeGenerationImpactReport Impact,
+    RestartOutcome Outcome,
+    CodeGenerationAppliedRestartPlan? AppliedPlan);
 
 public sealed class CodeGenerationImpactAnalysisService(
     HetuHost hetu,
@@ -12,6 +21,9 @@ public sealed class CodeGenerationImpactAnalysisService(
     IArtifactRepository artifactRepository,
     CodeGenerationWorkflowRestartService restartService,
     CodeGenerationWorkspaceResolver workspaceResolver,
+    IGuyabanoSessionStore sessionStore,
+    ISessionDecisionLeaseProvider decisionLeases,
+    SessionRecoveryCoordinator recovery,
     IOptions<CodeGenerationWorkerOptions> options)
 {
     private static readonly Penghou.Hetu.CodeGraphQueryOptions ImpactQueryOptions = new(
@@ -25,6 +37,13 @@ public sealed class CodeGenerationImpactAnalysisService(
     /// persisted as an authoritative artifact for audit.
     /// </summary>
     public async Task<CodeGenerationImpactReport> AnalyzeAsync(
+        Guid workflowRunId,
+        string? targetStepKey,
+        CancellationToken cancellationToken = default) =>
+        (await ProposeAsync(workflowRunId, targetStepKey, cancellationToken)
+            .ConfigureAwait(false)).Impact;
+
+    public async Task<CodeGenerationImpactProposal> ProposeAsync(
         Guid workflowRunId,
         string? targetStepKey,
         CancellationToken cancellationToken = default)
@@ -162,19 +181,28 @@ public sealed class CodeGenerationImpactAnalysisService(
             .ToArray();
 
         var report = new CodeGenerationImpactReport(
+            PreviewId: preview?.PreviewId ?? Guid.CreateVersion7(),
             WorkflowRunId: workflowRunId,
             TargetStepKey: targetStepKey,
+            RestartMode: StepRestartMode.Dependents,
+            WorkspaceRevision: preview?.WorkspaceRevision,
+            ChangeSetHash: ComputeChangeSetHash(
+                targetStepKey,
+                preview?.WorkspaceRevision,
+                indexIdentity,
+                explainedNodes,
+                reusable),
             IndexIdentity: indexIdentity,
             IndexRunId: publication?.Payload.IndexRunId,
             GeneratedAt: DateTimeOffset.UtcNow,
             ImpactedNodes: explainedNodes,
             ReusableStepKeys: reusable);
 
-        await artifactRepository.WriteAsync(
+        var persisted = await artifactRepository.WriteAsync(
             new ArtifactWriteRequest<CodeGenerationImpactReport>(
                 WorkflowId: workflowId,
                 Kind: "impact-analysis",
-                SchemaVersion: 1,
+                SchemaVersion: 3,
                 StageKey: targetStepKey ?? "all",
                 Status: ArtifactStatus.Validated,
                 Payload: report)
@@ -183,42 +211,129 @@ public sealed class CodeGenerationImpactAnalysisService(
             },
             cancellationToken).ConfigureAwait(false);
 
-        return report;
+        return new CodeGenerationImpactProposal(persisted.Reference, persisted.Payload);
     }
 
     /// <summary>
     /// Persists the proposed impact, executes the approved restart, and records
     /// an applied plan only after Zhinu accepts the mutation.
     /// </summary>
-    public async Task ApplyAsync(
-        Guid workflowRunId,
-        string targetStepKey,
-        string approvedBy,
+    public async Task<CodeGenerationRestartApplicationResult> ApplyAsync(
+        CodeGenerationRestartApprovalCommand approval,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(targetStepKey);
-        ArgumentException.ThrowIfNullOrWhiteSpace(approvedBy);
+        ArgumentNullException.ThrowIfNull(approval);
+        if (approval.ApprovalId == Guid.Empty)
+            throw new ArgumentException("A stable approval ID is required.", nameof(approval));
+        ArgumentException.ThrowIfNullOrWhiteSpace(approval.ApprovedBy);
 
+        var proposal = approval.Proposal;
+        var workflowRunId = proposal.Impact.WorkflowRunId;
+        var targetStepKey = proposal.Impact.TargetStepKey ??
+            throw new RestartDecisionRejectedException(
+                "MissingRestartTarget",
+                "A restart approval requires a persisted target step.");
         var workflowId = workflowRunId.ToString("D");
-        var report = await AnalyzeAsync(workflowRunId, targetStepKey, cancellationToken)
-            .ConfigureAwait(false);
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             workflowId,
             cancellationToken).ConfigureAwait(false);
-
-        await restartService.RestartAsync(
-            new RestartApproval(
-                workflowRunId,
-                targetStepKey,
-                approvedBy,
-                Approved: true,
-                ApprovedAt: DateTimeOffset.UtcNow),
+        var operationId = approval.ApprovalId;
+        await using var decisionLease = await decisionLeases.AcquireAsync(
+            workspace.SessionId,
+            operationId,
             cancellationToken).ConfigureAwait(false);
 
+        ArtifactEnvelope<CodeGenerationImpactReport> persisted;
+        GuyabanoSession session;
+        CodeGenerationImpactReport report;
+        try
+        {
+            persisted = await artifactRepository.ReadAsync<CodeGenerationImpactReport>(
+                    proposal.Artifact,
+                    cancellationToken)
+                .ConfigureAwait(false) ??
+                throw new RestartDecisionRejectedException(
+                    "PreviewNotFound",
+                    $"Impact preview '{proposal.Artifact.ArtifactId}' no longer exists.");
+            ValidatePersistedProposal(proposal, persisted, workflowRunId, targetStepKey);
+            report = persisted.Payload;
+
+            session = await sessionStore.GetAsync(workspace.SessionId, cancellationToken)
+                .ConfigureAwait(false) ??
+                throw new RestartDecisionRejectedException(
+                    "SessionNotFound",
+                    $"Session '{workspace.SessionId}' no longer exists.");
+            if (!string.Equals(
+                    session.CurrentWorkspaceRevision,
+                    report.WorkspaceRevision,
+                    StringComparison.Ordinal))
+            {
+                throw new RestartDecisionRejectedException(
+                    "StaleWorkspaceRevision",
+                    $"Impact preview '{report.PreviewId:D}' targets workspace revision " +
+                    $"'{report.WorkspaceRevision ?? "uninitialized"}', but the accepted revision " +
+                    $"is '{session.CurrentWorkspaceRevision ?? "uninitialized"}'.");
+            }
+
+            var currentPublication = await artifactRepository.ReadLatestAsync<
+                    RepositoryReindexPublicationPayload>(
+                    workflowId,
+                    "repository-publication",
+                    "post-generation",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.Equals(
+                    currentPublication?.Payload.IndexIdentity,
+                    report.IndexIdentity,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    currentPublication?.Payload.WorkspaceRevisionId,
+                    report.WorkspaceRevision,
+                    StringComparison.Ordinal))
+            {
+                throw new RestartDecisionRejectedException(
+                    "StaleHetuPublication",
+                    $"Impact preview '{report.PreviewId:D}' references Hetu identity " +
+                    $"'{report.IndexIdentity ?? "unavailable"}', but the current publication is " +
+                    $"'{currentPublication?.Payload.IndexIdentity ?? "unavailable"}'.");
+            }
+        }
+        catch (RestartDecisionRejectedException exception)
+        {
+            await RecordDecisionRejectionAsync(
+                approval,
+                workspace.SessionId,
+                exception,
+                cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+
+        var outcome = await restartService.RestartAsync(
+            new RestartApproval(
+                operationId,
+                Guid.CreateVersion7(),
+                report.PreviewId,
+                workflowRunId,
+                targetStepKey,
+                report.WorkspaceRevision,
+                report.IndexIdentity,
+                report.ChangeSetHash,
+                approval.ApprovedBy,
+                Approved: true,
+                ApprovedAt: approval.ApprovedAt),
+            cancellationToken).ConfigureAwait(false);
+        if (!outcome.Applied)
+            return new CodeGenerationRestartApplicationResult(report, outcome, null);
+
         var plan = new CodeGenerationAppliedRestartPlan(
+            ApprovalId: operationId,
+            PreviewId: report.PreviewId,
             WorkflowRunId: workflowRunId,
             TargetStepKey: targetStepKey,
-            ApprovedBy: approvedBy,
+            WorkspaceRevision: report.WorkspaceRevision,
+            IndexIdentity: report.IndexIdentity,
+            ChangeSetHash: report.ChangeSetHash,
+            ApprovedBy: approval.ApprovedBy,
             AppliedAt: DateTimeOffset.UtcNow,
             InvalidatedStepKeys: report.InvalidatedStepKeys,
             RerunStepKeys: report.InvalidatedStepKeys,
@@ -232,11 +347,108 @@ public sealed class CodeGenerationImpactAnalysisService(
                 SchemaVersion: 1,
                 StageKey: targetStepKey,
                 Status: ArtifactStatus.Validated,
-                Payload: plan)
+                Payload: plan,
+                Inputs: [proposal.Artifact])
             {
                 SessionId = workspace.SessionId.ToString()
             },
             cancellationToken).ConfigureAwait(false);
+        return new CodeGenerationRestartApplicationResult(report, outcome, plan);
+    }
+
+    private async Task RecordDecisionRejectionAsync(
+        CodeGenerationRestartApprovalCommand approval,
+        GuyabanoSessionId sessionId,
+        RestartDecisionRejectedException exception,
+        CancellationToken cancellationToken)
+    {
+        var report = approval.Proposal.Impact;
+        var references = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["approvalId"] = approval.ApprovalId.ToString("D"),
+            ["previewId"] = report.PreviewId.ToString("D"),
+            ["previewArtifactId"] = approval.Proposal.Artifact.ArtifactId,
+            ["workflowRunId"] = report.WorkflowRunId.ToString("D"),
+            ["targetStepKey"] = report.TargetStepKey ?? "missing",
+            ["reasonCode"] = exception.ReasonCode,
+            ["workspaceRevision"] = report.WorkspaceRevision ?? "uninitialized",
+            ["indexIdentity"] = report.IndexIdentity ?? "unavailable"
+        };
+        var incident = new SessionIncident(
+            approval.ApprovalId,
+            sessionId,
+            exception.ReasonCode,
+            SessionIncidentSeverity.Warning,
+            exception.Message,
+            approval.ApprovedAt,
+            report.WorkflowRunId,
+            references);
+        var detected = await recovery.DetectAsync(incident, cancellationToken)
+            .ConfigureAwait(false);
+        var plan = new SessionRecoveryPlan(
+            approval.ApprovalId,
+            incident.IncidentId,
+            sessionId,
+            SessionRecoveryAction.RefreshPreview,
+            exception.Message,
+            report.WorkspaceRevision,
+            Automatic: false,
+            approval.ApprovedAt,
+            report.WorkflowRunId,
+            references);
+        var planned = await recovery.PlanAsync(plan, detected.EventId, cancellationToken)
+            .ConfigureAwait(false);
+        await recovery.CompleteAsync(new SessionRecoveryResolution(
+                plan.RecoveryPlanId,
+                incident.IncidentId,
+                sessionId,
+                SessionRecoveryOutcome.UserActionRequired,
+                0,
+                $"{exception.Message} Generate and approve a fresh impact preview.",
+                approval.ApprovedAt,
+                report.WorkflowRunId,
+                references),
+            planned.EventId,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void ValidatePersistedProposal(
+        CodeGenerationImpactProposal proposal,
+        ArtifactEnvelope<CodeGenerationImpactReport> persisted,
+        Guid workflowRunId,
+        string targetStepKey)
+    {
+        var report = persisted.Payload;
+        var supplied = proposal.Impact;
+        var persistedHash = ComputeChangeSetHash(
+            report.TargetStepKey,
+            report.WorkspaceRevision,
+            report.IndexIdentity,
+            report.ImpactedNodes,
+            report.ReusableStepKeys);
+        var suppliedHash = ComputeChangeSetHash(
+            supplied.TargetStepKey,
+            supplied.WorkspaceRevision,
+            supplied.IndexIdentity,
+            supplied.ImpactedNodes,
+            supplied.ReusableStepKeys);
+        if (persisted.WorkflowId != workflowRunId.ToString("D") ||
+            persisted.StageKey != targetStepKey ||
+            report.PreviewId != supplied.PreviewId ||
+            report.WorkflowRunId != workflowRunId ||
+            report.TargetStepKey != targetStepKey ||
+            report.RestartMode != StepRestartMode.Dependents ||
+            supplied.RestartMode != report.RestartMode ||
+            !string.Equals(report.WorkspaceRevision, supplied.WorkspaceRevision, StringComparison.Ordinal) ||
+            !string.Equals(report.IndexIdentity, supplied.IndexIdentity, StringComparison.Ordinal) ||
+            !string.Equals(report.ChangeSetHash, persistedHash, StringComparison.Ordinal) ||
+            !string.Equals(supplied.ChangeSetHash, report.ChangeSetHash, StringComparison.Ordinal) ||
+            !string.Equals(suppliedHash, persistedHash, StringComparison.Ordinal))
+        {
+            throw new RestartDecisionRejectedException(
+                "PreviewMismatch",
+                $"Approval does not match persisted impact preview '{report.PreviewId:D}'.");
+        }
     }
 
     private async Task<IReadOnlyList<GeneratedFileManifest>> LoadManifestsAsync(
@@ -306,4 +518,32 @@ public sealed class CodeGenerationImpactAnalysisService(
         CodeGenerationImpactCause.CodeGraph => 2,
         _ => 3
     };
+
+    private static string ComputeChangeSetHash(
+        string? targetStepKey,
+        string? workspaceRevision,
+        string? indexIdentity,
+        IReadOnlyList<CodeGenerationImpactNode> nodes,
+        IReadOnlyList<string> reusableStepKeys)
+    {
+        var components = new List<string>
+        {
+            $"target={targetStepKey}",
+            $"workspace={workspaceRevision}",
+            $"index={indexIdentity}"
+        };
+        components.AddRange(nodes
+            .OrderBy(item => item.StepKey, StringComparer.Ordinal)
+            .ThenBy(item => item.Cause)
+            .ThenBy(item => item.TaskId, StringComparer.Ordinal)
+            .ThenBy(item => item.FilePath, StringComparer.Ordinal)
+            .ThenBy(item => item.HetuNodeId, StringComparer.Ordinal)
+            .Select(item =>
+                $"impact={item.StepKey}|{item.TaskId}|{item.Cause}|{item.FilePath}|{item.HetuNodeId}|{item.Reason}"));
+        components.AddRange(reusableStepKeys
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .Select(item => $"reuse={item}"));
+        return Convert.ToHexStringLower(SHA256.HashData(
+            Encoding.UTF8.GetBytes(string.Join("\n", components))));
+    }
 }

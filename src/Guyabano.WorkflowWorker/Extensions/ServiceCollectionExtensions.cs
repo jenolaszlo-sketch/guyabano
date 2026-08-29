@@ -120,6 +120,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISessionEventStore>(new SimingSessionEventStore(
             Path.Combine(stateRoot, "sessions"),
             projectionStore: sessionProjections));
+        services.AddSingleton<SessionRecoveryCoordinator>();
+        services.AddSingleton<ISessionDecisionLeaseProvider>(
+            new FileSystemSessionDecisionLeaseProvider(
+                Path.Combine(stateRoot, "decision-locks")));
         services.AddSingleton<ICrossStoreOperationStore>(
             new FileSystemCrossStoreOperationStore(
                 Path.Combine(stateRoot, "operations")));

@@ -70,7 +70,10 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
         await sessionStore.UpdateWorkspaceRevisionAsync(session.Id, null, workspaceHash0, ct);
 
         // Baseline reindex + run the branched workflow
-        var reindexer = new CodeGenerationRepositoryReindexer(hetu, contextStore, indexing, resolver, options);
+        var decisionLeases = new FileSystemSessionDecisionLeaseProvider(
+            Path.Combine(rootPath, ".gen", "decision-locks"));
+        var reindexer = new CodeGenerationRepositoryReindexer(
+            hetu, contextStore, indexing, resolver, decisionLeases, options);
         using (CodeGenerationZhinuStepScope.Push(new Penghou.Zhinu.WorkflowStepContext(runId, Guid.NewGuid(), "repository/reindex-post-generation", 1, 0, false)))
             await reindexer.ReindexAsync(new RepositoryReindexRequest(runId.ToString("D")), ct);
 
@@ -94,7 +97,10 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
 
         // 3. Preview the cascade, 4. approve, 5. rerun only affected, reuse siblings
         var restartService = new CodeGenerationWorkflowRestartService(engine, sessionStore, sessionEvents, NullLogger<CodeGenerationWorkflowRestartService>.Instance);
-        var impactService = new CodeGenerationImpactAnalysisService(hetu, contextStore, artifacts, restartService, resolver, options);
+        var impactService = new CodeGenerationImpactAnalysisService(
+            hetu, contextStore, artifacts, restartService, resolver,
+            sessionStore, decisionLeases,
+            new SessionRecoveryCoordinator(sessionEvents), options);
         var preview = await impactService.AnalyzeAsync(runId, "branch-a", ct);
         preview.ImpactedNodes.Should().Contain(n => n.StepKey == "branch-a" && n.Cause == CodeGenerationImpactCause.Workflow);
         preview.ImpactedNodes.Should().Contain(n => n.StepKey == "a-child" && n.Cause == CodeGenerationImpactCause.Workflow);
@@ -102,7 +108,11 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
         var beforeSteps = await engine.GetStepsAsync(runId, ct);
         var branchBRevisionBefore = beforeSteps.Single(s => s.StepKey == "branch-b").Revision;
 
-        await impactService.ApplyAsync(runId, "branch-a", "tester", ct);
+        var proposal = await impactService.ProposeAsync(runId, "branch-a", ct);
+        await impactService.ApplyAsync(
+            new CodeGenerationRestartApprovalCommand(
+                Guid.CreateVersion7(), proposal, "tester", DateTimeOffset.UtcNow),
+            ct);
         await engine.ExecuteAsync(runId, ct);
         await engine.WaitForCompletionAsync<string>(runId, cancellationToken: ct);
 
@@ -112,7 +122,8 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
         afterSteps.Single(s => s.StepKey == "branch-b").Revision.Should().Be(branchBRevisionBefore);
 
         // 6. Validate staging and promote the accepted change
-        var stagingService = new CodeGenerationStagingService(resolver, sessionStore, artifacts, sessionEvents, options);
+        var stagingService = new CodeGenerationStagingService(
+            resolver, sessionStore, artifacts, sessionEvents, decisionLeases, options);
         var mutation = await stagingService.CreateStagingAsync(session.Id.Value, "canonical-mutation", ct);
         await File.WriteAllTextAsync(Path.Combine(mutation.StagingHostPath, "A.cs"), "namespace Sample; public class A { public int Compute() => 2; }", ct);
         var promotion = await stagingService.ValidateAndPromoteAsync(

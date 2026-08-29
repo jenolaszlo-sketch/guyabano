@@ -60,11 +60,26 @@ public sealed class WorkflowRestartTests : IDisposable
         var preview = await service.PreviewAsync(runId, "branch-a", ct);
         preview.RequiresApproval.Should().BeTrue();
 
-        var unapproved = new RestartApproval(runId, "branch-a", "tester", Approved: false, ApprovedAt: DateTimeOffset.UtcNow);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RestartAsync(unapproved, ct));
+        var unapproved = Approval(preview, "tester", approved: false);
+        var rejected = await service.RestartAsync(unapproved, ct);
+        rejected.Status.Should().Be(RestartOutcomeStatus.RejectedByUser);
+        rejected.SafeWorkspaceRevision.Should().Be(preview.WorkspaceRevision);
 
-        var approved = new RestartApproval(runId, "branch-a", "tester", Approved: true, ApprovedAt: DateTimeOffset.UtcNow);
-        await service.RestartAsync(approved, ct);
+        var refreshed = await service.PreviewAsync(runId, "branch-a", ct);
+        var approved = Approval(refreshed, "tester", approved: true);
+        var applied = await service.RestartAsync(approved, ct);
+        applied.Applied.Should().BeTrue();
+        applied.RestartOperationId.Should().Be(approved.ApprovalId);
+        applied.RestartWasApplied.Should().BeTrue();
+        applied.WorkflowLeaseGeneration.Should().NotBeNull();
+        applied.WorkflowEventSequence.Should().NotBeNull();
+
+        var replayed = await service.RestartAsync(approved, ct);
+        replayed.Applied.Should().BeTrue();
+        replayed.RestartOperationId.Should().Be(applied.RestartOperationId);
+        replayed.WorkflowLeaseGeneration.Should().Be(applied.WorkflowLeaseGeneration);
+        replayed.WorkflowEventSequence.Should().Be(applied.WorkflowEventSequence);
+        replayed.RestartWasApplied.Should().BeFalse();
         await engine.ExecuteAsync(runId, ct);
         await engine.WaitForCompletionAsync<string>(runId, cancellationToken: ct);
         var steps = await engine.GetStepsAsync(runId, ct);
@@ -101,7 +116,7 @@ public sealed class WorkflowRestartTests : IDisposable
         preview.InvalidatedStepKeys.Should().Contain("branch-a");
         preview.ReusableStepKeys.Should().Contain("branch-b");
 
-        var approval = new RestartApproval(runId, "branch-a", "tester", true, DateTimeOffset.UtcNow);
+        var approval = Approval(preview, "tester", approved: true);
         await service.RestartAsync(approval, ct);
 
         await engine.ExecuteAsync(runId, ct);
@@ -120,6 +135,123 @@ public sealed class WorkflowRestartTests : IDisposable
         var branchB = steps.Single(s => s.StepKey == "branch-b");
         branchA.Revision.Should().BeGreaterThan(0, "restarted branch should have incremented revision");
         // branch-b may have revision bumped due to workflow re-execution, but should not be re-executed (counter proves reuse)
+    }
+
+    [Fact]
+    public async Task Restart_StaleWorkspaceApproval_ReturnsSafeStateAndRecordsRecoveryChain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var runId = Guid.CreateVersion7();
+        var (session, _) = await CreateSessionAsync(runId, ct);
+        var sessionStore = new FileSystemGuyabanoSessionStore(
+            Path.Combine(rootPath, ".gen", "sessions"));
+        (await sessionStore.UpdateWorkspaceRevisionAsync(session.Id, null, "workspace-v1", ct))
+            .Should().NotBeNull();
+        var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
+        {
+            DatabasePath = Path.Combine(rootPath, ".gen", "zhinu.db"),
+            Pooling = false
+        });
+        var engine = new WorkflowEngine(store,
+            new WorkflowRegistry().Register("stale-approval", "1", new BranchedWorkflow()));
+        await using var sessionEvents = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
+        var service = new CodeGenerationWorkflowRestartService(
+            engine,
+            sessionStore,
+            sessionEvents,
+            NullLogger<CodeGenerationWorkflowRestartService>.Instance,
+            new SessionRecoveryCoordinator(sessionEvents));
+
+        await engine.StartAsync("stale-approval", "1", "input", runId, cancellationToken: ct);
+        await engine.ExecuteAsync(runId, ct);
+        await engine.WaitForCompletionAsync<string>(runId, cancellationToken: ct);
+        var preview = await service.PreviewAsync(runId, "branch-a", ct);
+        preview.WorkspaceRevision.Should().Be("workspace-v1");
+        var before = await engine.GetStepsAsync(runId, ct);
+        (await sessionStore.UpdateWorkspaceRevisionAsync(
+            session.Id, "workspace-v1", "workspace-v2", ct)).Should().NotBeNull();
+
+        var approval = Approval(preview, "tester", approved: true);
+        var outcome = await service.RestartAsync(approval, ct);
+
+        outcome.Status.Should().Be(RestartOutcomeStatus.RejectedStale);
+        outcome.SafeWorkspaceRevision.Should().Be("workspace-v2");
+        (await engine.GetStepsAsync(runId, ct)).Should().BeEquivalentTo(before);
+        var events = await sessionEvents.ReadAsync(session.Id, cancellationToken: ct);
+        events.Select(item => item.EventType).Should().ContainInOrder(
+            SessionEventTypes.IncidentDetected,
+            SessionEventTypes.RecoveryPlanned,
+            SessionEventTypes.PreviewSuperseded,
+            SessionEventTypes.UserActionRequired);
+        var projection = SessionTimelineProjection.Project(events);
+        projection.OperatorState.Should().Be(SessionOperatorState.AwaitingInput);
+        projection.OpenIncidentIds.Should().ContainSingle(approval.ApprovalId.ToString("D"));
+        projection.ResolvedIncidentCount.Should().Be(0);
+        projection.LastIncidentReason.Should().Be("StaleWorkspaceRevision");
+
+        var replay = await service.RestartAsync(approval, ct);
+        replay.Status.Should().Be(outcome.Status);
+        replay.SafeWorkspaceRevision.Should().Be(outcome.SafeWorkspaceRevision);
+        replay.IncidentId.Should().Be(outcome.IncidentId);
+        replay.RecoveryPlanId.Should().Be(outcome.RecoveryPlanId);
+        (await sessionEvents.ReadAsync(session.Id, cancellationToken: ct))
+            .Should().HaveSameCount(events);
+    }
+
+    [Fact]
+    public async Task Restart_UnexpectedEngineRejection_ReturnsReconciliationStateAndKeepsIncidentOpen()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var runId = Guid.CreateVersion7();
+        var (session, _) = await CreateSessionAsync(runId, ct);
+        var sessionStore = new FileSystemGuyabanoSessionStore(
+            Path.Combine(rootPath, ".gen", "sessions"));
+        var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
+        {
+            DatabasePath = Path.Combine(rootPath, ".gen", "zhinu.db"),
+            Pooling = false
+        });
+        var engine = new WorkflowEngine(store,
+            new WorkflowRegistry().Register("engine-rejection", "1", new BranchedWorkflow()));
+        await using var sessionEvents = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
+        var service = new CodeGenerationWorkflowRestartService(
+            engine,
+            sessionStore,
+            sessionEvents,
+            NullLogger<CodeGenerationWorkflowRestartService>.Instance,
+            new SessionRecoveryCoordinator(sessionEvents));
+        await engine.StartAsync("engine-rejection", "1", "input", runId, cancellationToken: ct);
+        await engine.ExecuteAsync(runId, ct);
+        await engine.WaitForCompletionAsync<string>(runId, cancellationToken: ct);
+        var approvalId = Guid.CreateVersion7();
+
+        var outcome = await service.RestartAsync(new RestartApproval(
+            approvalId,
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            runId,
+            "missing-step",
+            ApprovedWorkspaceRevision: null,
+            ApprovedIndexIdentity: null,
+            ChangeSetHash: "missing-step-change-set",
+            ApprovedBy: "tester",
+            Approved: true,
+            ApprovedAt: DateTimeOffset.UtcNow), ct);
+
+        outcome.Status.Should().Be(RestartOutcomeStatus.ReconciliationRequired);
+        outcome.IncidentId.Should().Be(approvalId);
+        var history = await sessionEvents.ReadAsync(session.Id, cancellationToken: ct);
+        history.Select(item => item.EventType).Should().ContainInOrder(
+            SessionEventTypes.ApprovalGranted,
+            SessionEventTypes.RestartFailed,
+            SessionEventTypes.IncidentDetected,
+            SessionEventTypes.RecoveryPlanned,
+            SessionEventTypes.RecoveryFailed);
+        var projection = SessionTimelineProjection.Project(history);
+        projection.OperatorState.Should().Be(SessionOperatorState.ReconciliationRequired);
+        projection.OpenIncidentIds.Should().ContainSingle(approvalId.ToString("D"));
     }
 
     [Fact]
@@ -148,7 +280,7 @@ public sealed class WorkflowRestartTests : IDisposable
 
         var preview = await service.PreviewAsync(runId, "branch-a", ct);
         preview.InvalidatedStepKeys.Should().Contain("branch-a");
-        await service.RestartAsync(new RestartApproval(runId, "branch-a", "tester", true, DateTimeOffset.UtcNow), ct);
+        await service.RestartAsync(Approval(preview, "tester", approved: true), ct);
 
         // Simulate stale worker trying to report old revision: the engine should fence it.
         // After restart, the old branch-a revision is invalidated; next execution should create new revision.
@@ -194,6 +326,23 @@ public sealed class WorkflowRestartTests : IDisposable
             new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
             NullLogger<CodeGenerationWorkflowRestartService>.Instance);
     }
+
+    private static RestartApproval Approval(
+        RestartPreview preview,
+        string approvedBy,
+        bool approved) =>
+        new(
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            preview.PreviewId,
+            preview.WorkflowRunId,
+            preview.TargetStepKey,
+            preview.WorkspaceRevision,
+            ApprovedIndexIdentity: null,
+            ChangeSetHash: "test-change-set",
+            approvedBy,
+            approved,
+            DateTimeOffset.UtcNow);
 
     private static async Task<string> FileHashAsync(string path, CancellationToken ct)
     {

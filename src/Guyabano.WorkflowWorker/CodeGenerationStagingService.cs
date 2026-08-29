@@ -18,6 +18,7 @@ public sealed class CodeGenerationStagingService(
     IGuyabanoSessionStore sessionStore,
     IArtifactRepository artifactRepository,
     ISessionEventStore sessionEvents,
+    ISessionDecisionLeaseProvider decisionLeases,
     IOptions<CodeGenerationWorkerOptions> options,
     ICrossStoreOperationStore? operationStore = null)
 {
@@ -28,8 +29,14 @@ public sealed class CodeGenerationStagingService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mutationId);
 
+        var typedSessionId = new GuyabanoSessionId(sessionId);
+        await using var decisionLease = await decisionLeases.AcquireAsync(
+            typedSessionId,
+            Guid.CreateVersion7(),
+            cancellationToken).ConfigureAwait(false);
+
         var session = await sessionStore.GetAsync(
-                new GuyabanoSessionId(sessionId),
+                typedSessionId,
                 cancellationToken)
             .ConfigureAwait(false) ??
             throw new KeyNotFoundException($"Session '{sessionId}' does not exist.");
@@ -103,8 +110,14 @@ public sealed class CodeGenerationStagingService(
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedBaselineRevision);
         ArgumentNullException.ThrowIfNull(validate);
 
+        var typedSessionId = new GuyabanoSessionId(sessionId);
+        await using var decisionLease = await decisionLeases.AcquireAsync(
+            typedSessionId,
+            operationId?.Value ?? Guid.CreateVersion7(),
+            cancellationToken).ConfigureAwait(false);
+
         var session = await sessionStore.GetAsync(
-                new GuyabanoSessionId(sessionId),
+                typedSessionId,
                 cancellationToken)
             .ConfigureAwait(false) ??
             throw new KeyNotFoundException($"Session '{sessionId}' does not exist.");

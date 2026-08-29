@@ -812,20 +812,37 @@ authoritative evidence collection, and workflow policy remain in Guyabano.
 
 ## Near-term implementation order
 
-1. Bind impact, approval, validation, graph publication, and promotion to one
-   accepted workspace revision.
-2. Add operator query APIs and interactive Zhinu input/resume behavior.
-3. Prove the complete flow with a real dogfood generation and store-level audit.
-4. Prove the minimal typed capability gateway with Codex-backed read-only web
+Zhinu `0.1.0-preview.10` is now consumed and its authoritative restart receipt
+is the restart authority. The active session-hardening scope is:
+
+1. Complete decision-bound approval integrity: revalidate the persisted
+   preview, bind workspace and Hetu revisions, hold a decision lease through
+   restart acceptance, and separate authenticated approval from proposal.
+2. Execute and verify recovery actions with durable receipts, or explicitly
+   defer them as `UserActionRequired`; integrate the remaining rejection paths.
+3. Replace process-local mutable session/CAS and cross-store-operation files
+   with a concurrency-safe SQLite operational catalog, then decouple rebuildable
+   projections from authoritative Siming appends.
+4. Add durable crash-gap reconciliation and the narrow audit outbox needed for
+   committed mutations that cannot immediately be mirrored to Siming.
+
+After those four outcomes meet their acceptance criteria, resume deferred work:
+
+5. Add operator query APIs and interactive Zhinu input/resume behavior.
+6. Prove the complete flow with a real dogfood generation and store-level audit.
+7. Prove the minimal typed capability gateway with Codex-backed read-only web
    research and immutable session/workflow provenance.
-5. Extract workflow phase collaborators without hiding the explicit Zhinu graph.
-6. Add CI-server authorization, `.editorconfig`, and missing host/UI tests.
-7. Resume executor/Luban extraction only after the session and workspace
+8. Extract workflow phase collaborators without hiding the explicit Zhinu graph.
+9. Add CI-server authorization, `.editorconfig`, and missing host/UI tests.
+10. Resume executor/Luban extraction only after the session and workspace
    contracts are stable under real use.
 
-The detailed acceptance criteria and current evidence for items 1–6 live in
+The detailed acceptance criteria and current evidence for items 1–8 live in
 [`docs/session-backlog.md`](docs/session-backlog.md); do not duplicate their
 checkboxes here.
+
+Cross-repository ownership for rejection and recovery behavior is defined in
+[`docs/rejection-recovery-ownership.md`](docs/rejection-recovery-ownership.md).
 
 ## Success measures
 

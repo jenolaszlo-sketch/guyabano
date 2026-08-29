@@ -57,6 +57,8 @@ public sealed class RepositoryReindexTests : IDisposable
             contextStore,
             artifactRepository,
             resolver,
+            new FileSystemSessionDecisionLeaseProvider(
+                Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions
             {
                 OutputRoot = rootPath,
@@ -150,6 +152,8 @@ public sealed class RepositoryReindexTests : IDisposable
             contextStore,
             artifactRepository,
             resolver,
+            new FileSystemSessionDecisionLeaseProvider(
+                Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions
             {
                 OutputRoot = rootPath,

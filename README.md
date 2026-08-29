@@ -127,6 +127,17 @@ Callers choose whether payload content is retained, replaced by a versioned
 SHA-256 digest, or omitted before append. This makes disclosure and retention an
 append-time decision; later redaction never rewrites the audit chain.
 
+Unusual conditions are first-class session incidents. Detection, recovery plan,
+each meaningful attempt, and its outcome are appended with causation and stable
+idempotency. A successful repair returns the session to a safe operator state
+without removing the incident from history.
+
+Restart approval is bound to an exact persisted impact artifact. Guyabano
+revalidates its workflow target, restart mode, canonical change-set hash,
+workspace revision, and Hetu publication while holding a session-scoped
+cross-process decision lease through Zhinu's authoritative restart receipt.
+Workspace promotion and repository reindexing use the same lease contract.
+
 ## Status
 
 Pre-release scaffolding. See [ROADMAP.md](ROADMAP.md) for product direction and

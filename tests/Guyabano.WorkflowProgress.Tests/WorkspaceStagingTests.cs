@@ -43,6 +43,8 @@ public sealed class WorkspaceStagingTests : IDisposable
             sessionStore,
             new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen", "artifacts")),
             sessionEvents,
+            new FileSystemSessionDecisionLeaseProvider(
+                Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }),
             operations);
 
@@ -144,6 +146,8 @@ public sealed class WorkspaceStagingTests : IDisposable
                 Path.Combine(rootPath, ".gen", "artifacts-first")),
             new SimingSessionEventStore(
                 Path.Combine(rootPath, ".gen", "events-first")),
+            new FileSystemSessionDecisionLeaseProvider(
+                Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions
             {
                 OutputRoot = rootPath,
@@ -198,6 +202,8 @@ public sealed class WorkspaceStagingTests : IDisposable
             sessionStore,
             new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen", "artifacts")),
             new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            new FileSystemSessionDecisionLeaseProvider(
+                Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));
 
         var workspace = resolver.Resolve(session.Id);
@@ -244,6 +250,8 @@ public sealed class WorkspaceStagingTests : IDisposable
             sessionStore,
             new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen", "artifacts")),
             new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            new FileSystemSessionDecisionLeaseProvider(
+                Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));
 
         var workspace = resolver.Resolve(session.Id);

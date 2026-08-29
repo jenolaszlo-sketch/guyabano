@@ -76,7 +76,10 @@ public sealed class ImpactAnalysisTests : IDisposable
             new Dictionary<string, (string, long)> { { "A.cs", s0["A.cs"] } }, s0, [], artifacts, ct);
 
         // Baseline reindex of the original workspace
-        var reindexer = new CodeGenerationRepositoryReindexer(hetu, contextStore, indexing, resolver, options);
+        var decisionLeases = new FileSystemSessionDecisionLeaseProvider(
+            Path.Combine(rootPath, ".gen", "decision-locks"));
+        var reindexer = new CodeGenerationRepositoryReindexer(
+            hetu, contextStore, indexing, resolver, decisionLeases, options);
         RepositoryReindexReceipt baseline;
         using (CodeGenerationZhinuStepScope.Push(new Penghou.Zhinu.WorkflowStepContext(runId, Guid.NewGuid(), "repository/reindex-post-generation", 1, 0, false)))
             baseline = await reindexer.ReindexAsync(new RepositoryReindexRequest(runId.ToString("D")), ct);
@@ -105,13 +108,17 @@ public sealed class ImpactAnalysisTests : IDisposable
         await engine.ExecuteAsync(runId, ct);
         await engine.WaitForCompletionAsync<string>(runId, cancellationToken: ct);
 
+        await using var sessionEvents = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
         var restartService = new CodeGenerationWorkflowRestartService(
             engine,
             sessionStore,
-            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            sessionEvents,
             NullLogger<CodeGenerationWorkflowRestartService>.Instance);
         var impactService = new CodeGenerationImpactAnalysisService(
-            hetu, contextStore, artifacts, restartService, resolver, options);
+            hetu, contextStore, artifacts, restartService, resolver,
+            sessionStore, decisionLeases,
+            new SessionRecoveryCoordinator(sessionEvents), options);
 
         var report = await impactService.AnalyzeAsync(runId, "branch-a", ct);
         report.IndexIdentity.Should().Be(receipt.IndexIdentity);
@@ -166,8 +173,20 @@ public sealed class ImpactAnalysisTests : IDisposable
         var onlyA = new Dictionary<string, (string, long)> { { "A.cs", s0["A.cs"] } };
         await CreateManifestAsync(session, runId, workspace, "generation/task-a/leaf-a", "leaf-a", "task-a",
             new Dictionary<string, (string, long)>(), onlyA, [], artifacts, ct);
-        var reindexer = new CodeGenerationRepositoryReindexer(hetu, contextStore, indexing, resolver, options);
+        var decisionLeases = new FileSystemSessionDecisionLeaseProvider(
+            Path.Combine(rootPath, ".gen", "decision-locks"));
+        var reindexer = new CodeGenerationRepositoryReindexer(
+            hetu, contextStore, indexing, resolver, decisionLeases, options);
         await reindexer.ReindexAsync(new RepositoryReindexRequest(runId.ToString("D")), ct);
+        var publication = await artifacts.ReadLatestAsync<RepositoryReindexPublicationPayload>(
+            runId.ToString("D"), "repository-publication", "post-generation", ct);
+        publication.Should().NotBeNull();
+        (await sessionStore.UpdateWorkspaceRevisionAsync(
+            session.Id,
+            expectedRevision: null,
+            publication!.Payload.WorkspaceRevisionId ??
+                throw new InvalidOperationException("Publication must bind a workspace revision."),
+            ct)).Should().NotBeNull();
 
         var store = new SqliteWorkflowStore(new ZhinuSqliteOptions { DatabasePath = Path.Combine(rootPath, ".gen", "zhinu.db"), Pooling = false });
         var workflow = new BranchedManifestWorkflow();
@@ -176,18 +195,99 @@ public sealed class ImpactAnalysisTests : IDisposable
         await engine.ExecuteAsync(runId, ct);
         await engine.WaitForCompletionAsync<string>(runId, cancellationToken: ct);
 
+        await using var sessionEvents = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
         var restartService = new CodeGenerationWorkflowRestartService(
             engine,
             sessionStore,
-            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            sessionEvents,
             NullLogger<CodeGenerationWorkflowRestartService>.Instance);
-        var impactService = new CodeGenerationImpactAnalysisService(hetu, contextStore, artifacts, restartService, resolver, options);
+        var impactService = new CodeGenerationImpactAnalysisService(
+            hetu, contextStore, artifacts, restartService, resolver,
+            sessionStore, decisionLeases,
+            new SessionRecoveryCoordinator(sessionEvents), options);
 
-        await impactService.ApplyAsync(runId, "branch-a", "tester", ct);
+        var proposal = await impactService.ProposeAsync(runId, "branch-a", ct);
+        var tampered = proposal with
+        {
+            Impact = proposal.Impact with { ChangeSetHash = new string('0', 64) }
+        };
+        var rejectTampered = async () => await impactService.ApplyAsync(
+            new CodeGenerationRestartApprovalCommand(
+                Guid.CreateVersion7(), tampered, "tester", DateTimeOffset.UtcNow),
+            ct);
+        var rejection = await rejectTampered.Should()
+            .ThrowAsync<RestartDecisionRejectedException>();
+        rejection.Which.ReasonCode.Should().Be("PreviewMismatch");
+
+        var originalPublication = publication.Payload;
+        await artifacts.WriteAsync(
+            new ArtifactWriteRequest<RepositoryReindexPublicationPayload>(
+                runId.ToString("D"),
+                "repository-publication",
+                2,
+                "post-generation",
+                ArtifactStatus.Validated,
+                originalPublication with
+                {
+                    IndexRunId = $"{originalPublication.IndexRunId}:new",
+                    IndexIdentity = $"{originalPublication.IndexIdentity}:new",
+                    PublishedAt = DateTimeOffset.UtcNow
+                })
+            {
+                SessionId = session.Id.ToString()
+            },
+            ct);
+        var rejectStaleGraph = async () => await impactService.ApplyAsync(
+            new CodeGenerationRestartApprovalCommand(
+                Guid.CreateVersion7(), proposal, "tester", DateTimeOffset.UtcNow),
+            ct);
+        var staleGraph = await rejectStaleGraph.Should()
+            .ThrowAsync<RestartDecisionRejectedException>();
+        staleGraph.Which.ReasonCode.Should().Be("StaleHetuPublication");
+        var rejectionHistory = await sessionEvents.ReadAsync(
+            session.Id,
+            cancellationToken: ct);
+        rejectionHistory
+            .Where(item => item.EventType == SessionEventTypes.IncidentDetected)
+            .Select(item => item.CrossSystemRefs?.GetValueOrDefault("reasonCode"))
+            .Should().Contain(["PreviewMismatch", "StaleHetuPublication"]);
+        rejectionHistory.Count(item =>
+                item.EventType == SessionEventTypes.UserActionRequired)
+            .Should().Be(2);
+
+        await artifacts.WriteAsync(
+            new ArtifactWriteRequest<RepositoryReindexPublicationPayload>(
+                runId.ToString("D"),
+                "repository-publication",
+                2,
+                "post-generation",
+                ArtifactStatus.Validated,
+                originalPublication with
+                {
+                    IndexRunId = $"{originalPublication.IndexRunId}:restored",
+                    PublishedAt = DateTimeOffset.UtcNow
+                })
+            {
+                SessionId = session.Id.ToString()
+            },
+            ct);
+
+        var application = await impactService.ApplyAsync(
+            new CodeGenerationRestartApprovalCommand(
+                Guid.CreateVersion7(), proposal, "tester", DateTimeOffset.UtcNow),
+            ct);
 
         var plan = await artifacts.ReadLatestAsync<CodeGenerationAppliedRestartPlan>(runId.ToString("D"), "applied-restart-plan", "branch-a", ct);
+        application.Outcome.Applied.Should().BeTrue();
+        application.AppliedPlan.Should().NotBeNull();
         plan.Should().NotBeNull();
         plan!.Payload.ApprovedBy.Should().Be("tester");
+        plan.Payload.ApprovalId.Should().Be(application.AppliedPlan!.ApprovalId);
+        plan.Payload.PreviewId.Should().Be(application.Impact.PreviewId);
+        plan.Payload.WorkspaceRevision.Should().Be(application.Impact.WorkspaceRevision);
+        plan.Payload.IndexIdentity.Should().Be(application.Impact.IndexIdentity);
+        plan.Payload.ChangeSetHash.Should().Be(application.Impact.ChangeSetHash);
         plan.Payload.InvalidatedStepKeys.Should().Contain("branch-a");
         plan.Payload.RerunStepKeys.Should().Contain("branch-a");
         plan.Payload.ReusableStepKeys.Should().Contain("branch-b");

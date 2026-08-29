@@ -7,6 +7,9 @@ Zhinu, Cangjie, Hetu, Baize, artifact, and workspace integrations around them.
 The product direction remains in [`ROADMAP.md`](../ROADMAP.md), while accepted
 architectural decisions remain in [`docs/adr`](adr/README.md).
 
+Recovery ownership and proposed reusable Zhinu changes are maintained in
+[`rejection-recovery-ownership.md`](rejection-recovery-ownership.md).
+
 Update this file when implementation evidence changes. Do not use it for chat
 handover notes, completed review narratives, or speculative feature lists.
 
@@ -15,12 +18,35 @@ handover notes, completed review narratives, or speculative feature lists.
 Last reviewed: **2026-08-29**
 
 - The session foundation and consolidated integration work are committed on
-  `main` through `aa47e3d`.
-- The full solution passes **319 tests**.
+  `main` through `36794f7`; the forward-only recovery slice and this hardening
+  backlog remain uncommitted.
+- The full solution passes **323 tests**.
 - `git diff --check` passes with only existing LF-to-CRLF warnings.
 - The P0 review defects are corrected: Baize streaming and overload coverage,
   invocation-specific Cangjie snapshots, task-scoped file ownership,
   first-staging baseline/path safety, and distinct workspace/Hetu revisions.
+- The 2026-08-29 session hardening review found the next correctness batch:
+  approval intent is not yet revalidated against its persisted preview,
+  recovery actions can be reported successful without being executed,
+  filesystem session/CAS state is process-local, and projection failure can
+  make a committed ledger append appear to have failed.
+
+## Active priority boundary
+
+Complete these four session-hardening outcomes before beginning interactive
+session product work or broader dogfood evaluation:
+
+1. Decision-bound approval integrity, including authoritative persisted-preview
+   validation and a workspace/Hetu decision lease.
+2. Truthful recovery execution with concrete actions, verification, and durable
+   receipts—or an explicit `UserActionRequired` outcome.
+3. A concurrency-safe SQLite operational session catalog and projection-lag
+   semantics.
+4. Durable crash-gap reconciliation between Zhinu, Siming, Cangjie, workspace
+   promotion, and other critical cross-store mutations.
+
+Sections 5 and 6 remain accepted roadmap work but are deliberately deferred
+until all four outcomes above meet their acceptance criteria.
 
 Verification:
 
@@ -159,16 +185,62 @@ snapshot plus exact Hetu/workspace revision in execution provenance.
 
 ### 3. Revision-bound impact, approval, and promotion
 
-- [ ] Bind impact analysis to one accepted workspace revision and explicit
+- [x] Bind impact analysis to one accepted workspace revision and explicit
   change set.
-- [ ] Give preview and approval UUIDv7 IDs; reject approval after the referenced
-  workspace or graph revision becomes stale.
+- [x] Give preview and approval UUIDv7 IDs and reject approval after the
+  referenced workspace revision becomes stale.
+- [x] Load the authoritative persisted preview during approval and reject any
+  mismatch in preview ID, workflow run, target step, restart mode, workspace
+  revision, Hetu publication, or canonical change-set hash. An approval DTO is
+  evidence supplied to the command, not authority by itself.
+- [x] Hold a session-scoped decision lease/CAS from the final workspace/Hetu
+  revision recheck through Zhinu restart acceptance so promotion or reindexing
+  cannot race an approved command. The current cross-process file-lock provider
+  is replaceable through `ISessionDecisionLeaseProvider`; the SQLite catalog
+  will take over this contract in priority 3.
+- [x] Reject approval after the referenced Hetu graph revision becomes stale.
 - [ ] Source actor identity from authenticated host context.
+- [ ] Separate proposal from approval: production application services must not
+  synthesize `Approved = true` from a free-form `approvedBy` string.
 - [ ] Bind build, test, review, Hetu publication, and promotion evidence to one
   workspace revision.
 
 Acceptance: the approved graph/code revision is provably the revision restarted,
 validated, and promoted.
+
+### 3A. Forward-only incident recovery
+
+- [x] Add typed incidents, recovery plans, attempts, and outcomes whose complete
+  causation chain is appended to the session ledger.
+- [x] Project operator state, open incidents, resolved incident count, and last
+  incident reason without erasing successfully recovered history.
+- [x] Return typed safe outcomes for user-denied restarts, stale workspace
+  approvals, and unexpected Zhinu restart rejection.
+- [x] Make approval replay idempotent so it neither duplicates incident evidence
+  nor repeats a completed restart.
+- [x] Publish and consume Zhinu `0.1.0-preview.10`: pass `ApprovalId` as
+  `RestartStepOptions.OperationId`, use `RestartStepWithReceiptAsync`, persist
+  its event sequence and fencing generation. Successful and ambiguous restart
+  retries now use Zhinu's authoritative receipt rather than full-ledger
+  inference; the remaining scan is limited to local denial/staleness outcomes
+  until those commands receive a durable receipt/index.
+- [ ] Execute and verify every recovery-plan action before appending
+  `RecoverySucceeded`. Candidate abandonment, preview refresh, cleanup, and
+  rollback require concrete identities and receipts; otherwise finish as
+  `UserActionRequired` instead of claiming recovery. Restart denial and stale-
+  preview paths now defer honestly with attempt zero; concrete action executors
+  and receipts remain to be added.
+- [ ] Integrate graph-staleness, staging validation, promotion CAS, downstream
+  publication, provider failure, cancellation, and timeout rejection paths.
+- [ ] Mirror committed Zhinu restart events into Siming with a durable cursor
+  and deterministic idempotency key so a crash after Zhinu commit but before
+  session append repairs the audit gap automatically.
+- [ ] Add a durable audit outbox/receipt for the narrow case where a critical
+  mutation succeeds but the session ledger is temporarily unavailable.
+
+Acceptance: every abnormal condition and every attempted recovery remains
+visible after successful repair, while callers receive the safe revision,
+plain-language explanation, and next state without inspecting databases.
 
 ### 4. Durable SQLite session events and projections
 
@@ -188,11 +260,46 @@ validated, and promoted.
   because Guyabano has no retained user session data.
 - [x] Remove the prototype JSONL implementation and run all session/workflow
   tests against the Siming adapter used in production.
+- [ ] Decouple authoritative ledger append from projection delivery. Once
+  Siming commits an event, projection failure must surface as projection lag
+  with a rebuild cursor—not as an ambiguous append failure that a caller might
+  retry into a duplicate event.
+- [ ] Project pending approval/input and structured active incidents, then
+  derive operator state from all active conditions by precedence. Resolving one
+  incident must not hide a remaining `Corrupt` or `ReconciliationRequired`
+  condition; `AwaitingApproval` must be reachable.
+- [ ] Use ledger `CommittedAt` as the primary audit time and preserve
+  caller-supplied occurrence time as a claim with bounded skew validation.
 
 Acceptance: multiple processes append safely and timeline reads do not scan the
 complete event history.
 
-### 5. Interactive session APIs and UI
+### 4A. Concurrency-safe operational session catalog
+
+- [ ] Replace mutable `session.json` records with a SQLite catalog that supports
+  transactional versioned CAS across processes while retaining one independent
+  Siming ledger file per session.
+- [ ] Enforce a unique workflow-run-to-session mapping. Attaching one run to a
+  second session must fail deterministically; lookup must never depend on file
+  enumeration order.
+- [ ] Persist session creation, workflow attachment, workspace revision, and
+  decision-lease changes as idempotent lifecycle evidence or durable receipts
+  that can be reconciled into the session ledger.
+- [ ] Move `FileSystemCrossStoreOperationStore` to concurrency-safe SQLite (or
+  another provider implementing the same contract); its current in-process
+  semaphore and overwrite-based files are not a multi-worker transaction.
+- [ ] Route clarification promotion through a stable cross-store command:
+  record the Cangjie receipt and append `clarification-promoted` with a
+  deterministic idempotency key so a crash cannot leave unaudited memory or a
+  retry-created revision.
+- [ ] Bound or evict per-session ledger handles in long-lived hosts so opening
+  many historical sessions does not create an unbounded cache.
+
+Acceptance: two worker processes cannot lose a workspace/catalog update, one
+workflow run has exactly one session, and every operational mutation is either
+audited or deterministically discoverable for forward reconciliation.
+
+### 5. Interactive session APIs and UI — deferred
 
 - [ ] Query APIs for current workspace, latest task manifest, file owner, pending
   input, restart preview, paged timeline, and audit.
@@ -202,7 +309,7 @@ complete event history.
 - [ ] Operator states: `Healthy`, `Warning`, `ReconciliationRequired`, `Corrupt`.
 - [ ] Disclosure preview before repository context is sent externally.
 
-### 6. Real dogfood evidence and context-quality evaluation
+### 6. Real dogfood evidence and context-quality evaluation — deferred
 
 - [ ] Run a real generation with the current embedded stores.
 - [ ] Clarify after success, preview and approve the cascade, selectively rerun,

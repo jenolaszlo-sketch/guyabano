@@ -24,6 +24,14 @@ public static class SessionEventTypes
     public const string OperationTransitioned = "operation-transitioned";
     public const string OperationParticipantRecorded =
         "operation-participant-recorded";
+    public const string IncidentDetected = "incident-detected";
+    public const string RecoveryPlanned = "recovery-planned";
+    public const string RecoveryAttempted = "recovery-attempted";
+    public const string RecoverySucceeded = "recovery-succeeded";
+    public const string RecoveryFailed = "recovery-failed";
+    public const string UserActionRequired = "user-action-required";
+    public const string PreviewSuperseded = "preview-superseded";
+    public const string CandidateAbandoned = "candidate-abandoned";
 }
 
 /// <summary>

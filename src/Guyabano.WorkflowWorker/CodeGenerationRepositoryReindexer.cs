@@ -5,6 +5,7 @@ using Penghou.Cangjie;
 using Penghou.Hetu;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
+using Guyabano.Session;
 
 namespace Guyabano.WorkflowWorker;
 
@@ -13,6 +14,7 @@ public sealed class CodeGenerationRepositoryReindexer(
     IContextStore contextStore,
     IArtifactRepository artifactRepository,
     CodeGenerationWorkspaceResolver workspaceResolver,
+    ISessionDecisionLeaseProvider decisionLeases,
     IOptions<CodeGenerationWorkerOptions> options)
 {
     public async Task<RepositoryReindexReceipt> ReindexAsync(
@@ -24,6 +26,10 @@ public sealed class CodeGenerationRepositoryReindexer(
 
         var workspace = await workspaceResolver.ResolveWorkflowAsync(
             request.WorkflowId,
+            cancellationToken).ConfigureAwait(false);
+        await using var decisionLease = await decisionLeases.AcquireAsync(
+            workspace.SessionId,
+            Guid.CreateVersion7(),
             cancellationToken).ConfigureAwait(false);
         var settings = options.Value;
         var repositoryId = settings.RepositoryContextEnabled &&

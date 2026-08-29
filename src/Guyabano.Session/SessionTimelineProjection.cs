@@ -8,7 +8,11 @@ public sealed record SessionCurrentState(
     string? CurrentWorkspaceRevision,
     Guid? LastWorkflowRunId,
     DateTimeOffset? SessionCreatedAt,
-    DateTimeOffset? LastCommittedAt = null);
+    DateTimeOffset? LastCommittedAt = null,
+    SessionOperatorState OperatorState = SessionOperatorState.Ready,
+    IReadOnlyList<string>? OpenIncidentIds = null,
+    int ResolvedIncidentCount = 0,
+    string? LastIncidentReason = null);
 
 public sealed record SessionProjectionSnapshot(
     GuyabanoSessionId SessionId,
@@ -37,40 +41,10 @@ public static class SessionTimelineProjection
 {
     public static SessionCurrentState Project(IReadOnlyList<SessionEvent> events)
     {
-        var pending = events
-            .Where(item => item.EventType == SessionEventTypes.InputRequested)
-            .Select(item => item.EventId.ToString("D"))
-            .ToHashSet(StringComparer.Ordinal);
-        foreach (var item in events)
-        {
-            if (item.EventType == SessionEventTypes.InputProvided &&
-                item.CausationId is not null)
-            {
-                pending.Remove(item.CausationId.Value.ToString("D"));
-            }
-        }
-
-        var last = events.LastOrDefault();
-        var lastWorkflowRun = events
-            .Where(item => item.EventType is SessionEventTypes.WorkflowStarted or
-                SessionEventTypes.WorkflowCompleted or
-                SessionEventTypes.WorkflowFailed)
-            .Select(item => item.CorrelationId)
-            .LastOrDefault(item => item is not null);
-        var promotion = events
-            .Where(item => item.EventType == SessionEventTypes.WorkspacePromoted)
-            .Select(item => item.CrossSystemRefs?.GetValueOrDefault("toRevision"))
-            .LastOrDefault(revision => revision is not null);
-
-        return new SessionCurrentState(
-            TotalEvents: events.Count,
-            LastEventType: last?.EventType,
-            LastEventAt: last?.OccurredAt,
-            PendingInputEventIds: pending.OrderBy(id => id, StringComparer.Ordinal).ToArray(),
-            CurrentWorkspaceRevision: promotion,
-            LastWorkflowRunId: lastWorkflowRun,
-            SessionCreatedAt: events.FirstOrDefault()?.OccurredAt,
-            LastCommittedAt: last?.CommittedAt);
+        SessionCurrentState? state = null;
+        foreach (var sessionEvent in events.OrderBy(item => item.Sequence))
+            state = Apply(state, sessionEvent);
+        return state ?? new SessionCurrentState(0, null, null, [], null, null, null);
     }
 
     public static SessionCurrentState Apply(SessionCurrentState? state, SessionEvent sessionEvent)
@@ -90,6 +64,44 @@ public static class SessionTimelineProjection
         if (sessionEvent.EventType is SessionEventTypes.WorkflowStarted or SessionEventTypes.WorkflowCompleted or SessionEventTypes.WorkflowFailed)
             workflowRunId = sessionEvent.CorrelationId ?? workflowRunId;
 
+        var incidents = (state?.OpenIncidentIds ?? [])
+            .ToHashSet(StringComparer.Ordinal);
+        var resolvedCount = state?.ResolvedIncidentCount ?? 0;
+        var lastIncidentReason = state?.LastIncidentReason;
+        var operatorState = state?.OperatorState ?? SessionOperatorState.Ready;
+        var incidentId = sessionEvent.CrossSystemRefs?.GetValueOrDefault("incidentId");
+        if (sessionEvent.EventType == SessionEventTypes.IncidentDetected && incidentId is not null)
+        {
+            incidents.Add(incidentId);
+            lastIncidentReason = sessionEvent.CrossSystemRefs?.GetValueOrDefault("reasonCode");
+            operatorState = string.Equals(
+                sessionEvent.CrossSystemRefs?.GetValueOrDefault("severity"),
+                SessionIncidentSeverity.Critical.ToString(),
+                StringComparison.Ordinal)
+                ? SessionOperatorState.Corrupt
+                : SessionOperatorState.Recovering;
+        }
+        else if (sessionEvent.EventType == SessionEventTypes.RecoverySucceeded && incidentId is not null)
+        {
+            if (incidents.Remove(incidentId)) resolvedCount++;
+            operatorState = incidents.Count == 0
+                ? SessionOperatorState.Ready
+                : SessionOperatorState.Recovering;
+        }
+        else if (sessionEvent.EventType == SessionEventTypes.UserActionRequired)
+        {
+            operatorState = SessionOperatorState.AwaitingInput;
+        }
+        else if (sessionEvent.EventType == SessionEventTypes.RecoveryFailed)
+        {
+            operatorState = string.Equals(
+                sessionEvent.CrossSystemRefs?.GetValueOrDefault("outcome"),
+                SessionRecoveryOutcome.Corrupt.ToString(),
+                StringComparison.Ordinal)
+                ? SessionOperatorState.Corrupt
+                : SessionOperatorState.ReconciliationRequired;
+        }
+
         return new SessionCurrentState(
             (state?.TotalEvents ?? 0) + 1,
             sessionEvent.EventType,
@@ -98,7 +110,11 @@ public static class SessionTimelineProjection
             workspaceRevision,
             workflowRunId,
             state?.SessionCreatedAt ?? sessionEvent.OccurredAt,
-            sessionEvent.CommittedAt);
+            sessionEvent.CommittedAt,
+            operatorState,
+            incidents.OrderBy(id => id, StringComparer.Ordinal).ToArray(),
+            resolvedCount,
+            lastIncidentReason);
     }
 
     /// <summary>

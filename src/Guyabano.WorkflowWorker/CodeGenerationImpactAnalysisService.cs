@@ -24,7 +24,8 @@ public sealed class CodeGenerationImpactAnalysisService(
     IGuyabanoSessionStore sessionStore,
     ISessionDecisionLeaseProvider decisionLeases,
     SessionRecoveryCoordinator recovery,
-    IOptions<CodeGenerationWorkerOptions> options)
+    IOptions<CodeGenerationWorkerOptions> options,
+    IApprovalActorProvider? approvalActors = null)
 {
     private static readonly Penghou.Hetu.CodeGraphQueryOptions ImpactQueryOptions = new(
         maxDepth: 6,
@@ -225,7 +226,9 @@ public sealed class CodeGenerationImpactAnalysisService(
         ArgumentNullException.ThrowIfNull(approval);
         if (approval.ApprovalId == Guid.Empty)
             throw new ArgumentException("A stable approval ID is required.", nameof(approval));
-        ArgumentException.ThrowIfNullOrWhiteSpace(approval.ApprovedBy);
+        var actor = (approvalActors ?? new RejectingApprovalActorProvider())
+            .GetRequiredActor();
+        ArgumentException.ThrowIfNullOrWhiteSpace(actor.SubjectId);
 
         var proposal = approval.Proposal;
         var workflowRunId = proposal.Impact.WorkflowRunId;
@@ -319,7 +322,7 @@ public sealed class CodeGenerationImpactAnalysisService(
                 report.WorkspaceRevision,
                 report.IndexIdentity,
                 report.ChangeSetHash,
-                approval.ApprovedBy,
+                actor.SubjectId,
                 Approved: true,
                 ApprovedAt: approval.ApprovedAt),
             cancellationToken).ConfigureAwait(false);
@@ -334,7 +337,7 @@ public sealed class CodeGenerationImpactAnalysisService(
             WorkspaceRevision: report.WorkspaceRevision,
             IndexIdentity: report.IndexIdentity,
             ChangeSetHash: report.ChangeSetHash,
-            ApprovedBy: approval.ApprovedBy,
+            ApprovedBy: actor.SubjectId,
             AppliedAt: DateTimeOffset.UtcNow,
             InvalidatedStepKeys: report.InvalidatedStepKeys,
             RerunStepKeys: report.InvalidatedStepKeys,

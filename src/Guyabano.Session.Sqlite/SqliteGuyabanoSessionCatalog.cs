@@ -12,7 +12,8 @@ namespace Guyabano.Session.Sqlite;
 public sealed class SqliteGuyabanoSessionCatalog :
     IGuyabanoSessionStore,
     ISessionDecisionLeaseProvider,
-    ISessionLifecycleReceiptStore
+    ISessionLifecycleReceiptStore,
+    ISessionWorkspacePromotionCommitStore
 {
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(30);
@@ -237,6 +238,65 @@ public sealed class SqliteGuyabanoSessionCatalog :
         }
         if (await ReadSessionAsync(connection, sessionId, cancellationToken, transaction).ConfigureAwait(false) is null)
             throw new KeyNotFoundException($"Session '{sessionId}' does not exist.");
+        transaction.Commit();
+        return null;
+    }
+
+    public async Task<GuyabanoSession?> CommitWorkspacePromotionAsync(
+        GuyabanoSessionId sessionId,
+        string expectedRevision,
+        string replacementRevision,
+        string mutationId,
+        Guid? workflowRunId,
+        DateTimeOffset promotedAt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedRevision);
+        ArgumentException.ThrowIfNullOrWhiteSpace(replacementRevision);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mutationId);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        using var transaction = connection.BeginTransaction(deferred: false);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE sessions
+            SET current_workspace_revision = $replacement, version = version + 1
+            WHERE session_id = $sessionId AND current_workspace_revision = $expected;
+            """;
+        command.Parameters.AddWithValue("$replacement", replacementRevision);
+        command.Parameters.AddWithValue("$sessionId", sessionId.ToString());
+        command.Parameters.AddWithValue("$expected", expectedRevision);
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (changed == 1)
+        {
+            await InsertLifecycleReceiptAsync(
+                connection,
+                transaction,
+                sessionId,
+                SessionEventTypes.WorkspacePromoted,
+                promotedAt,
+                $"session:{sessionId}:promotion:{mutationId}:{replacementRevision}",
+                workflowRunId,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["sessionId"] = sessionId.ToString(),
+                    ["mutationId"] = mutationId,
+                    ["fromRevision"] = expectedRevision,
+                    ["toRevision"] = replacementRevision,
+                    ["workflowRunId"] = workflowRunId?.ToString("D") ?? "(none)",
+                    ["auditSource"] = "transactional-workspace-promotion"
+                },
+                cancellationToken).ConfigureAwait(false);
+            transaction.Commit();
+            return await ReadSessionAsync(connection, sessionId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        if (await ReadSessionAsync(
+                connection, sessionId, cancellationToken, transaction)
+            .ConfigureAwait(false) is null)
+        {
+            throw new KeyNotFoundException($"Session '{sessionId}' does not exist.");
+        }
         transaction.Commit();
         return null;
     }

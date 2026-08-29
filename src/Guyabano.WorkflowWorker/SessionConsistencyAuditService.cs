@@ -107,6 +107,9 @@ public sealed class SessionConsistencyAuditService(
         var hasValidationEvidence = false;
         var hasBaizeEvidence = false;
         var snapshotIds = new HashSet<Guid>();
+        var validationEvidence = new Dictionary<Guid, List<ValidationEvidencePayload>>();
+        var repositoryPublications = new Dictionary<Guid, List<RepositoryReindexPublicationPayload>>();
+        var workspacePromotions = new Dictionary<Guid, List<WorkspacePromotion>>();
 
         await using var workflowRuntime = await workflowRuntimes
             .AcquireAsync(session.Id, cancellationToken).ConfigureAwait(false);
@@ -152,11 +155,91 @@ public sealed class SessionConsistencyAuditService(
                 }
 
                 if (artifact.ArtifactType == "repository-publication")
+                {
                     hasRepositoryPublication = true;
+                    if (artifact.ArtifactVersion == "2" &&
+                        TryArtifactReference(artifact, out var reference))
+                    {
+                        var envelope = await artifactRepository.ReadAsync<
+                            RepositoryReindexPublicationPayload>(
+                            reference,
+                            cancellationToken).ConfigureAwait(false);
+                        if (envelope is not null)
+                            GetOrAdd(repositoryPublications, runId).Add(envelope.Payload);
+                    }
+                }
                 if (artifact.ArtifactType == "validation-evidence")
+                {
                     hasValidationEvidence = true;
+                    if (TryArtifactReference(artifact, out var reference))
+                    {
+                        var envelope = await artifactRepository.ReadAsync<
+                            ValidationEvidencePayload>(
+                            reference,
+                            cancellationToken).ConfigureAwait(false);
+                        if (envelope is not null)
+                            GetOrAdd(validationEvidence, runId).Add(envelope.Payload);
+                    }
+                }
+                if (artifact.ArtifactType == "workspace-promotion" &&
+                    TryArtifactReference(artifact, out var promotionReference))
+                {
+                    var envelope = await artifactRepository.ReadAsync<WorkspacePromotion>(
+                        promotionReference,
+                        cancellationToken).ConfigureAwait(false);
+                    if (envelope is not null)
+                        GetOrAdd(workspacePromotions, runId).Add(envelope.Payload);
+                }
                 if (artifact.ArtifactType == "baize-execution")
                     hasBaizeEvidence = true;
+            }
+        }
+
+        foreach (var runId in session.WorkflowRunIds)
+        {
+            var latestValidation = validationEvidence.GetValueOrDefault(runId)?
+                .OrderByDescending(item => item.PublishedAt)
+                .FirstOrDefault();
+            if (latestValidation is not null &&
+                string.IsNullOrWhiteSpace(latestValidation.WorkspaceRevisionId))
+            {
+                findings.Add(new SessionAuditFinding(
+                    SessionAuditSeverity.Error,
+                    "evidence",
+                    $"Latest validation evidence for workflow '{runId:D}' is not bound to a workspace revision."));
+            }
+            var latestPublication = repositoryPublications.GetValueOrDefault(runId)?
+                .OrderByDescending(item => item.PublishedAt)
+                .FirstOrDefault();
+            if (latestValidation?.WorkspaceRevisionId is not null &&
+                latestPublication is not null &&
+                latestPublication.PublishedAt >= latestValidation.PublishedAt &&
+                !string.Equals(
+                    latestValidation.WorkspaceRevisionId,
+                    latestPublication.WorkspaceRevisionId,
+                    StringComparison.Ordinal))
+            {
+                findings.Add(new SessionAuditFinding(
+                    SessionAuditSeverity.Error,
+                    "evidence",
+                    $"Workflow '{runId:D}' validation revision '{latestValidation.WorkspaceRevisionId}' " +
+                    $"does not match its later Hetu publication revision '{latestPublication.WorkspaceRevisionId}'."));
+            }
+            var latestPromotion = workspacePromotions.GetValueOrDefault(runId)?
+                .OrderByDescending(item => item.PromotedAt)
+                .FirstOrDefault();
+            if (latestPublication is not null && latestPromotion is not null &&
+                latestPublication.PublishedAt >= latestPromotion.PromotedAt &&
+                !string.Equals(
+                    latestPromotion.ToRevision,
+                    latestPublication.WorkspaceRevisionId,
+                    StringComparison.Ordinal))
+            {
+                findings.Add(new SessionAuditFinding(
+                    SessionAuditSeverity.Error,
+                    "evidence",
+                    $"Workflow '{runId:D}' promotion revision '{latestPromotion.ToRevision}' " +
+                    $"does not match its later Hetu publication revision '{latestPublication.WorkspaceRevisionId}'."));
             }
         }
 
@@ -324,6 +407,48 @@ public sealed class SessionConsistencyAuditService(
         {
             return false;
         }
+    }
+
+    private static bool TryArtifactReference(
+        Penghou.Zhinu.WorkflowArtifactReference artifact,
+        out ArtifactReference reference)
+    {
+        reference = null!;
+        if (artifact.Metadata is null ||
+            !artifact.Metadata.TryGetValue("artifactId", out var artifactId) ||
+            !artifact.Metadata.TryGetValue("hashVersion", out var hashVersion) ||
+            !int.TryParse(
+                artifact.ArtifactVersion,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var schemaVersion) ||
+            string.IsNullOrWhiteSpace(artifact.Location) ||
+            string.IsNullOrWhiteSpace(artifact.ContentHash))
+        {
+            return false;
+        }
+        reference = new ArtifactReference(
+            artifactId,
+            artifact.ArtifactType,
+            schemaVersion,
+            artifact.Location,
+            artifact.ContentHash)
+        {
+            HashVersion = hashVersion
+        };
+        return true;
+    }
+
+    private static List<T> GetOrAdd<T>(
+        Dictionary<Guid, List<T>> values,
+        Guid workflowRunId)
+    {
+        if (!values.TryGetValue(workflowRunId, out var result))
+        {
+            result = [];
+            values.Add(workflowRunId, result);
+        }
+        return result;
     }
 
     private static async Task<string> ComputeWorkspaceRevisionAsync(

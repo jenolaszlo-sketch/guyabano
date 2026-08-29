@@ -932,24 +932,26 @@ authoritative evidence collection, and workflow policy remain in Guyabano.
 Zhinu `0.1.0-preview.10` is now consumed and its authoritative restart receipt
 is the restart authority. The active session-hardening scope is:
 
-1. Complete decision-bound approval integrity: revalidate the persisted
-   preview, bind workspace and Hetu revisions, hold a decision lease through
-   restart acceptance, and separate authenticated approval from proposal.
-2. **Receipt contract and restart actions complete:** recovery success requires
+1. **Complete:** decision-bound approval integrity revalidates the persisted
+   preview, binds workspace and Hetu revisions, holds a decision lease through
+   restart acceptance, and separates authenticated approval from proposal.
+2. **Complete for current rejection paths:** recovery success requires
    a verified action/resource receipt; denial abandons the exact candidate and
-   stale workspace/impact decisions persist a replacement preview. Integrate
-   graph, staging, promotion, provider, cancellation, and timeout rejections
-   through the same contract.
+   stale workspace/impact decisions persist a replacement preview. Graph,
+   staging, promotion, provider, cancellation, and timeout failures now enter
+   the same forward-only incident model.
 3. **Complete:** production session/CAS, decision leases,
    per-session Zhinu routing, cross-store operation state, and bounded runtime
    handles are concurrency-safe. Authoritative Siming appends are decoupled
    from rebuildable projections through durable committed/applied cursors,
    explicit lag diagnostics, and ledger-based background repair.
-4. **Outbox foundation complete:** catalog lifecycle mutations and clarification
-   promotion have durable retry-safe receipts. Continue durable Zhinu-to-Siming
-   mirroring and integrate the remaining rejection classes.
+4. **Complete:** catalog lifecycle mutations, workspace promotion, and
+   clarification promotion have durable retry-safe receipts. A persisted
+   per-session/run cursor mirrors committed Zhinu events into Siming and routes
+   terminal failures through recovery classification.
 
-After those four outcomes meet their acceptance criteria, resume deferred work:
+The next session correctness slice is structured operator-state precedence and
+bounded occurrence-time validation. Then resume deferred work:
 
 5. Add operator query APIs and interactive Zhinu input/resume behavior.
 6. Prove the complete flow with a real dogfood generation and store-level audit.

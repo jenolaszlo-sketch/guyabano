@@ -118,7 +118,8 @@ public sealed class ImpactAnalysisTests : IDisposable
         var impactService = new CodeGenerationImpactAnalysisService(
             hetu, contextStore, artifacts, restartService, resolver,
             sessionStore, decisionLeases,
-            new SessionRecoveryCoordinator(sessionEvents), options);
+            new SessionRecoveryCoordinator(sessionEvents), options,
+            new TestApprovalActorProvider());
 
         var report = await impactService.AnalyzeAsync(runId, "branch-a", ct);
         report.IndexIdentity.Should().Be(receipt.IndexIdentity);
@@ -205,7 +206,8 @@ public sealed class ImpactAnalysisTests : IDisposable
         var impactService = new CodeGenerationImpactAnalysisService(
             hetu, contextStore, artifacts, restartService, resolver,
             sessionStore, decisionLeases,
-            new SessionRecoveryCoordinator(sessionEvents), options);
+            new SessionRecoveryCoordinator(sessionEvents), options,
+            new TestApprovalActorProvider());
 
         var proposal = await impactService.ProposeAsync(runId, "branch-a", ct);
         var tampered = proposal with
@@ -214,7 +216,7 @@ public sealed class ImpactAnalysisTests : IDisposable
         };
         var rejectTampered = async () => await impactService.ApplyAsync(
             new CodeGenerationRestartApprovalCommand(
-                Guid.CreateVersion7(), tampered, "tester", DateTimeOffset.UtcNow),
+                Guid.CreateVersion7(), tampered, DateTimeOffset.UtcNow),
             ct);
         var rejection = await rejectTampered.Should()
             .ThrowAsync<RestartDecisionRejectedException>();
@@ -242,7 +244,7 @@ public sealed class ImpactAnalysisTests : IDisposable
             ct);
         var rejectStaleGraph = async () => await impactService.ApplyAsync(
             new CodeGenerationRestartApprovalCommand(
-                Guid.CreateVersion7(), proposal, "tester", DateTimeOffset.UtcNow),
+                Guid.CreateVersion7(), proposal, DateTimeOffset.UtcNow),
             ct);
         var staleGraph = await rejectStaleGraph.Should()
             .ThrowAsync<RestartDecisionRejectedException>();
@@ -284,7 +286,7 @@ public sealed class ImpactAnalysisTests : IDisposable
 
         var application = await impactService.ApplyAsync(
             new CodeGenerationRestartApprovalCommand(
-                Guid.CreateVersion7(), proposal, "tester", DateTimeOffset.UtcNow),
+                Guid.CreateVersion7(), proposal, DateTimeOffset.UtcNow),
             ct);
 
         var plan = await artifacts.ReadLatestAsync<CodeGenerationAppliedRestartPlan>(runId.ToString("D"), "applied-restart-plan", "branch-a", ct);

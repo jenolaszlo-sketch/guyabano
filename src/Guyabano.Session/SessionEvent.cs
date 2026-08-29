@@ -40,6 +40,7 @@ public static class SessionEventTypes
     public const string UserActionRequired = "user-action-required";
     public const string PreviewSuperseded = "preview-superseded";
     public const string CandidateAbandoned = "candidate-abandoned";
+    public const string ZhinuEventMirrored = "zhinu-event-mirrored";
 }
 
 /// <summary>

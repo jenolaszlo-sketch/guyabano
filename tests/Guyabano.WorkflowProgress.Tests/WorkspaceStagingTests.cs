@@ -139,13 +139,14 @@ public sealed class WorkspaceStagingTests : IDisposable
             Path.Combine(workspace.HostPath, "A.cs"),
             "class A {}",
             ct);
+        using var sessionEvents = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "events-first"));
         var staging = new CodeGenerationStagingService(
             resolver,
             sessionStore,
             new FileSystemArtifactRepository(
                 Path.Combine(rootPath, ".gen", "artifacts-first")),
-            new SimingSessionEventStore(
-                Path.Combine(rootPath, ".gen", "events-first")),
+            sessionEvents,
             new FileSystemSessionDecisionLeaseProvider(
                 Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions
@@ -197,11 +198,13 @@ public sealed class WorkspaceStagingTests : IDisposable
         var resolver = new CodeGenerationWorkspaceResolver(
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }),
             sessionStore);
+        using var sessionEvents = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
         var staging = new CodeGenerationStagingService(
             resolver,
             sessionStore,
             new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen", "artifacts")),
-            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            sessionEvents,
             new FileSystemSessionDecisionLeaseProvider(
                 Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));
@@ -245,11 +248,13 @@ public sealed class WorkspaceStagingTests : IDisposable
         var resolver = new CodeGenerationWorkspaceResolver(
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }),
             sessionStore);
+        using var sessionEvents = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
         var staging = new CodeGenerationStagingService(
             resolver,
             sessionStore,
             new FileSystemArtifactRepository(Path.Combine(rootPath, ".gen", "artifacts")),
-            new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
+            sessionEvents,
             new FileSystemSessionDecisionLeaseProvider(
                 Path.Combine(rootPath, ".gen", "decision-locks")),
             Options.Create(new CodeGenerationWorkerOptions { OutputRoot = rootPath, CiRelativePath = "." }));

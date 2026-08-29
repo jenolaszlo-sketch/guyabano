@@ -53,7 +53,7 @@ public sealed class CodeGenerationRepositoryReindexer(
         var publishedState = result.PublishedState;
 
         var stepKey = zhinuContext?.StepKey ?? "repository/reindex-post-generation";
-        var workspaceRevision = await ComputeWorkspaceRevisionAsync(
+        var workspaceRevision = await WorkspaceRevisionIdentity.ComputeAsync(
                 workspace.HostPath,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -152,18 +152,4 @@ public sealed class CodeGenerationRepositoryReindexer(
             SHA256.HashData(Encoding.UTF8.GetBytes(content)))
             .ToLowerInvariant();
 
-    private static async Task<string> ComputeWorkspaceRevisionAsync(
-        string workspacePath,
-        CancellationToken cancellationToken)
-    {
-        var snapshot = await GeneratedFileManifestFactory.SnapshotWorkspaceAsync(
-                workspacePath,
-                cancellationToken)
-            .ConfigureAwait(false);
-        var canonical = string.Join(
-            "|",
-            snapshot.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .Select(pair => $"{pair.Key}={pair.Value.Hash}"));
-        return Hash(canonical);
-    }
 }

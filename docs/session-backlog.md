@@ -17,10 +17,10 @@ handover notes, completed review narratives, or speculative feature lists.
 
 Last reviewed: **2026-08-29**
 
-- The session foundation and consolidated integration work are on `main`; the
-  per-session workflow/catalog and SQLite saga hardening batch is currently
-  uncommitted.
-- The full solution passes **340 tests**.
+- The session foundation and consolidated integration work are on `main`; this
+  checkpoint closes the remaining approval, audit-gap, recovery-routing, and
+  revision-evidence work in the active session-hardening boundary.
+- The full solution passes **343 tests**.
 - `git diff --check` passes with only existing LF-to-CRLF warnings.
 - The P0 review defects are corrected: Baize streaming and overload coverage,
   invocation-specific Cangjie snapshots, task-scoped file ownership,
@@ -37,10 +37,10 @@ Last reviewed: **2026-08-29**
   approvals produce persisted replacement previews, expose their IDs to the
   caller, and leave the session awaiting fresh approval. Executor failure is
   retained as reconciliation-required evidence rather than success.
-- Remaining correctness work includes authenticated approval identity,
-  integrating the other rejection classes with the receipt-backed executor,
-  complete operator-state precedence, occurrence-time validation, and durable
-  Zhinu-to-Siming mirroring.
+- Remaining correctness work is concentrated in complete operator-state
+  precedence, structured pending-input/incident projections, and
+  occurrence-time validation. Interactive input still requires Zhinu's planned
+  idempotent signal receipt.
 
 ## Active priority boundary
 
@@ -213,10 +213,12 @@ snapshot plus exact Hetu/workspace revision in execution provenance.
   is replaceable through `ISessionDecisionLeaseProvider`; the SQLite catalog
   will take over this contract in priority 3.
 - [x] Reject approval after the referenced Hetu graph revision becomes stale.
-- [ ] Source actor identity from authenticated host context.
-- [ ] Separate proposal from approval: production application services must not
+- [x] Source actor identity from authenticated host context; the WebTerminal
+  adapter resolves a stable authenticated subject and the default application
+  provider rejects when no trusted host identity exists.
+- [x] Separate proposal from approval: production application services do not
   synthesize `Approved = true` from a free-form `approvedBy` string.
-- [ ] Bind build, test, review, Hetu publication, and promotion evidence to one
+- [x] Bind build, test, review, Hetu publication, and promotion evidence to one
   workspace revision.
 
 Acceptance: the approved graph/code revision is provably the revision restarted,
@@ -246,13 +248,17 @@ validated, and promoted.
   workspace, tampered impact, and stale-Hetu decisions persist and return a
   replacement preview. A refreshed preview resolves the incident while the
   operator state correctly remains `AwaitingApproval`.
-- [ ] Integrate graph-staleness, staging validation, promotion CAS, downstream
+- [x] Integrate graph-staleness, staging validation, promotion CAS, downstream
   publication, provider failure, cancellation, and timeout rejection paths.
-- [ ] Mirror committed Zhinu restart events into Siming with a durable cursor
+  Staging-owned failures execute or defer typed recovery directly; committed
+  workflow terminal events are classified by the reconciliation worker.
+- [x] Mirror committed Zhinu events into Siming with a durable per-session/run
+  cursor
   and deterministic idempotency key so a crash after Zhinu commit but before
   session append repairs the audit gap automatically.
-- [ ] Add a durable audit outbox/receipt for the narrow case where a critical
-  mutation succeeds but the session ledger is temporarily unavailable.
+- [x] Add a durable audit outbox/receipt for critical Guyabano-owned mutations.
+  Workspace revision promotion and its lifecycle receipt commit atomically in
+  the SQLite catalog and are delivered independently to Siming.
 
 Acceptance: every abnormal condition and every attempted recovery remains
 visible after successful repair, while callers receive the safe revision,

@@ -125,7 +125,8 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
         var impactService = new CodeGenerationImpactAnalysisService(
             hetu, contextStore, artifacts, restartService, resolver,
             sessionStore, decisionLeases,
-            new SessionRecoveryCoordinator(sessionEvents), options);
+            new SessionRecoveryCoordinator(sessionEvents), options,
+            new TestApprovalActorProvider());
         var preview = await impactService.AnalyzeAsync(runId, "branch-a", ct);
         preview.ImpactedNodes.Should().Contain(n => n.StepKey == "branch-a" && n.Cause == CodeGenerationImpactCause.Workflow);
         preview.ImpactedNodes.Should().Contain(n => n.StepKey == "a-child" && n.Cause == CodeGenerationImpactCause.Workflow);
@@ -136,7 +137,7 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
         var proposal = await impactService.ProposeAsync(runId, "branch-a", ct);
         await impactService.ApplyAsync(
             new CodeGenerationRestartApprovalCommand(
-                Guid.CreateVersion7(), proposal, "tester", DateTimeOffset.UtcNow),
+                Guid.CreateVersion7(), proposal, DateTimeOffset.UtcNow),
             ct);
         await engine.ExecuteAsync(runId, ct);
         await engine.WaitForCompletionAsync<string>(runId, cancellationToken: ct);

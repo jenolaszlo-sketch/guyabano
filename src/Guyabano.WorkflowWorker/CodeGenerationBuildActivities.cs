@@ -31,6 +31,19 @@ public sealed class CodeGenerationBuildActivities(
         var paths = ToRelativePaths(
             workspace.HostPath,
             request.WrittenFiles);
+        var workspaceRevision = await WorkspaceRevisionIdentity.ComputeAsync(
+            workspace.HostPath,
+            context.CancellationToken).ConfigureAwait(false);
+        if (request.WorkspaceRevisionId is not null &&
+            !string.Equals(
+                request.WorkspaceRevisionId,
+                workspaceRevision,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Build evidence requested workspace revision '{request.WorkspaceRevisionId}', " +
+                $"but the evaluated workspace is '{workspaceRevision}'.");
+        }
 
         await PublishSafelyAsync(workflowId, new WorkflowProgress(
             WorkflowProgressEventType.Started,
@@ -102,37 +115,31 @@ public sealed class CodeGenerationBuildActivities(
                 error,
                 diagnostics.Select(MapDiagnostic).ToArray());
 
-            // Publish validation evidence as authoritative artifact before durable progress
-            try
-            {
-                var zhinuContext = CodeGenerationZhinuStepScope.Current;
-                var stepKey = zhinuContext?.StepKey ?? info.ActivityId;
-                var stepRevision = zhinuContext?.Revision ?? request.BuildAttempt;
-                var evidence = new ValidationEvidencePayload(
-                    BuildResult: buildResult,
-                    SessionId: workspace.SessionId.ToString(),
-                    WorkflowRunId: workflowId,
-                    StepKey: stepKey,
-                    StepRevision: stepRevision,
-                    WorkspaceHostPath: workspace.HostPath,
-                    WorkspaceCiPath: workspace.CiRelativePath,
-                    EvaluatedFiles: paths,
-                    PublishedAt: DateTimeOffset.UtcNow,
-                    WorkspaceRevisionId: request.WorkspaceRevisionId);
-                await artifactRepository.WriteAsync(
-                    new ArtifactWriteRequest<ValidationEvidencePayload>(
-                        WorkflowId: workflowId,
-                        Kind: "validation-evidence",
-                        SchemaVersion: 1,
-                        StageKey: $"build-{request.BuildAttempt}",
-                        Status: ArtifactStatus.Validated,
-                        Payload: evidence),
-                    context.CancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Unable to publish validation evidence for workflow {WorkflowId}.", workflowId);
-            }
+            // Validation evidence is an authoritative completion precondition.
+            // Do not report a build result that cannot be bound to immutable evidence.
+            var zhinuContext = CodeGenerationZhinuStepScope.Current;
+            var stepKey = zhinuContext?.StepKey ?? info.ActivityId;
+            var stepRevision = zhinuContext?.Revision ?? request.BuildAttempt;
+            var evidence = new ValidationEvidencePayload(
+                BuildResult: buildResult,
+                SessionId: workspace.SessionId.ToString(),
+                WorkflowRunId: workflowId,
+                StepKey: stepKey,
+                StepRevision: stepRevision,
+                WorkspaceHostPath: workspace.HostPath,
+                WorkspaceCiPath: workspace.CiRelativePath,
+                EvaluatedFiles: paths,
+                PublishedAt: DateTimeOffset.UtcNow,
+                WorkspaceRevisionId: workspaceRevision);
+            await artifactRepository.WriteAsync(
+                new ArtifactWriteRequest<ValidationEvidencePayload>(
+                    WorkflowId: workflowId,
+                    Kind: "validation-evidence",
+                    SchemaVersion: 2,
+                    StageKey: $"build-{request.BuildAttempt}",
+                    Status: ArtifactStatus.Validated,
+                    Payload: evidence),
+                context.CancellationToken).ConfigureAwait(false);
 
             try
             {

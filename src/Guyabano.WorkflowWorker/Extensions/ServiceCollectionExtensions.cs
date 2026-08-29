@@ -118,6 +118,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IGuyabanoSessionStore>(sessionCatalog);
         services.AddSingleton<ISessionDecisionLeaseProvider>(sessionCatalog);
         services.AddSingleton<ISessionLifecycleReceiptStore>(sessionCatalog);
+        services.AddSingleton<ISessionWorkspacePromotionCommitStore>(sessionCatalog);
+        services.AddSingleton<ISessionWorkflowEventMirrorStore>(
+            new SqliteSessionWorkflowEventMirrorStore(sessionCatalogPath));
         var sessionProjections = new SqliteSessionProjectionStore(sessionCatalogPath);
         services.AddSingleton<ISessionProjectionStore>(sessionProjections);
         services.AddSingleton<ISessionProjectionDeliveryStore>(sessionProjections);
@@ -125,6 +128,7 @@ public static class ServiceCollectionExtensions
             sessionsRoot,
             projectionStore: sessionProjections));
         services.AddSingleton<SessionRecoveryCoordinator>();
+        services.TryAddSingleton<IApprovalActorProvider, RejectingApprovalActorProvider>();
         services.AddSingleton<ICrossStoreOperationStore>(
             new SqliteCrossStoreOperationStore(sessionCatalogPath));
         services.AddSingleton<CrossStoreOperationReconciliationService>();
@@ -264,6 +268,10 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<ILoggerFactory>(),
                 provider.GetService<IWorkflowEventPublisher>()));
         services.AddHostedService<SessionWorkflowRuntimeHostedService>();
+        services.AddSingleton<SessionWorkflowFailureRecoveryService>();
+        services.AddSingleton<SessionWorkflowEventMirrorService>();
+        services.AddHostedService(provider =>
+            provider.GetRequiredService<SessionWorkflowEventMirrorService>());
 
         services.AddScoped<CodeGenerationPlanningActivities>();
         services.AddScoped<CodeGenerationDecompositionActivities>();

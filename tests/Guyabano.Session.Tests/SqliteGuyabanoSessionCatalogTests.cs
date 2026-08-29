@@ -12,6 +12,54 @@ public sealed class SqliteGuyabanoSessionCatalogTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task WorkspacePromotion_CommitsRevisionAndAuditReceiptAtomically()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var catalog = new SqliteGuyabanoSessionCatalog(
+            Path.Combine(rootPath, "promotion-catalog.db"), pooling: false);
+        var session = await catalog.CreateAsync("repo", "workspace", cancellationToken: ct);
+        (await catalog.UpdateWorkspaceRevisionAsync(session.Id, null, "revision-1", ct))
+            .Should().NotBeNull();
+        var runId = Guid.CreateVersion7();
+        await catalog.AttachWorkflowRunAsync(session.Id, runId, ct);
+        var promotedAt = DateTimeOffset.UtcNow;
+
+        var promoted = await catalog.CommitWorkspacePromotionAsync(
+            session.Id,
+            "revision-1",
+            "revision-2",
+            "mutation-7",
+            runId,
+            promotedAt,
+            ct);
+
+        promoted!.CurrentWorkspaceRevision.Should().Be("revision-2");
+        var receipt = (await catalog.ListPendingAsync(cancellationToken: ct))
+            .Single(item =>
+                item.EventType == SessionEventTypes.WorkspacePromoted);
+        receipt.CorrelationId.Should().Be(runId);
+        receipt.CrossSystemRefs.Should().Contain(new Dictionary<string, string>
+        {
+            ["mutationId"] = "mutation-7",
+            ["fromRevision"] = "revision-1",
+            ["toRevision"] = "revision-2",
+            ["auditSource"] = "transactional-workspace-promotion"
+        });
+
+        (await catalog.CommitWorkspacePromotionAsync(
+            session.Id,
+            "revision-1",
+            "revision-3",
+            "losing-mutation",
+            runId,
+            promotedAt,
+            ct)).Should().BeNull();
+        (await catalog.ListPendingAsync(cancellationToken: ct))
+            .Should().NotContain(item =>
+                item.CrossSystemRefs.GetValueOrDefault("mutationId") == "losing-mutation");
+    }
+
+    [Fact]
     public async Task Catalog_PersistsAndListsSessionsWithoutOpeningSessionStores()
     {
         var ct = TestContext.Current.CancellationToken;

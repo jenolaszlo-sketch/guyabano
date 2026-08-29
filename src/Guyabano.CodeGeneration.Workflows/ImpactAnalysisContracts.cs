@@ -44,7 +44,6 @@ public sealed record CodeGenerationImpactProposal(
 public sealed record CodeGenerationRestartApprovalCommand(
     Guid ApprovalId,
     CodeGenerationImpactProposal Proposal,
-    string ApprovedBy,
     DateTimeOffset ApprovedAt);
 
 public sealed record CodeGenerationAppliedRestartPlan(

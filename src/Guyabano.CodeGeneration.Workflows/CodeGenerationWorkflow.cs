@@ -824,7 +824,7 @@ public sealed class CodeGenerationWorkflow
                         buildAttempt,
                         CodeGenerationWorkflowConstants
                             .MaximumBuildAttempts,
-                        currentResult.RepositoryContext?.Revision.WorkspaceRevision),
+                        WorkspaceRevisionId: null),
                     new StepOptions
                     {
                         ExecutionTimeout = TimeSpan.FromMinutes(15),

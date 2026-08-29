@@ -4,7 +4,7 @@ Last reviewed: **2026-08-29**
 
 Reference implementations inspected:
 
-- Guyabano `36794f7` plus the current uncommitted recovery slice;
+- Guyabano current session-hardening implementation;
 - Penghou.Zhinu `0.1.0-preview.10` release candidate (idempotent restart
   receipt implemented and locally validated);
 - Penghou.Siming `9365ba1` (`0.1.0-preview.2`).
@@ -123,42 +123,21 @@ mirror those events into Siming with at-least-once delivery and deterministic
 idempotency. A generic `Penghou.Zhinu.Siming` bridge should be considered only
 after another consumer needs the same mapping.
 
-## Guyabano implementation backlog derived from the matrix
+## Guyabano implementation status derived from the matrix
 
-1. Add a session-scoped decision lease/CAS covering revision recheck through
-   restart acceptance so promotion/reindex cannot race an approved action.
-2. Bind and reject both workspace and Hetu revision staleness under that lease.
-3. Re-read the persisted preview and compare every material approval field;
-   never treat an unverified approval DTO as authority.
-4. Source actor identity from authenticated host context and use Zhinu's
-   `RestartStepOptions.Actor` and `Reason`.
-5. After preview.10 is published, pass approval ID as the Zhinu restart
-   operation ID and treat its receipt/event as authoritative.
-6. **Complete for current restart decisions:** recovery success requires a
-   verified typed receipt; candidate abandonment and replacement-preview
-   generation execute against concrete identities. Extend the same contract to
-   cleanup or rollback only when those actions become part of an implemented
-   rejection policy.
-7. Replace process-local filesystem session/CAS state with a SQLite operational
-   catalog enforcing unique workflow-to-session ownership.
-8. Decouple projection delivery from authoritative append and persist a rebuild
-   cursor so projection lag is explicit and retry-safe.
-9. Route Cangjie clarification promotion through a stable cross-store command
-   and receipt.
-10. Add a durable Zhinu-event-to-Siming reconciliation cursor for crash gaps.
-11. Integrate validation, promotion, publication, cancellation, timeout, and
-   provider failures with the session recovery coordinator.
-12. Add a Guyabano receipt/outbox only for mutations Zhinu cannot commit, notably
-   filesystem promotion followed by cross-store publication.
+Completed: decision-bound workspace/Hetu approval, authoritative persisted
+preview validation, authenticated host actor resolution with reject-by-default
+fallback, Zhinu restart receipts, verified recovery action receipts, the SQLite
+operational catalog, append/projection separation, clarification receipts, a
+durable Zhinu-to-Siming cursor, terminal rejection classification, and an
+atomic workspace-promotion lifecycle receipt/outbox.
+
+Remaining: project structured pending approval/input and all active incidents
+with explicit precedence; validate claimed occurrence time against ledger commit
+time; implement Zhinu Z2 before accepting interactive signals.
 
 ## Recommended sequence
 
-1. Publish Zhinu `0.1.0-preview.10`.
-2. Consume Z1 in Guyabano and remove the temporary restart-idempotency inference.
-3. Implement persisted decision validation plus the workspace/Hetu decision
-   lease.
-4. Make recovery execution and session projections truthful.
-5. Replace process-local operational session state with the SQLite catalog.
-6. Add the durable Zhinu-to-Siming reconciliation worker.
-7. Audit and integrate the remaining Guyabano-owned rejection paths.
-8. Implement Zhinu Z2 immediately before interactive input/approval APIs.
+1. Complete structured operator-state precedence and occurrence-time handling.
+2. Prove the recovery and audit paths in a real generation run.
+3. Implement Zhinu Z2 immediately before interactive input/approval APIs.

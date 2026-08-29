@@ -1,5 +1,6 @@
 using Guyabano.WebTerminal.Components;
 using Guyabano.WebTerminal.Services;
+using Guyabano.WorkflowWorker;
 using Guyabano.WorkflowWorker.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,8 @@ builder.Services
     .AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddGuyabanoCodeGeneration(builder.Configuration);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<IApprovalActorProvider, HttpContextApprovalActorProvider>();
 builder.Services.AddScoped<
     ICodeGenerationWorkflowClient,
     CodeGenerationWorkflowClient>();

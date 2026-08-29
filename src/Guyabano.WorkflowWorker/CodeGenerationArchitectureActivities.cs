@@ -169,7 +169,9 @@ public sealed class CodeGenerationArchitectureActivities(
                         Payload: new(
                             request.ArchitectureVersion,
                             request.Plan,
-                            outcome.Review!),
+                            outcome.Review!,
+                            request.RepositoryContext?.Revision.WorkspaceRevision,
+                            request.RepositoryContext?.Revision.IndexRunId),
                         Inputs: request.PreviousArchitectureArtifact is null
                             ? request.PlanningArtifacts ?? []
                             : new[] { request.PreviousArchitectureArtifact }

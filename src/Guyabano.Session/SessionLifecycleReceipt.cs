@@ -35,3 +35,21 @@ public interface ISessionLifecycleReceiptStore
         DateTimeOffset deliveredAt,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Commits the accepted workspace revision and its audit outbox receipt in one
+/// operational-catalog transaction. Filesystem promotion happens immediately
+/// before this CAS; a committed catalog mutation is therefore always
+/// discoverable even while the immutable session ledger is unavailable.
+/// </summary>
+public interface ISessionWorkspacePromotionCommitStore
+{
+    Task<GuyabanoSession?> CommitWorkspacePromotionAsync(
+        GuyabanoSessionId sessionId,
+        string expectedRevision,
+        string replacementRevision,
+        string mutationId,
+        Guid? workflowRunId,
+        DateTimeOffset promotedAt,
+        CancellationToken cancellationToken = default);
+}

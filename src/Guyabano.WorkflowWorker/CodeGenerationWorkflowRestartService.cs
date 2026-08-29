@@ -48,18 +48,34 @@ public sealed record RestartOutcome(
     Guid? RestartOperationId = null,
     long? WorkflowLeaseGeneration = null,
     long? WorkflowEventSequence = null,
-    bool? RestartWasApplied = null)
+    bool? RestartWasApplied = null,
+    Guid? ReplacementPreviewId = null)
 {
     public bool Applied => Status == RestartOutcomeStatus.Applied;
 }
 
 public sealed class CodeGenerationWorkflowRestartService(
-    WorkflowEngine workflowEngine,
+    ISessionWorkflowRuntimeProvider workflowRuntimes,
     IGuyabanoSessionStore sessionStore,
     ISessionEventStore sessionEvents,
     ILogger<CodeGenerationWorkflowRestartService> logger,
     SessionRecoveryCoordinator? recoveryCoordinator = null)
 {
+    public CodeGenerationWorkflowRestartService(
+        WorkflowEngine workflowEngine,
+        IGuyabanoSessionStore sessionStore,
+        ISessionEventStore sessionEvents,
+        ILogger<CodeGenerationWorkflowRestartService> logger,
+        SessionRecoveryCoordinator? recoveryCoordinator = null)
+        : this(
+            new FixedSessionWorkflowRuntimeProvider(workflowEngine),
+            sessionStore,
+            sessionEvents,
+            logger,
+            recoveryCoordinator)
+    {
+    }
+
     public async Task<RestartPreview> PreviewAsync(
         Guid workflowRunId,
         string targetStepKey,
@@ -70,13 +86,16 @@ public sealed class CodeGenerationWorkflowRestartService(
         var session = await sessionStore.FindByWorkflowRunAsync(workflowRunId, cancellationToken)
             ?? throw new InvalidOperationException($"Workflow '{workflowRunId}' is not associated with a Guyabano session.");
 
-        var plan = await workflowEngine.PlanRestartAsync(
+        await using var workflowRuntime = await workflowRuntimes
+            .AcquireAsync(session.Id, cancellationToken).ConfigureAwait(false);
+
+        var plan = await workflowRuntime.Engine.PlanRestartAsync(
             workflowRunId,
             targetStepKey,
             StepRestartMode.Dependents,
             cancellationToken).ConfigureAwait(false);
 
-        var allSteps = await workflowEngine.GetStepsAsync(workflowRunId, cancellationToken).ConfigureAwait(false);
+        var allSteps = await workflowRuntime.Engine.GetStepsAsync(workflowRunId, cancellationToken).ConfigureAwait(false);
         var invalidated = plan.StepsToInvalidate.Select(s => s.StepKey).Distinct(StringComparer.Ordinal).ToArray();
         var invalidatedSet = invalidated.ToHashSet(StringComparer.Ordinal);
 
@@ -202,7 +221,9 @@ public sealed class CodeGenerationWorkflowRestartService(
         RestartReceipt receipt;
         try
         {
-            receipt = await workflowEngine.RestartStepWithReceiptAsync(
+            await using var workflowRuntime = await workflowRuntimes
+                .AcquireAsync(session.Id, cancellationToken).ConfigureAwait(false);
+            receipt = await workflowRuntime.Engine.RestartStepWithReceiptAsync(
                 approval.WorkflowRunId,
                 approval.TargetStepKey,
                 new RestartStepOptions
@@ -357,35 +378,99 @@ public sealed class CodeGenerationWorkflowRestartService(
             references);
         var planned = await recovery.PlanAsync(plan, detected.EventId, cancellationToken)
             .ConfigureAwait(false);
-        var rejected = await sessionEvents.AppendAsync(new SessionEventRequest(
-            session.Id,
-            "guyabano",
-            rejectionEventType,
-            DateTimeOffset.UtcNow,
-            CausationId: planned.EventId,
-            CorrelationId: approval.WorkflowRunId,
-            CrossSystemRefs: references,
-            IdempotencyKey: $"approval:{approval.ApprovalId:D}:{rejectionEventType}"),
+        RestartPreview? replacement = null;
+        var execution = await recovery.ExecuteAsync(
+            plan,
+            planned.EventId,
+            attempt: 1,
+            async (attempted, ct) =>
+            {
+                var rejected = await sessionEvents.AppendAsync(new SessionEventRequest(
+                    session.Id,
+                    "guyabano",
+                    rejectionEventType,
+                    DateTimeOffset.UtcNow,
+                    CausationId: attempted.EventId,
+                    CorrelationId: approval.WorkflowRunId,
+                    CrossSystemRefs: references,
+                    IdempotencyKey: $"approval:{approval.ApprovalId:D}:{rejectionEventType}"),
+                    ct).ConfigureAwait(false);
+
+                if (action == SessionRecoveryAction.AbandonCandidate)
+                {
+                    var abandoned = await sessionEvents.AppendAsync(new SessionEventRequest(
+                        session.Id,
+                        "guyabano",
+                        SessionEventTypes.CandidateAbandoned,
+                        DateTimeOffset.UtcNow,
+                        CausationId: rejected.EventId,
+                        CorrelationId: approval.WorkflowRunId,
+                        CrossSystemRefs: references,
+                        IdempotencyKey: $"approval:{approval.ApprovalId:D}:candidate-abandoned"),
+                        ct).ConfigureAwait(false);
+                    return new SessionRecoveryActionReceipt(
+                        abandoned.EventId,
+                        action,
+                        "restart-preview",
+                        approval.PreviewId.ToString("D"),
+                        "The denied preview was durably marked as abandoned without mutating workflow state.",
+                        abandoned.OccurredAt,
+                        Verified: rejected.EventType == SessionEventTypes.ApprovalDenied &&
+                            abandoned.EventType == SessionEventTypes.CandidateAbandoned,
+                        references);
+                }
+
+                if (action == SessionRecoveryAction.RefreshPreview)
+                {
+                    replacement = await PreviewAsync(
+                        approval.WorkflowRunId,
+                        approval.TargetStepKey,
+                        ct).ConfigureAwait(false);
+                    var verified = replacement.WorkflowRunId == approval.WorkflowRunId &&
+                        string.Equals(replacement.TargetStepKey, approval.TargetStepKey, StringComparison.Ordinal) &&
+                        string.Equals(
+                            replacement.WorkspaceRevision,
+                            session.CurrentWorkspaceRevision,
+                            StringComparison.Ordinal);
+                    return new SessionRecoveryActionReceipt(
+                        Guid.CreateVersion7(),
+                        action,
+                        "restart-preview",
+                        replacement.PreviewId.ToString("D"),
+                        $"Replacement preview '{replacement.PreviewId:D}' targets accepted workspace revision " +
+                            $"'{replacement.WorkspaceRevision ?? "uninitialized"}'.",
+                        replacement.GeneratedAt,
+                        verified,
+                        new Dictionary<string, string>(references, StringComparer.Ordinal)
+                        {
+                            ["replacementPreviewId"] = replacement.PreviewId.ToString("D"),
+                            ["replacementWorkspaceRevision"] = replacement.WorkspaceRevision ?? "uninitialized"
+                        });
+                }
+
+                throw new InvalidOperationException(
+                    $"No restart recovery executor is registered for '{action}'.");
+            },
             cancellationToken).ConfigureAwait(false);
-        await recovery.CompleteAsync(new SessionRecoveryResolution(
-                plan.RecoveryPlanId,
+
+        if (execution.Outcome != SessionRecoveryOutcome.Recovered)
+        {
+            return new RestartOutcome(
+                RestartOutcomeStatus.ReconciliationRequired,
+                execution.Explanation,
+                session.CurrentWorkspaceRevision,
                 incident.IncidentId,
-                session.Id,
-                SessionRecoveryOutcome.UserActionRequired,
-                0,
-                $"{explanation} Recovery action '{action}' was not executed because " +
-                    "the command did not identify an executable candidate or replacement preview.",
-                DateTimeOffset.UtcNow,
-                approval.WorkflowRunId,
-                references),
-            rejected.EventId,
-            cancellationToken).ConfigureAwait(false);
+                plan.RecoveryPlanId);
+        }
         return new RestartOutcome(
             status,
-            explanation,
+            replacement is null
+                ? explanation
+                : $"{explanation} Replacement preview '{replacement.PreviewId:D}' was generated and must be approved before restart.",
             session.CurrentWorkspaceRevision,
             incident.IncidentId,
-            plan.RecoveryPlanId);
+            plan.RecoveryPlanId,
+            ReplacementPreviewId: replacement?.PreviewId);
     }
 
     private async Task<RestartOutcome?> FindExistingOutcomeAsync(
@@ -426,11 +511,20 @@ public sealed class CodeGenerationWorkflowRestartService(
         return new RestartOutcome(
             stale ? RestartOutcomeStatus.RejectedStale : RestartOutcomeStatus.RejectedByUser,
             stale
-                ? "The approval was already rejected because its workspace revision was stale."
+                ? "The approval was already rejected because its workspace revision was stale; its replacement preview can be approved."
                 : "The restart approval was already declined and safely resolved.",
             terminal.CrossSystemRefs?.GetValueOrDefault("safeWorkspaceRevision"),
             approval.ApprovalId,
-            approval.RecoveryPlanId);
+            approval.RecoveryPlanId,
+            ReplacementPreviewId: string.Equals(
+                terminal.CrossSystemRefs?.GetValueOrDefault("recoveryAction"),
+                SessionRecoveryAction.RefreshPreview.ToString(),
+                StringComparison.Ordinal) &&
+                Guid.TryParse(
+                    terminal.CrossSystemRefs?.GetValueOrDefault("recoveryResourceId"),
+                    out var replacementPreviewId)
+                ? replacementPreviewId
+                : null);
     }
 
     public async Task<RestartPreview> PreviewAndRequireApprovalAsync(

@@ -7,7 +7,7 @@ using Guyabano.Session;
 namespace Guyabano.WebTerminal.Services;
 
 internal sealed class CodeGenerationWorkflowClient(
-    WorkflowEngine workflowEngine,
+    ISessionWorkflowRuntimeProvider workflowRuntimes,
     IOptions<CodeGenerationWorkerOptions> options,
     CodeGenerationWorkspaceResolver workspaceResolver,
     IGuyabanoSessionStore sessionStore,
@@ -80,7 +80,9 @@ internal sealed class CodeGenerationWorkflowClient(
             };
         }
 
-        await workflowEngine.StartAsync(
+        await using var workflowRuntime = await workflowRuntimes
+            .AcquireAsync(session.Id, cancellationToken).ConfigureAwait(false);
+        await workflowRuntime.Engine.StartAsync(
             CodeGenerationWorkflowConstants.WorkflowName,
             CodeGenerationWorkflowConstants.WorkflowVersion,
             request,
@@ -127,9 +129,22 @@ internal sealed class CodeGenerationWorkflowClient(
                 nameof(workflowId));
         }
 
-        return workflowEngine.WaitForCompletionAsync<
-            CodeGenerationWorkflowResult>(
-            runId,
-            cancellationToken: cancellationToken);
+        return WaitForSessionResultAsync(runId, cancellationToken);
+    }
+
+    private async Task<CodeGenerationWorkflowResult> WaitForSessionResultAsync(
+        Guid workflowRunId,
+        CancellationToken cancellationToken)
+    {
+        var session = await sessionStore.FindByWorkflowRunAsync(
+                workflowRunId,
+                cancellationToken)
+            .ConfigureAwait(false) ?? throw new KeyNotFoundException(
+                $"Workflow '{workflowRunId:D}' is not associated with a Guyabano session.");
+        await using var runtime = await workflowRuntimes
+            .AcquireAsync(session.Id, cancellationToken).ConfigureAwait(false);
+        return await runtime.Engine.WaitForCompletionAsync<CodeGenerationWorkflowResult>(
+            workflowRunId,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

@@ -14,8 +14,8 @@ using Penghou.Cangjie.Sqlite;
 using Penghou.Hetu;
 using Penghou.Hetu.CSharp;
 using Penghou.Hetu.Ladybug;
+using Penghou.Zhinu;
 using Penghou.Zhinu.Hosting;
-using Penghou.Zhinu.Sqlite;
 using Guyabano.Artifacts;
 using Guyabano.CI.Client.Extensions;
 using Guyabano.CodeGeneration.Planning.Extensions;
@@ -111,23 +111,29 @@ public static class ServiceCollectionExtensions
         var stateRoot = Path.Combine(outputRoot, ".gen");
         Directory.CreateDirectory(stateRoot);
 
-        services.AddSingleton<IGuyabanoSessionStore>(
-            new FileSystemGuyabanoSessionStore(
-                Path.Combine(stateRoot, "sessions")));
-        var sessionProjections = new SqliteSessionProjectionStore(
-            Path.Combine(stateRoot, "session-catalog.db"));
+        var sessionCatalogPath = Path.Combine(stateRoot, "session-catalog.db");
+        var sessionsRoot = Path.Combine(stateRoot, "sessions");
+        var sessionCatalog = new SqliteGuyabanoSessionCatalog(sessionCatalogPath);
+        services.AddSingleton(sessionCatalog);
+        services.AddSingleton<IGuyabanoSessionStore>(sessionCatalog);
+        services.AddSingleton<ISessionDecisionLeaseProvider>(sessionCatalog);
+        services.AddSingleton<ISessionLifecycleReceiptStore>(sessionCatalog);
+        var sessionProjections = new SqliteSessionProjectionStore(sessionCatalogPath);
         services.AddSingleton<ISessionProjectionStore>(sessionProjections);
+        services.AddSingleton<ISessionProjectionDeliveryStore>(sessionProjections);
         services.AddSingleton<ISessionEventStore>(new SimingSessionEventStore(
-            Path.Combine(stateRoot, "sessions"),
+            sessionsRoot,
             projectionStore: sessionProjections));
         services.AddSingleton<SessionRecoveryCoordinator>();
-        services.AddSingleton<ISessionDecisionLeaseProvider>(
-            new FileSystemSessionDecisionLeaseProvider(
-                Path.Combine(stateRoot, "decision-locks")));
         services.AddSingleton<ICrossStoreOperationStore>(
-            new FileSystemCrossStoreOperationStore(
-                Path.Combine(stateRoot, "operations")));
+            new SqliteCrossStoreOperationStore(sessionCatalogPath));
         services.AddSingleton<CrossStoreOperationReconciliationService>();
+        services.AddSingleton<SessionLifecycleReceiptDeliveryService>();
+        services.AddHostedService(provider =>
+            provider.GetRequiredService<SessionLifecycleReceiptDeliveryService>());
+        services.AddSingleton<SessionProjectionRepairService>();
+        services.AddHostedService(provider =>
+            provider.GetRequiredService<SessionProjectionRepairService>());
 
         services.AddCangjieSqlite(options =>
         {
@@ -141,15 +147,24 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<
             IRepositoryContextService,
             RepositoryContextService>();
-        services.AddZhinuSqlite(options =>
+        var zhinuOptions = new ZhinuOptions
         {
-            options.DatabasePath = Path.Combine(stateRoot, "zhinu.db");
-        });
-        services.AddZhinu(options =>
+            MaxConcurrentWorkflows = 2,
+            ScanBatchSize = 10
+        };
+        zhinuOptions.Validate();
+        services.AddSingleton(zhinuOptions);
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<WorkflowRegistry>(provider =>
         {
-            options.MaxConcurrentWorkflows = 2;
-            options.ScanBatchSize = 10;
+            var registry = new WorkflowRegistry();
+            foreach (var registration in provider.GetServices<IWorkflowRegistration>())
+                registry.Register(registration);
+            return registry;
         });
+        services.TryAddSingleton<IWorkflowRegistry>(provider =>
+            provider.GetRequiredService<WorkflowRegistry>());
+        services.TryAddSingleton<IWorkflowStepResolver, GuyabanoWorkflowStepResolver>();
         services.AddZhinuWorkflow<
             CodeGenerationWorkflow,
             CodeGenerationWorkflowRequest,
@@ -239,6 +254,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWorkflowProgressPublisher>(provider =>
             new ZhinuWorkflowProgressPublisher(
                 provider.GetRequiredService<InMemoryWorkflowProgressHub>()));
+        services.AddSingleton<ISessionWorkflowRuntimeProvider>(provider =>
+            new SessionWorkflowRuntimeProvider(
+                sessionsRoot,
+                provider.GetRequiredService<IWorkflowRegistry>(),
+                provider.GetRequiredService<IWorkflowStepResolver>(),
+                provider.GetRequiredService<ZhinuOptions>(),
+                provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<ILoggerFactory>(),
+                provider.GetService<IWorkflowEventPublisher>()));
+        services.AddHostedService<SessionWorkflowRuntimeHostedService>();
 
         services.AddScoped<CodeGenerationPlanningActivities>();
         services.AddScoped<CodeGenerationDecompositionActivities>();
@@ -247,11 +272,22 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CodeGenerationTaskActivities>();
         services.AddScoped<CodeGenerationBuildActivities>();
         services.AddScoped<CodeGenerationCheckpointActivities>();
-        services.AddSingleton<CodeGenerationWorkflowRestartService>();
+        services.AddSingleton(provider => new CodeGenerationWorkflowRestartService(
+            provider.GetRequiredService<ISessionWorkflowRuntimeProvider>(),
+            provider.GetRequiredService<IGuyabanoSessionStore>(),
+            provider.GetRequiredService<ISessionEventStore>(),
+            provider.GetRequiredService<ILogger<CodeGenerationWorkflowRestartService>>(),
+            provider.GetService<SessionRecoveryCoordinator>()));
         services.AddSingleton<CodeGenerationImpactAnalysisService>();
         services.AddSingleton<CodeGenerationStagingService>();
         services.AddSingleton<SessionClarificationService>();
-        services.AddSingleton<SessionConsistencyAuditService>();
+        services.AddSingleton(provider => new SessionConsistencyAuditService(
+            provider.GetRequiredService<ISessionWorkflowRuntimeProvider>(),
+            provider.GetRequiredService<IGuyabanoSessionStore>(),
+            provider.GetRequiredService<ISessionEventStore>(),
+            provider.GetRequiredService<IContextStore>(),
+            provider.GetRequiredService<IArtifactRepository>(),
+            provider.GetRequiredService<CodeGenerationWorkspaceResolver>()));
         services.AddHostedService<ModelConfigurationLoggingService>();
 
         return services;

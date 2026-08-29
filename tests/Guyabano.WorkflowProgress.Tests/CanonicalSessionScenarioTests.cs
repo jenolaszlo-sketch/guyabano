@@ -89,11 +89,36 @@ public sealed class CanonicalSessionScenarioTests : IDisposable
         await sessionEvents.AppendAsync(new SessionEventRequest(session.Id, "guyabano", SessionEventTypes.WorkflowStarted, DateTimeOffset.UtcNow, CorrelationId: runId), ct);
 
         // 2. Add a clarification, deliberately promoted into Cangjie knowledge
+        var clarificationOperations = new SqliteCrossStoreOperationStore(
+            Path.Combine(rootPath, ".gen", "session-catalog.db"),
+            pooling: false);
         var clarification = new SessionClarificationService(
-            new CangjieRevisionedConceptService(contextStore), sessionStore, sessionEvents);
+            new CangjieRevisionedConceptService(
+                contextStore,
+                clarificationOperations,
+                sessionEvents),
+            sessionStore,
+            sessionEvents,
+            clarificationOperations);
         var knowledge = await clarification.PromoteAsync(
             session.Id.Value, "clarify:payment", "Use decimal for money amounts; never float.", runId, ct);
         knowledge.Kind.Should().Be(ContextKinds.Knowledge);
+        var clarificationOperation = await clarificationOperations
+            .FindByWorkflowRunAsync(runId, ct);
+        clarificationOperation!.State.Should().Be(CrossStoreOperationState.Completed);
+        clarificationOperation.Participants.Select(item => item.Participant)
+            .Should().Contain(item => item.StartsWith("cangjie-publication:", StringComparison.Ordinal));
+        clarificationOperation.Participants.Should().Contain(item =>
+            item.Participant == "session-ledger:clarification-promoted");
+        var replayedKnowledge = await clarification.PromoteAsync(
+            session.Id.Value,
+            "clarify:payment",
+            "Use decimal for money amounts; never float.",
+            runId,
+            ct);
+        replayedKnowledge.Id.Should().Be(knowledge.Id);
+        (await clarificationOperations.ListAsync(session.Id, ct))
+            .Should().ContainSingle();
 
         // 3. Preview the cascade, 4. approve, 5. rerun only affected, reuse siblings
         var restartService = new CodeGenerationWorkflowRestartService(engine, sessionStore, sessionEvents, NullLogger<CodeGenerationWorkflowRestartService>.Instance);

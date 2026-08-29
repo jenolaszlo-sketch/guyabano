@@ -14,7 +14,8 @@ public sealed class SqliteSessionProjectionStoreTests : IDisposable
     public async Task Append_UpdatesRebuildableCurrentStateProjection()
     {
         var ct = TestContext.Current.CancellationToken;
-        var projections = new SqliteSessionProjectionStore(Path.Combine(rootPath, "catalog.db"));
+        var projections = new SqliteSessionProjectionStore(
+            Path.Combine(rootPath, "catalog.db"), pooling: false);
         await using var events = new SimingSessionEventStore(
             Path.Combine(rootPath, "sessions"), projectionStore: projections);
         var sessionId = GuyabanoSessionId.New();
@@ -48,7 +49,8 @@ public sealed class SqliteSessionProjectionStoreTests : IDisposable
     public async Task Rebuild_RepairsMissingOrDeletedProjectionFromLedger()
     {
         var ct = TestContext.Current.CancellationToken;
-        var projections = new SqliteSessionProjectionStore(Path.Combine(rootPath, "catalog.db"));
+        var projections = new SqliteSessionProjectionStore(
+            Path.Combine(rootPath, "catalog.db"), pooling: false);
         await using var events = new SimingSessionEventStore(Path.Combine(rootPath, "sessions"));
         var sessionId = GuyabanoSessionId.New();
         await events.AppendAsync(new SessionEventRequest(
@@ -70,7 +72,8 @@ public sealed class SqliteSessionProjectionStoreTests : IDisposable
     public async Task Apply_SameSequenceFromDifferentChain_RejectsHeadConflict()
     {
         var ct = TestContext.Current.CancellationToken;
-        var projections = new SqliteSessionProjectionStore(Path.Combine(rootPath, "catalog.db"));
+        var projections = new SqliteSessionProjectionStore(
+            Path.Combine(rootPath, "catalog.db"), pooling: false);
         await using var events = new SimingSessionEventStore(Path.Combine(rootPath, "sessions"));
         var sessionId = GuyabanoSessionId.New();
         var committed = await events.AppendAsync(new SessionEventRequest(
@@ -83,9 +86,66 @@ public sealed class SqliteSessionProjectionStoreTests : IDisposable
             .WithMessage("*head conflict*");
     }
 
+    [Fact]
+    public async Task DeliveryCursor_ExposesLagAndClearsItAtomicallyWithProjectionApply()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var projections = new SqliteSessionProjectionStore(
+            Path.Combine(rootPath, "catalog.db"), pooling: false);
+        await using var events = new SimingSessionEventStore(
+            Path.Combine(rootPath, "sessions"));
+        var sessionId = GuyabanoSessionId.New();
+        var committed = await events.AppendAsync(new SessionEventRequest(
+            sessionId,
+            "user",
+            SessionEventTypes.UserMessage,
+            DateTimeOffset.UtcNow), ct);
+
+        await projections.RecordCommittedAsync(committed, ct);
+        var lagging = await projections.GetDeliveryStatusAsync(sessionId, ct);
+
+        lagging!.IsLagging.Should().BeTrue();
+        lagging.CommittedSequence.Should().Be(1);
+        lagging.AppliedSequence.Should().Be(0);
+        (await projections.ListLaggingAsync(cancellationToken: ct))
+            .Should().ContainSingle();
+
+        await projections.ApplyAsync(committed, ct);
+        var current = await projections.GetDeliveryStatusAsync(sessionId, ct);
+        current!.IsLagging.Should().BeFalse();
+        current.AppliedSequence.Should().Be(1);
+        current.AppliedHeadHash.Should().Be(committed.Hash);
+        current.LastFailureType.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeliveryCursor_PersistsBoundedFailureDiagnostics()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var projections = new SqliteSessionProjectionStore(
+            Path.Combine(rootPath, "catalog.db"), pooling: false);
+        await using var events = new SimingSessionEventStore(
+            Path.Combine(rootPath, "sessions"));
+        var committed = await events.AppendAsync(new SessionEventRequest(
+            GuyabanoSessionId.New(),
+            "user",
+            SessionEventTypes.UserMessage,
+            DateTimeOffset.UtcNow), ct);
+        await projections.RecordCommittedAsync(committed, ct);
+
+        await projections.RecordFailureAsync(
+            committed,
+            new InvalidOperationException(new string('x', 3000)),
+            ct);
+
+        var status = await projections.GetDeliveryStatusAsync(committed.SessionId, ct);
+        status!.IsLagging.Should().BeTrue();
+        status.LastFailureType.Should().Be(typeof(InvalidOperationException).FullName);
+        status.LastFailureDetail.Should().HaveLength(2048);
+    }
+
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
         if (Directory.Exists(rootPath)) Directory.Delete(rootPath, recursive: true);
     }
 }

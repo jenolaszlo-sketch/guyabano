@@ -2,11 +2,19 @@ namespace Guyabano.Session;
 
 public static class SessionEventTypes
 {
+    public const string SessionCreated = "session-created";
+    public const string WorkflowAttached = "workflow-attached";
+    public const string WorkspaceRevisionAccepted = "workspace-revision-accepted";
+    public const string DecisionLeaseAcquired = "decision-lease-acquired";
+    public const string DecisionLeaseReleased = "decision-lease-released";
+    public const string DecisionLeaseExpired = "decision-lease-expired";
     public const string UserMessage = "user-message";
     public const string AssistantMessage = "assistant-message";
     public const string InputRequested = "input-requested";
     public const string InputProvided = "input-provided";
     public const string ClarificationPromoted = "clarification-promoted";
+    public const string ClarificationPromotionFailed =
+        "clarification-promotion-failed";
     public const string ApprovalGranted = "approval-granted";
     public const string ApprovalDenied = "approval-denied";
     public const string WorkflowStarted = "workflow-started";

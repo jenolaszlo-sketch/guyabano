@@ -12,6 +12,14 @@ public interface IGuyabanoSessionStore
         GuyabanoSessionId sessionId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Lists sessions from newest to oldest without opening their ledger or
+    /// workflow stores. This is the operational query used by project/session
+    /// pickers and background runtime discovery.
+    /// </summary>
+    Task<IReadOnlyList<GuyabanoSession>> ListAsync(
+        CancellationToken cancellationToken = default);
+
     Task<GuyabanoSession?> FindByWorkflowRunAsync(
         Guid workflowRunId,
         CancellationToken cancellationToken = default);

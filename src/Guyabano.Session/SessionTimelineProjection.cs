@@ -20,6 +20,45 @@ public sealed record SessionProjectionSnapshot(
     string HeadHash,
     SessionCurrentState State);
 
+/// <summary>
+/// Durable delivery cursor comparing the authoritative Siming ledger head with
+/// the rebuildable projection head.
+/// </summary>
+public sealed record SessionProjectionDeliveryStatus(
+    GuyabanoSessionId SessionId,
+    long CommittedSequence,
+    string? CommittedHeadHash,
+    long AppliedSequence,
+    string? AppliedHeadHash,
+    DateTimeOffset UpdatedAt,
+    string? LastFailureType = null,
+    string? LastFailureDetail = null)
+{
+    public bool IsLagging => AppliedSequence < CommittedSequence ||
+        (AppliedSequence == CommittedSequence &&
+         !string.Equals(AppliedHeadHash, CommittedHeadHash, StringComparison.Ordinal));
+}
+
+public interface ISessionProjectionDeliveryStore
+{
+    Task RecordCommittedAsync(
+        SessionEvent sessionEvent,
+        CancellationToken cancellationToken = default);
+
+    Task RecordFailureAsync(
+        SessionEvent sessionEvent,
+        Exception exception,
+        CancellationToken cancellationToken = default);
+
+    Task<SessionProjectionDeliveryStatus?> GetDeliveryStatusAsync(
+        GuyabanoSessionId sessionId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SessionProjectionDeliveryStatus>> ListLaggingAsync(
+        int maximumCount = 100,
+        CancellationToken cancellationToken = default);
+}
+
 public interface ISessionProjectionStore
 {
     Task ApplyAsync(SessionEvent sessionEvent, CancellationToken cancellationToken = default);
@@ -85,7 +124,12 @@ public static class SessionTimelineProjection
         {
             if (incidents.Remove(incidentId)) resolvedCount++;
             operatorState = incidents.Count == 0
-                ? SessionOperatorState.Ready
+                ? string.Equals(
+                    sessionEvent.CrossSystemRefs?.GetValueOrDefault("recoveryAction"),
+                    SessionRecoveryAction.RefreshPreview.ToString(),
+                    StringComparison.Ordinal)
+                    ? SessionOperatorState.AwaitingApproval
+                    : SessionOperatorState.Ready
                 : SessionOperatorState.Recovering;
         }
         else if (sessionEvent.EventType == SessionEventTypes.UserActionRequired)

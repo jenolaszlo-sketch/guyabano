@@ -300,11 +300,12 @@ public sealed class CodeGenerationImpactAnalysisService(
         }
         catch (RestartDecisionRejectedException exception)
         {
-            await RecordDecisionRejectionAsync(
+            var recoveryResult = await RecordDecisionRejectionAsync(
                 approval,
                 workspace.SessionId,
                 exception,
                 cancellationToken).ConfigureAwait(false);
+            exception.AttachRecovery(recoveryResult);
             throw;
         }
 
@@ -356,7 +357,7 @@ public sealed class CodeGenerationImpactAnalysisService(
         return new CodeGenerationRestartApplicationResult(report, outcome, plan);
     }
 
-    private async Task RecordDecisionRejectionAsync(
+    private async Task<SessionRecoveryExecutionResult> RecordDecisionRejectionAsync(
         CodeGenerationRestartApprovalCommand approval,
         GuyabanoSessionId sessionId,
         RestartDecisionRejectedException exception,
@@ -392,23 +393,43 @@ public sealed class CodeGenerationImpactAnalysisService(
             SessionRecoveryAction.RefreshPreview,
             exception.Message,
             report.WorkspaceRevision,
-            Automatic: false,
+            Automatic: true,
             approval.ApprovedAt,
             report.WorkflowRunId,
             references);
         var planned = await recovery.PlanAsync(plan, detected.EventId, cancellationToken)
             .ConfigureAwait(false);
-        await recovery.CompleteAsync(new SessionRecoveryResolution(
-                plan.RecoveryPlanId,
-                incident.IncidentId,
-                sessionId,
-                SessionRecoveryOutcome.UserActionRequired,
-                0,
-                $"{exception.Message} Generate and approve a fresh impact preview.",
-                approval.ApprovedAt,
-                report.WorkflowRunId,
-                references),
+        return await recovery.ExecuteAsync(
+            plan,
             planned.EventId,
+            attempt: 1,
+            async (_, ct) =>
+            {
+                var replacement = await ProposeAsync(
+                    report.WorkflowRunId,
+                    report.TargetStepKey,
+                    ct).ConfigureAwait(false);
+                var fresh = replacement.Impact;
+                var verified = fresh.PreviewId != report.PreviewId &&
+                    fresh.WorkflowRunId == report.WorkflowRunId &&
+                    string.Equals(fresh.TargetStepKey, report.TargetStepKey, StringComparison.Ordinal) &&
+                    !string.IsNullOrWhiteSpace(replacement.Artifact.ArtifactId);
+                return new SessionRecoveryActionReceipt(
+                    Guid.CreateVersion7(),
+                    SessionRecoveryAction.RefreshPreview,
+                    "impact-preview",
+                    fresh.PreviewId.ToString("D"),
+                    $"Replacement impact preview '{fresh.PreviewId:D}' was persisted as artifact " +
+                        $"'{replacement.Artifact.ArtifactId}' and requires a new approval.",
+                    fresh.GeneratedAt,
+                    verified,
+                    new Dictionary<string, string>(references, StringComparer.Ordinal)
+                    {
+                        ["replacementPreviewId"] = fresh.PreviewId.ToString("D"),
+                        ["replacementPreviewArtifactId"] = replacement.Artifact.ArtifactId,
+                        ["replacementChangeSetHash"] = fresh.ChangeSetHash
+                    });
+            },
             cancellationToken).ConfigureAwait(false);
     }
 

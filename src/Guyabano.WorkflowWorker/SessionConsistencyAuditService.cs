@@ -15,13 +15,30 @@ namespace Guyabano.WorkflowWorker;
 /// evidence, and incomplete cross-store publication.
 /// </summary>
 public sealed class SessionConsistencyAuditService(
-    WorkflowEngine workflowEngine,
+    ISessionWorkflowRuntimeProvider workflowRuntimes,
     IGuyabanoSessionStore sessionStore,
     ISessionEventStore sessionEvents,
     IContextStore contextStore,
     IArtifactRepository artifactRepository,
     CodeGenerationWorkspaceResolver workspaceResolver)
 {
+    public SessionConsistencyAuditService(
+        WorkflowEngine workflowEngine,
+        IGuyabanoSessionStore sessionStore,
+        ISessionEventStore sessionEvents,
+        IContextStore contextStore,
+        IArtifactRepository artifactRepository,
+        CodeGenerationWorkspaceResolver workspaceResolver)
+        : this(
+            new FixedSessionWorkflowRuntimeProvider(workflowEngine),
+            sessionStore,
+            sessionEvents,
+            contextStore,
+            artifactRepository,
+            workspaceResolver)
+    {
+    }
+
     public async Task<SessionAuditReport> AuditAsync(
         Guid sessionId,
         CancellationToken cancellationToken = default)
@@ -91,13 +108,16 @@ public sealed class SessionConsistencyAuditService(
         var hasBaizeEvidence = false;
         var snapshotIds = new HashSet<Guid>();
 
+        await using var workflowRuntime = await workflowRuntimes
+            .AcquireAsync(session.Id, cancellationToken).ConfigureAwait(false);
+
         foreach (var runId in session.WorkflowRunIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
             IReadOnlyList<Penghou.Zhinu.WorkflowArtifactReference>? artifacts = null;
             try
             {
-                artifacts = await workflowEngine.GetArtifactsAsync(runId, cancellationToken)
+                artifacts = await workflowRuntime.Engine.GetArtifactsAsync(runId, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception exception)

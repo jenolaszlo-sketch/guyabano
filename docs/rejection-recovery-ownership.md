@@ -134,8 +134,11 @@ after another consumer needs the same mapping.
    `RestartStepOptions.Actor` and `Reason`.
 5. After preview.10 is published, pass approval ID as the Zhinu restart
    operation ID and treat its receipt/event as authoritative.
-6. Execute candidate abandonment, preview refresh, cleanup, or rollback before
-   recording recovery success; otherwise return user action required.
+6. **Complete for current restart decisions:** recovery success requires a
+   verified typed receipt; candidate abandonment and replacement-preview
+   generation execute against concrete identities. Extend the same contract to
+   cleanup or rollback only when those actions become part of an implemented
+   rejection policy.
 7. Replace process-local filesystem session/CAS state with a SQLite operational
    catalog enforcing unique workflow-to-session ownership.
 8. Decouple projection delivery from authoritative append and persist a rebuild

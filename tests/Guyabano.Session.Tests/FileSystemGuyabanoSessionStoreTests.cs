@@ -84,7 +84,7 @@ public sealed class FileSystemGuyabanoSessionStoreTests : IDisposable
                 "repo:generated",
                 "workspace:generated",
                 cancellationToken: cancellationToken);
-            await first.AttachWorkflowRunAsync(
+            created = await first.AttachWorkflowRunAsync(
                 created.Id,
                 runId,
                 cancellationToken);

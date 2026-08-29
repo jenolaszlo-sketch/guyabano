@@ -39,29 +39,35 @@ public sealed class SessionRecoveryCoordinatorTests : IDisposable
             Automatic: true,
             PlannedAt: now);
         var planned = await coordinator.PlanAsync(plan, detected.EventId, ct);
-        var firstAttempt = await coordinator.RecordAttemptAsync(plan, planned.EventId, 1, ct);
-        await coordinator.CompleteAsync(new SessionRecoveryResolution(
-            planId,
-            incidentId,
-            sessionId,
-            SessionRecoveryOutcome.ReconciliationRequired,
+        var first = await coordinator.ExecuteAsync(
+            plan,
+            planned.EventId,
             1,
-            "The first retry failed; the accepted workspace remains unchanged.",
-            now), firstAttempt.EventId, ct);
+            (_, _) => Task.FromException<SessionRecoveryActionReceipt>(
+                new InvalidOperationException("Hetu is temporarily unavailable.")),
+            ct);
+        first.Outcome.Should().Be(SessionRecoveryOutcome.ReconciliationRequired);
 
         var failedState = await projections.GetAsync(sessionId, ct);
         failedState!.State.OperatorState.Should().Be(SessionOperatorState.ReconciliationRequired);
         failedState.State.OpenIncidentIds.Should().ContainSingle(incidentId.ToString("D"));
 
-        var secondAttempt = await coordinator.RecordAttemptAsync(plan, planned.EventId, 2, ct);
-        await coordinator.CompleteAsync(new SessionRecoveryResolution(
-            planId,
-            incidentId,
-            sessionId,
-            SessionRecoveryOutcome.Recovered,
+        var receiptId = Guid.CreateVersion7();
+        var second = await coordinator.ExecuteAsync(
+            plan,
+            planned.EventId,
             2,
-            "The second retry succeeded.",
-            now.AddSeconds(1)), secondAttempt.EventId, ct);
+            (_, _) => Task.FromResult(new SessionRecoveryActionReceipt(
+                receiptId,
+                SessionRecoveryAction.RetryIdempotently,
+                "hetu-publication",
+                "publication-7",
+                "The accepted workspace revision was indexed and can be opened by identity.",
+                now.AddSeconds(1),
+                Verified: true)),
+            ct);
+        second.Outcome.Should().Be(SessionRecoveryOutcome.Recovered);
+        second.Receipt!.ReceiptId.Should().Be(receiptId);
 
         var recoveredState = await projections.GetAsync(sessionId, ct);
         recoveredState!.State.OperatorState.Should().Be(SessionOperatorState.Ready);
@@ -76,6 +82,31 @@ public sealed class SessionRecoveryCoordinatorTests : IDisposable
             SessionEventTypes.RecoveryAttempted,
             SessionEventTypes.RecoverySucceeded);
         history.Select(item => item.CausationId).Skip(1).Should().OnlyContain(id => id.HasValue);
+        history[^1].CrossSystemRefs!["recoveryReceiptId"].Should().Be(receiptId.ToString("D"));
+    }
+
+    [Fact]
+    public async Task CompleteRecovered_WithoutVerifiedReceipt_IsRejectedBeforeLedgerAppend()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var events = new SimingSessionEventStore(Path.Combine(rootPath, "sessions"));
+        var coordinator = new SessionRecoveryCoordinator(events);
+        var sessionId = GuyabanoSessionId.New();
+        var incidentId = Guid.CreateVersion7();
+        var planId = Guid.CreateVersion7();
+
+        var act = () => coordinator.CompleteAsync(new SessionRecoveryResolution(
+            planId,
+            incidentId,
+            sessionId,
+            SessionRecoveryOutcome.Recovered,
+            1,
+            "Claimed success without evidence.",
+            DateTimeOffset.UtcNow), Guid.CreateVersion7(), ct);
+
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("*verified action receipt*");
+        (await events.ReadAsync(sessionId, cancellationToken: ct)).Should().BeEmpty();
     }
 
     public void Dispose()

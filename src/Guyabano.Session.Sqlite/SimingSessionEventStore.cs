@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Penghou.Siming;
@@ -17,19 +17,25 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
     private readonly string rootPath;
     private readonly LedgerInputLimits inputLimits;
     private readonly ISessionProjectionStore? projectionStore;
-    private readonly ConcurrentDictionary<GuyabanoSessionId, Lazy<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>>> ledgers = new();
+    private readonly int maximumCachedLedgers;
+    private readonly SemaphoreSlim ledgerGate = new(1, 1);
+    private readonly Dictionary<GuyabanoSessionId, CachedLedgerEntry> ledgers = [];
     private int disposed;
 
     /// <summary>Creates a session event store rooted at the supplied directory.</summary>
     public SimingSessionEventStore(
         string rootPath,
         LedgerInputLimits? inputLimits = null,
-        ISessionProjectionStore? projectionStore = null)
+        ISessionProjectionStore? projectionStore = null,
+        int maximumCachedLedgers = 32)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
         this.rootPath = Path.GetFullPath(rootPath);
         this.inputLimits = inputLimits ?? LedgerInputLimits.Default;
         this.projectionStore = projectionStore;
+        if (maximumCachedLedgers < 1)
+            throw new ArgumentOutOfRangeException(nameof(maximumCachedLedgers));
+        this.maximumCachedLedgers = maximumCachedLedgers;
         this.inputLimits.Validate();
         Directory.CreateDirectory(this.rootPath);
     }
@@ -44,7 +50,9 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
             throw new ArgumentOutOfRangeException(nameof(request.PayloadSensitivity));
         if (!Enum.IsDefined(request.PayloadRetention))
             throw new ArgumentOutOfRangeException(nameof(request.PayloadRetention));
-        var ledger = GetLedger(request.SessionId);
+        await using var ledgerLease = await AcquireLedgerAsync(
+            request.SessionId, cancellationToken).ConfigureAwait(false);
+        var ledger = ledgerLease.Ledger;
         if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
         {
             var existing = await ledger.ReadByIdempotencyKeyAsync(request.IdempotencyKey, cancellationToken)
@@ -100,7 +108,9 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
         ArgumentNullException.ThrowIfNull(request);
         request.Validate();
         var selected = new List<SessionEvent>(request.Limit + 1);
-        await foreach (var entry in GetLedger(request.SessionId).ReadAsync(
+        await using var ledgerLease = await AcquireLedgerAsync(
+            request.SessionId, cancellationToken).ConfigureAwait(false);
+        await foreach (var entry in ledgerLease.Ledger.ReadAsync(
             new LedgerReadRequest(AfterSequence: request.AfterSequence, Limit: request.Limit + 1), cancellationToken).ConfigureAwait(false))
             selected.Add(Map(entry));
         var hasMore = selected.Count > request.Limit;
@@ -111,7 +121,9 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
     /// <inheritdoc />
     public async Task<SessionEvent?> VerifyChainAsync(GuyabanoSessionId sessionId, CancellationToken cancellationToken = default)
     {
-        var ledger = GetLedger(sessionId);
+        await using var ledgerLease = await AcquireLedgerAsync(
+            sessionId, cancellationToken).ConfigureAwait(false);
+        var ledger = ledgerLease.Ledger;
         var verification = await ledger.VerifyAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         if (!verification.IsValid)
             throw new InvalidOperationException($"Siming session ledger verification failed at sequence {verification.FailedSequence}: {verification.Failure} ({verification.Detail}).");
@@ -129,26 +141,182 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        foreach (var lazy in ledgers.Values)
-            if (lazy.IsValueCreated) await lazy.Value.DisposeAsync().ConfigureAwait(false);
-        ledgers.Clear();
+        SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>[] created;
+        await ledgerGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            created = ledgers.Values
+                .Where(item => item.Ledger.IsValueCreated)
+                .Select(item => item.Ledger.Value)
+                .ToArray();
+            ledgers.Clear();
+        }
+        finally
+        {
+            ledgerGate.Release();
+        }
+        foreach (var ledger in created)
+            await ledger.DisposeAsync().ConfigureAwait(false);
+        ledgerGate.Dispose();
     }
 
     /// <inheritdoc />
     public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
-    private SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer> GetLedger(GuyabanoSessionId sessionId)
+    private async ValueTask<LedgerLease> AcquireLedgerAsync(
+        GuyabanoSessionId sessionId,
+        CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
-        return ledgers.GetOrAdd(sessionId, id => new Lazy<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>>(
-            () => new SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>(
-                new SimingSqliteOptions { DatabasePath = GetLedgerPath(id), InputLimits = inputLimits },
-                new CanonicalJsonPayloadSerializer(SerializerOptions)),
-            LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        List<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>>? evicted = null;
+        await ledgerGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+            if (!ledgers.TryGetValue(sessionId, out var entry))
+            {
+                entry = new CachedLedgerEntry(new Lazy<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>>(
+                    () => new SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>(
+                        new SimingSqliteOptions
+                        {
+                            DatabasePath = GetLedgerPath(sessionId),
+                            InputLimits = inputLimits
+                        },
+                        new CanonicalJsonPayloadSerializer(SerializerOptions)),
+                    LazyThreadSafetyMode.ExecutionAndPublication));
+                ledgers.Add(sessionId, entry);
+            }
+            entry.ReferenceCount++;
+            entry.LastUsed = DateTimeOffset.UtcNow;
+            evicted = TrimUnlocked(sessionId);
+            return new LedgerLease(this, sessionId, entry.Ledger.Value);
+        }
+        finally
+        {
+            ledgerGate.Release();
+            if (evicted is not null)
+                foreach (var ledger in evicted)
+                    await ledger.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
-    private Task ApplyProjectionAsync(SessionEvent sessionEvent, CancellationToken cancellationToken) =>
-        projectionStore?.ApplyAsync(sessionEvent, cancellationToken) ?? Task.CompletedTask;
+    private async ValueTask ReleaseLedgerAsync(GuyabanoSessionId sessionId)
+    {
+        List<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>>? evicted;
+        await ledgerGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!ledgers.TryGetValue(sessionId, out var entry))
+                return;
+            entry.ReferenceCount--;
+            entry.LastUsed = DateTimeOffset.UtcNow;
+            evicted = TrimUnlocked(default);
+        }
+        finally
+        {
+            ledgerGate.Release();
+        }
+        if (evicted is not null)
+            foreach (var ledger in evicted)
+                await ledger.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private List<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>>? TrimUnlocked(
+        GuyabanoSessionId protectedSession)
+    {
+        List<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>>? evicted = null;
+        while (ledgers.Count > maximumCachedLedgers)
+        {
+            var candidate = ledgers
+                .Where(pair => pair.Key != protectedSession && pair.Value.ReferenceCount == 0)
+                .OrderBy(pair => pair.Value.LastUsed)
+                .FirstOrDefault();
+            if (candidate.Value is null)
+                break;
+            ledgers.Remove(candidate.Key);
+            if (candidate.Value.Ledger.IsValueCreated)
+                (evicted ??= []).Add(candidate.Value.Ledger.Value);
+        }
+        return evicted;
+    }
+
+    private sealed class CachedLedgerEntry(
+        Lazy<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>> ledger)
+    {
+        public Lazy<SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer>> Ledger { get; } = ledger;
+        public int ReferenceCount { get; set; }
+        public DateTimeOffset LastUsed { get; set; }
+    }
+
+    private sealed class LedgerLease(
+        SimingSessionEventStore owner,
+        GuyabanoSessionId sessionId,
+        SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer> ledger) : IAsyncDisposable
+    {
+        private int disposed;
+        public SqliteAppendOnlyLedger<CanonicalJsonPayloadSerializer> Ledger { get; } = ledger;
+
+        public ValueTask DisposeAsync() =>
+            Interlocked.Exchange(ref disposed, 1) == 0
+                ? owner.ReleaseLedgerAsync(sessionId)
+                : ValueTask.CompletedTask;
+    }
+
+    private async Task ApplyProjectionAsync(
+        SessionEvent sessionEvent,
+        CancellationToken cancellationToken)
+    {
+        if (projectionStore is null)
+            return;
+        var delivery = projectionStore as ISessionProjectionDeliveryStore;
+        if (delivery is not null)
+        {
+            try
+            {
+                await delivery.RecordCommittedAsync(sessionEvent, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                Trace.TraceError(
+                    "Could not record committed projection cursor for session {0} sequence {1}: {2}",
+                    sessionEvent.SessionId,
+                    sessionEvent.Sequence,
+                    exception.Message);
+            }
+        }
+
+        try
+        {
+            await projectionStore.ApplyAsync(sessionEvent, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            if (delivery is not null)
+            {
+                try
+                {
+                    await delivery.RecordFailureAsync(
+                        sessionEvent,
+                        exception,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception statusException)
+                {
+                    Trace.TraceError(
+                        "Could not record projection failure for session {0} sequence {1}: {2}",
+                        sessionEvent.SessionId,
+                        sessionEvent.Sequence,
+                        statusException.Message);
+                }
+            }
+            Trace.TraceError(
+                "Session projection delivery lagged for session {0} sequence {1}: {2}",
+                sessionEvent.SessionId,
+                sessionEvent.Sequence,
+                exception.Message);
+        }
+    }
 
     private static SessionEvent ResolveReplay(LedgerEntry entry, SessionEventRequest request)
     {

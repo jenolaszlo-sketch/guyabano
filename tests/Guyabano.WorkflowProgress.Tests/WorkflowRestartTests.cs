@@ -64,6 +64,21 @@ public sealed class WorkflowRestartTests : IDisposable
         var rejected = await service.RestartAsync(unapproved, ct);
         rejected.Status.Should().Be(RestartOutcomeStatus.RejectedByUser);
         rejected.SafeWorkspaceRevision.Should().Be(preview.WorkspaceRevision);
+        rejected.ReplacementPreviewId.Should().BeNull();
+        var denialEvents = await ReadSessionEventsAsync(session.Id, ct);
+        denialEvents.Select(item => item.EventType).Should().ContainInOrder(
+            SessionEventTypes.IncidentDetected,
+            SessionEventTypes.RecoveryPlanned,
+            SessionEventTypes.RecoveryAttempted,
+            SessionEventTypes.ApprovalDenied,
+            SessionEventTypes.CandidateAbandoned,
+            SessionEventTypes.RecoverySucceeded);
+        SessionTimelineProjection.Project(denialEvents).OperatorState.Should()
+            .Be(SessionOperatorState.Ready);
+        var deniedReplay = await service.RestartAsync(unapproved, ct);
+        deniedReplay.Status.Should().Be(RestartOutcomeStatus.RejectedByUser);
+        deniedReplay.ReplacementPreviewId.Should().BeNull();
+        (await ReadSessionEventsAsync(session.Id, ct)).Should().HaveSameCount(denialEvents);
 
         var refreshed = await service.PreviewAsync(runId, "branch-a", ct);
         var approved = Approval(refreshed, "tester", approved: true);
@@ -177,17 +192,23 @@ public sealed class WorkflowRestartTests : IDisposable
 
         outcome.Status.Should().Be(RestartOutcomeStatus.RejectedStale);
         outcome.SafeWorkspaceRevision.Should().Be("workspace-v2");
+        outcome.ReplacementPreviewId.Should().NotBeNull();
         (await engine.GetStepsAsync(runId, ct)).Should().BeEquivalentTo(before);
         var events = await sessionEvents.ReadAsync(session.Id, cancellationToken: ct);
         events.Select(item => item.EventType).Should().ContainInOrder(
             SessionEventTypes.IncidentDetected,
             SessionEventTypes.RecoveryPlanned,
+            SessionEventTypes.RecoveryAttempted,
             SessionEventTypes.PreviewSuperseded,
-            SessionEventTypes.UserActionRequired);
+            SessionEventTypes.InvalidationPreviewed,
+            SessionEventTypes.RecoverySucceeded);
+        var terminal = events.Last(item => item.EventType == SessionEventTypes.RecoverySucceeded);
+        terminal.CrossSystemRefs!["recoveryResourceId"].Should()
+            .Be(outcome.ReplacementPreviewId.Value.ToString("D"));
         var projection = SessionTimelineProjection.Project(events);
-        projection.OperatorState.Should().Be(SessionOperatorState.AwaitingInput);
-        projection.OpenIncidentIds.Should().ContainSingle(approval.ApprovalId.ToString("D"));
-        projection.ResolvedIncidentCount.Should().Be(0);
+        projection.OperatorState.Should().Be(SessionOperatorState.AwaitingApproval);
+        projection.OpenIncidentIds.Should().BeEmpty();
+        projection.ResolvedIncidentCount.Should().Be(1);
         projection.LastIncidentReason.Should().Be("StaleWorkspaceRevision");
 
         var replay = await service.RestartAsync(approval, ct);
@@ -195,6 +216,7 @@ public sealed class WorkflowRestartTests : IDisposable
         replay.SafeWorkspaceRevision.Should().Be(outcome.SafeWorkspaceRevision);
         replay.IncidentId.Should().Be(outcome.IncidentId);
         replay.RecoveryPlanId.Should().Be(outcome.RecoveryPlanId);
+        replay.ReplacementPreviewId.Should().Be(outcome.ReplacementPreviewId);
         (await sessionEvents.ReadAsync(session.Id, cancellationToken: ct))
             .Should().HaveSameCount(events);
     }
@@ -325,6 +347,15 @@ public sealed class WorkflowRestartTests : IDisposable
             sessionStore,
             new SimingSessionEventStore(Path.Combine(rootPath, ".gen", "session-events")),
             NullLogger<CodeGenerationWorkflowRestartService>.Instance);
+    }
+
+    private async Task<IReadOnlyList<SessionEvent>> ReadSessionEventsAsync(
+        GuyabanoSessionId sessionId,
+        CancellationToken cancellationToken)
+    {
+        await using var events = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
+        return await events.ReadAsync(sessionId, cancellationToken: cancellationToken);
     }
 
     private static RestartApproval Approval(

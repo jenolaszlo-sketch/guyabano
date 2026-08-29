@@ -17,4 +17,10 @@ public sealed record GuyabanoSession
     /// workspace content; used to fence concurrent staging promotions.
     /// </summary>
     public string? CurrentWorkspaceRevision { get; init; }
+
+    /// <summary>
+    /// Monotonic operational-catalog version for optimistic concurrency and UI
+    /// refresh tokens. It is not an immutable-ledger sequence.
+    /// </summary>
+    public long Version { get; init; }
 }

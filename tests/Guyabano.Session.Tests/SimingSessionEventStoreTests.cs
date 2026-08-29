@@ -107,9 +107,11 @@ public sealed class SimingSessionEventStoreTests : IDisposable
             DateTimeOffset.UtcNow,
             IdempotencyKey: "workflow:start");
 
-        var firstAttempt = () => store.AppendAsync(request, ct);
-        await firstAttempt.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("projection unavailable");
+        var committed = await store.AppendAsync(request, ct);
+
+        committed.Sequence.Should().Be(1);
+        projection.Applied.Should().BeEmpty();
+        projection.Attempts.Should().Be(1);
 
         var replay = await store.AppendAsync(request, ct);
 
@@ -117,6 +119,37 @@ public sealed class SimingSessionEventStoreTests : IDisposable
         (await store.ReadAsync(sessionId, cancellationToken: ct)).Should().ContainSingle();
         projection.Applied.Should().ContainSingle().Which.Should().BeEquivalentTo(replay);
         projection.Attempts.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Append_WhenTrackedProjectionFails_ReturnsCommitAndExposesRepairableLag()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var durable = new SqliteSessionProjectionStore(
+            Path.Combine(rootPath, "projection.db"), pooling: false);
+        var projection = new FailOnceDeliveryProjectionStore(durable);
+        await using var store = new SimingSessionEventStore(
+            Path.Combine(rootPath, "sessions"), projectionStore: projection);
+        var sessionId = GuyabanoSessionId.New();
+        var request = new SessionEventRequest(
+            sessionId,
+            "guyabano",
+            SessionEventTypes.WorkflowStarted,
+            DateTimeOffset.UtcNow,
+            IdempotencyKey: "workflow:tracked-start");
+
+        var committed = await store.AppendAsync(request, ct);
+        var lagging = await durable.GetDeliveryStatusAsync(sessionId, ct);
+
+        committed.Sequence.Should().Be(1);
+        lagging!.IsLagging.Should().BeTrue();
+        lagging.LastFailureType.Should().Be(typeof(InvalidOperationException).FullName);
+
+        var replay = await store.AppendAsync(request, ct);
+        var healed = await durable.GetDeliveryStatusAsync(sessionId, ct);
+        replay.Should().BeEquivalentTo(committed);
+        healed!.IsLagging.Should().BeFalse();
+        healed.LastFailureType.Should().BeNull();
     }
 
     [Fact]
@@ -168,6 +201,37 @@ public sealed class SimingSessionEventStoreTests : IDisposable
         committed.PayloadRetention.Should().Be(SessionPayloadRetention.Omit);
     }
 
+    [Fact]
+    public async Task BoundedLedgerCache_EvictsIdleHandlesAndReopensTheChain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var store = new SimingSessionEventStore(
+            rootPath,
+            maximumCachedLedgers: 1);
+        var firstSession = GuyabanoSessionId.New();
+        var secondSession = GuyabanoSessionId.New();
+        await store.AppendAsync(new SessionEventRequest(
+            firstSession,
+            "user",
+            SessionEventTypes.UserMessage,
+            DateTimeOffset.UtcNow), ct);
+        await store.AppendAsync(new SessionEventRequest(
+            secondSession,
+            "user",
+            SessionEventTypes.UserMessage,
+            DateTimeOffset.UtcNow), ct);
+
+        var reopened = await store.AppendAsync(new SessionEventRequest(
+            firstSession,
+            "guyabano",
+            SessionEventTypes.AssistantMessage,
+            DateTimeOffset.UtcNow), ct);
+
+        reopened.Sequence.Should().Be(2);
+        reopened.PreviousHash.Should().NotBeNull();
+        (await store.VerifyChainAsync(firstSession, ct))!.Sequence.Should().Be(2);
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
@@ -202,5 +266,56 @@ public sealed class SimingSessionEventStoreTests : IDisposable
             IReadOnlyList<SessionEvent> events,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<SessionProjectionSnapshot?>(null);
+    }
+
+    private sealed class FailOnceDeliveryProjectionStore(
+        SqliteSessionProjectionStore inner) :
+        ISessionProjectionStore,
+        ISessionProjectionDeliveryStore
+    {
+        private int attempts;
+
+        public Task ApplyAsync(
+            SessionEvent sessionEvent,
+            CancellationToken cancellationToken = default) =>
+            Interlocked.Increment(ref attempts) == 1
+                ? Task.FromException(new InvalidOperationException("projection unavailable"))
+                : inner.ApplyAsync(sessionEvent, cancellationToken);
+
+        public Task<SessionProjectionSnapshot?> GetAsync(
+            GuyabanoSessionId sessionId,
+            CancellationToken cancellationToken = default) =>
+            inner.GetAsync(sessionId, cancellationToken);
+
+        public Task<IReadOnlyList<SessionProjectionSnapshot>> ListAsync(
+            CancellationToken cancellationToken = default) =>
+            inner.ListAsync(cancellationToken);
+
+        public Task<SessionProjectionSnapshot?> RebuildAsync(
+            GuyabanoSessionId sessionId,
+            IReadOnlyList<SessionEvent> events,
+            CancellationToken cancellationToken = default) =>
+            inner.RebuildAsync(sessionId, events, cancellationToken);
+
+        public Task RecordCommittedAsync(
+            SessionEvent sessionEvent,
+            CancellationToken cancellationToken = default) =>
+            inner.RecordCommittedAsync(sessionEvent, cancellationToken);
+
+        public Task RecordFailureAsync(
+            SessionEvent sessionEvent,
+            Exception exception,
+            CancellationToken cancellationToken = default) =>
+            inner.RecordFailureAsync(sessionEvent, exception, cancellationToken);
+
+        public Task<SessionProjectionDeliveryStatus?> GetDeliveryStatusAsync(
+            GuyabanoSessionId sessionId,
+            CancellationToken cancellationToken = default) =>
+            inner.GetDeliveryStatusAsync(sessionId, cancellationToken);
+
+        public Task<IReadOnlyList<SessionProjectionDeliveryStatus>> ListLaggingAsync(
+            int maximumCount = 100,
+            CancellationToken cancellationToken = default) =>
+            inner.ListLaggingAsync(maximumCount, cancellationToken);
     }
 }

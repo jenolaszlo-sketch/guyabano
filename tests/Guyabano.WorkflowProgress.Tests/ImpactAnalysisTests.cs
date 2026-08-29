@@ -219,6 +219,8 @@ public sealed class ImpactAnalysisTests : IDisposable
         var rejection = await rejectTampered.Should()
             .ThrowAsync<RestartDecisionRejectedException>();
         rejection.Which.ReasonCode.Should().Be("PreviewMismatch");
+        rejection.Which.RecoveryOutcome.Should().Be(SessionRecoveryOutcome.Recovered);
+        rejection.Which.ReplacementPreviewId.Should().NotBeNull();
 
         var originalPublication = publication.Payload;
         await artifacts.WriteAsync(
@@ -245,6 +247,8 @@ public sealed class ImpactAnalysisTests : IDisposable
         var staleGraph = await rejectStaleGraph.Should()
             .ThrowAsync<RestartDecisionRejectedException>();
         staleGraph.Which.ReasonCode.Should().Be("StaleHetuPublication");
+        staleGraph.Which.RecoveryOutcome.Should().Be(SessionRecoveryOutcome.Recovered);
+        staleGraph.Which.ReplacementPreviewId.Should().NotBeNull();
         var rejectionHistory = await sessionEvents.ReadAsync(
             session.Id,
             cancellationToken: ct);
@@ -253,8 +257,13 @@ public sealed class ImpactAnalysisTests : IDisposable
             .Select(item => item.CrossSystemRefs?.GetValueOrDefault("reasonCode"))
             .Should().Contain(["PreviewMismatch", "StaleHetuPublication"]);
         rejectionHistory.Count(item =>
-                item.EventType == SessionEventTypes.UserActionRequired)
+                item.EventType == SessionEventTypes.RecoverySucceeded)
             .Should().Be(2);
+        rejectionHistory.Count(item =>
+                item.EventType == SessionEventTypes.RecoveryAttempted)
+            .Should().Be(2);
+        SessionTimelineProjection.Project(rejectionHistory).OperatorState.Should()
+            .Be(SessionOperatorState.AwaitingApproval);
 
         await artifacts.WriteAsync(
             new ArtifactWriteRequest<RepositoryReindexPublicationPayload>(

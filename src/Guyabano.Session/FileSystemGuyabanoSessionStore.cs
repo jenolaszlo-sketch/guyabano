@@ -71,6 +71,36 @@ public sealed class FileSystemGuyabanoSessionStore :
         }
     }
 
+    public async Task<IReadOnlyList<GuyabanoSession>> ListAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var sessions = new List<GuyabanoSession>();
+            foreach (var path in Directory.EnumerateFiles(
+                         rootPath,
+                         "session.json",
+                         SearchOption.AllDirectories))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var session = await ReadAsync(path, cancellationToken)
+                    .ConfigureAwait(false);
+                if (session is not null)
+                    sessions.Add(session);
+            }
+
+            return sessions
+                .OrderByDescending(item => item.CreatedAt)
+                .ThenByDescending(item => item.Id.Value)
+                .ToArray();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public async Task<GuyabanoSession?> FindByWorkflowRunAsync(
         Guid workflowRunId,
         CancellationToken cancellationToken = default)
@@ -106,6 +136,23 @@ public sealed class FileSystemGuyabanoSessionStore :
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            foreach (var path in Directory.EnumerateFiles(
+                         rootPath,
+                         "session.json",
+                         SearchOption.AllDirectories))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var owner = await ReadAsync(path, cancellationToken)
+                    .ConfigureAwait(false);
+                if (owner is not null &&
+                    owner.Id != sessionId &&
+                    owner.WorkflowRunIds.Contains(workflowRunId))
+                {
+                    throw new InvalidOperationException(
+                        $"Workflow run '{workflowRunId:D}' already belongs to session '{owner.Id}'.");
+                }
+            }
+
             var session = await ReadAsync(
                     SessionPath(sessionId),
                     cancellationToken)
@@ -119,7 +166,8 @@ public sealed class FileSystemGuyabanoSessionStore :
             {
                 WorkflowRunIds = session.WorkflowRunIds
                     .Append(workflowRunId)
-                    .ToArray()
+                    .ToArray(),
+                Version = session.Version + 1
             };
             await WriteAsync(session, cancellationToken).ConfigureAwait(false);
             return session;
@@ -157,7 +205,8 @@ public sealed class FileSystemGuyabanoSessionStore :
 
             session = session with
             {
-                CurrentWorkspaceRevision = replacementRevision
+                CurrentWorkspaceRevision = replacementRevision,
+                Version = session.Version + 1
             };
             await WriteAsync(session, cancellationToken).ConfigureAwait(false);
             return session;

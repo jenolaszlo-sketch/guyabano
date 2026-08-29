@@ -640,6 +640,10 @@ Identity rules:
 
 - `SessionId` identifies the long-lived engineering effort and its output
   workspace; it is not a Zhinu run ID.
+- Treat project/workspace, session, workflow definition, and workflow run as
+  distinct identities even when the first product experience creates one
+  session per project. This preserves a future path to multiple sessions,
+  branches, or efforts within one project without changing durable IDs.
 - A session may contain multiple workflow runs, restarts, continuations, and
   interactive operations.
 - Every persisted reference must be traceable to the relevant session, workflow
@@ -648,6 +652,41 @@ Identity rules:
 - Cangjie scopes and snapshots, Hetu repository and index identities, Zhinu
   artifacts, and filesystem manifests remain owned by their respective systems;
   the session correlates them rather than copying all payloads into one store.
+
+Default embedded storage should follow the same ownership boundary:
+
+```text
+operational session catalog
+  └─ session routing and global project/session lookup
+
+session/{session-id}/
+  ├─ session.db       # Siming immutable session evidence
+  ├─ workflow.db      # Zhinu state for every workflow run in this session
+  ├─ workspace/       # accepted project revision
+  ├─ staging/         # isolated candidate revisions
+  └─ artifacts/       # scoped artifact envelopes or references
+```
+
+Do not create one Zhinu database per workflow run. All runs, restarts, child
+workflows, and recovery workflows belonging to a session share that session's
+workflow database. Different sessions can then execute independently without a
+global workflow database becoming a contention, retention, export, or deletion
+boundary. Shared workflow definitions remain application registrations rather
+than being copied into each database.
+
+The operational catalog must map every workflow run to exactly one session and
+route it to the correct workflow store. Long-lived hosts must bound and evict
+open session runtime/store handles. Cross-session queries use catalog summaries;
+they must not require opening every session database.
+
+The initial interactive shell should put project/session create, search, and
+resume in a left navigation rail. The larger right workspace should reserve a
+resizable upper region for live workflow activity/graph visualization and use
+the main lower region for conversation history, progress/evidence, and the
+prompt or clarification composer. Later, selecting a workflow node scopes
+inspection and conversation to that activity and exposes safe preview, adjust,
+and rerun actions. These screens consume catalog/projection APIs rather than raw
+SQLite databases.
 
 Add an append-only session event log with ordered, immutable envelopes containing
 actor, timestamp, event type, causation, correlation, and relevant cross-system
@@ -708,6 +747,84 @@ Session exit criteria:
   while current projections resolve to the promoted session revision.
 - A consistency audit detects missing or mismatched workflow artifacts, memory
   references, graph publications, workspace revisions, and validation evidence.
+
+### Deferred extraction candidate: `Penghou.Hongxian`
+
+`Penghou.Hongxian` (红线, "red thread") is the working name for a reusable
+durable-session kernel. Its purpose is continuity and correlation across one
+evolving human/AI interaction—not execution sequencing. It should answer what
+belongs to a session, which revisions and decisions relate to each other, and
+what happened over time despite retries, failures, restarts, and changing
+execution systems.
+
+The intended ownership boundary is:
+
+| Component | Responsibility |
+| --- | --- |
+| Hongxian | Session identity and lifecycle, opaque revision lineage, external-execution correlation, decision coordination, incidents and recovery records, projections, reconciliation contracts, audit queries, and operational-catalog abstractions |
+| Siming | Cryptographically verifiable immutable evidence and ledger persistence |
+| Zhinu or another engine | Workflow execution and sequencing; always optional to Hongxian |
+| Application profile | Domain policy, recovery actions, artifact meaning, user explanations, and mappings to external systems |
+
+Hongxian may define event envelopes and append/query ports, but must not
+reimplement Siming's hash chain or claim ownership of cryptographic persistence.
+It may record an application-invoked recovery handler's attempt and receipt,
+but must not schedule recovery graphs, choose domain policy, or become a second
+workflow engine. Actor authentication and authorization remain host-supplied
+claims; Hongxian preserves and correlates them but cannot manufacture trust.
+
+Guyabano retains workspace staging and promotion, generated-file ownership,
+impact analysis, selective regeneration, coding evidence, and all Hetu,
+Cangjie, Baize, and Zhinu policy. Hongxian sees only stable opaque references,
+content identities, relationships, and application-defined event data. Large
+artifacts remain in their authoritative stores.
+
+Expected package shape after the boundary is proven:
+
+```text
+Penghou.Hongxian
+    session, revision, decision, incident, projection, and reconciliation contracts
+
+Penghou.Hongxian.Sqlite
+    transactional operational catalog, projections, leases, and concurrency
+
+Penghou.Hongxian.Zhinu
+    optional workflow correlation and reconciliation adapter
+```
+
+Keep Siming behind a core ledger port. The first deployment may compose
+`Penghou.Siming.Sqlite` inside `Penghou.Hongxian.Sqlite`; create a separate
+Hongxian/Siming adapter package only if that keeps provider replacement and
+dependency ownership materially cleaner.
+
+Do not extract yet. First complete the four active session-hardening priorities
+and exercise a realistic Guyabano failure, clarification, selective rerun,
+process interruption, reconciliation, approval, and completion. The extraction
+spike then must prove that a small application can create sessions and
+revisions, attach arbitrary external operations, append application-defined
+events, coordinate decisions, record recovery attempts and receipts, resume,
+rebuild projections, reconcile incomplete work, and query history without
+referencing Guyabano, workspace paths, generated files, Hetu, Cangjie, Baize,
+or Zhinu types.
+
+A Baize media-generation and batching profile is the intended second-consumer
+validation. It should correlate batch members, attempts, variants, selections,
+partial success, retries, and media lineage using generic artifact references
+such as identity, content hash, media type, location, producer invocation, and
+parent artifacts. Hongxian must not store image or video bytes or acquire
+media-specific policy merely to satisfy this scenario.
+
+Extraction exit criteria:
+
+- The realistic Guyabano recovery scenario succeeds and reconstructs its audit
+  history after process loss.
+- The media-batch spike resumes partial work without regenerating acknowledged
+  outputs and records variant selection and lineage without core API changes.
+- The public kernel has no Guyabano or provider-specific types.
+- Replacing the operational catalog or workflow adapter does not change
+  application session policy.
+- No Hongxian API performs general workflow scheduling or embeds domain recovery
+  decisions.
 
 ```text
 Analyze
@@ -818,27 +935,35 @@ is the restart authority. The active session-hardening scope is:
 1. Complete decision-bound approval integrity: revalidate the persisted
    preview, bind workspace and Hetu revisions, hold a decision lease through
    restart acceptance, and separate authenticated approval from proposal.
-2. Execute and verify recovery actions with durable receipts, or explicitly
-   defer them as `UserActionRequired`; integrate the remaining rejection paths.
-3. Replace process-local mutable session/CAS and cross-store-operation files
-   with a concurrency-safe SQLite operational catalog, then decouple rebuildable
-   projections from authoritative Siming appends.
-4. Add durable crash-gap reconciliation and the narrow audit outbox needed for
-   committed mutations that cannot immediately be mirrored to Siming.
+2. **Receipt contract and restart actions complete:** recovery success requires
+   a verified action/resource receipt; denial abandons the exact candidate and
+   stale workspace/impact decisions persist a replacement preview. Integrate
+   graph, staging, promotion, provider, cancellation, and timeout rejections
+   through the same contract.
+3. **Complete:** production session/CAS, decision leases,
+   per-session Zhinu routing, cross-store operation state, and bounded runtime
+   handles are concurrency-safe. Authoritative Siming appends are decoupled
+   from rebuildable projections through durable committed/applied cursors,
+   explicit lag diagnostics, and ledger-based background repair.
+4. **Outbox foundation complete:** catalog lifecycle mutations and clarification
+   promotion have durable retry-safe receipts. Continue durable Zhinu-to-Siming
+   mirroring and integrate the remaining rejection classes.
 
 After those four outcomes meet their acceptance criteria, resume deferred work:
 
 5. Add operator query APIs and interactive Zhinu input/resume behavior.
 6. Prove the complete flow with a real dogfood generation and store-level audit.
-7. Prove the minimal typed capability gateway with Codex-backed read-only web
+7. Run the `Penghou.Hongxian` extraction spike and validate the boundary with a
+   Baize media-generation/batching profile before creating reusable packages.
+8. Prove the minimal typed capability gateway with Codex-backed read-only web
    research and immutable session/workflow provenance.
-8. Extract workflow phase collaborators without hiding the explicit Zhinu graph.
-9. Add CI-server authorization, `.editorconfig`, and missing host/UI tests.
-10. Resume executor/Luban extraction only after the session and workspace
+9. Extract workflow phase collaborators without hiding the explicit Zhinu graph.
+10. Add CI-server authorization, `.editorconfig`, and missing host/UI tests.
+11. Resume executor/Luban extraction only after the session and workspace
    contracts are stable under real use.
 
-The detailed acceptance criteria and current evidence for items 1–8 live in
-[`docs/session-backlog.md`](docs/session-backlog.md); do not duplicate their
+Detailed session acceptance criteria and current implementation evidence live
+in [`docs/session-backlog.md`](docs/session-backlog.md); do not duplicate those
 checkboxes here.
 
 Cross-repository ownership for rejection and recovery behavior is defined in

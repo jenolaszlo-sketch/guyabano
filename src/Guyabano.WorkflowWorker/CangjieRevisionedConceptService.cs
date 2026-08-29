@@ -287,6 +287,12 @@ public sealed class CangjieRevisionedConceptService(
             return;
 
         var participant = $"cangjie-publication:{item.Id:D}";
+        if (operation.Participants.Any(existing =>
+                existing.Participant.Equals(participant, StringComparison.Ordinal)))
+            return;
+        if (operation.State == CrossStoreOperationState.Completed)
+            throw new InvalidOperationException(
+                $"Completed operation '{operation.Id}' is missing its immutable Cangjie receipt '{participant}'.");
         var recordedAt = DateTimeOffset.UtcNow;
         operation = await operationStore.RecordParticipantAsync(
                 operation.Id,

@@ -15,7 +15,7 @@ handover notes, completed review narratives, or speculative feature lists.
 
 ## Current state
 
-Last reviewed: **2026-08-30**
+Last reviewed: **2026-08-31**
 
 - The session foundation and consolidated integration work are on `main`; this
   checkpoint closes the remaining approval, audit-gap, recovery-routing, and
@@ -44,18 +44,23 @@ Last reviewed: **2026-08-30**
   approvals produce persisted replacement previews, expose their IDs to the
   caller, and leave the session awaiting fresh approval. Executor failure is
   retained as reconciliation-required evidence rather than success.
-- The pre-extraction correctness boundary is complete. Projections now retain
+- The extraction correctness boundary is complete. Projections now retain
   structured pending inputs, approval previews, and active incidents; derive
   operator state from all active conditions by explicit severity precedence;
   and use ledger commit time as the audit clock while preserving bounded
   occurrence-time claims. Zhinu's idempotent signal receipt is integrated for
   retry-safe responses. The remaining interactive work is product-level input
   request/wait, cancellation, timeout, and resume policy.
+- The reusable session kernel has been extracted to public
+  `Penghou.Hongxian`. Generic session identity, lifecycle, event, projection,
+  catalog, decision, and reconciliation work is tracked there. Guyabano is
+  waiting for the first preview packages before replacing its temporary
+  in-tree implementation; no sibling-repository project reference is allowed.
 
-## Active priority boundary
+## Completed foundation boundary
 
-Complete these four session-hardening outcomes before beginning interactive
-session product work or broader dogfood evaluation:
+The four session-hardening outcomes required before package integration,
+interactive product work, and broader dogfood evaluation are complete:
 
 1. Decision-bound approval integrity, including authoritative persisted-preview
    validation and a workspace/Hetu decision lease.
@@ -66,8 +71,8 @@ session product work or broader dogfood evaluation:
 4. Durable crash-gap reconciliation between Zhinu, Siming, Cangjie, workspace
    promotion, and other critical cross-store mutations.
 
-Sections 5 and 6 remain accepted roadmap work but are deliberately deferred
-until all four outcomes above meet their acceptance criteria.
+Sections 5 and 6 contain the active Guyabano work. Reusable query, lifecycle,
+projection, and reconciliation work has moved to Hongxian's roadmap.
 
 Verification:
 
@@ -141,9 +146,11 @@ git diff --check
 - [x] Per-session Siming ledgers, durable timeline projection, consistency audit,
   and a canonical vertical scenario.
 
-## Remaining work
+## Implementation record and remaining work
 
-Work in this order. Do not add more feature breadth before items 1–4 are proven.
+Items 1–4 record the completed foundation and its acceptance evidence. Active
+Guyabano work begins at item 5 and depends on the first Hongxian preview where
+noted.
 
 ### 1. Cross-store operation and reconciliation state machine
 
@@ -367,18 +374,26 @@ and offer policy-safe preview/adjust/rerun actions. The UI must consume catalog
 and projection query APIs; it must never discover projects by opening every
 session database or ask users to diagnose raw SQLite state.
 
-- [ ] Query APIs for current workspace, latest task manifest, file owner, pending
-  input, restart preview, paged timeline, and audit.
+- [ ] **Waiting on Hongxian preview:** consume its generic catalog, paged
+  timeline, projection-delivery, pending-input, pending-decision,
+  active-incident, and incomplete-operation query APIs.
+- [ ] Add a Guyabano query facade for current workspace, latest task manifest,
+  file owner, restart preview, generated artifacts, and cross-provider audit
+  correlations.
 - [x] Deliver input responses through Zhinu `0.1.0-preview.11` with a stable
   request-bound signal ID, authoritative receipt, authenticated host actor,
   immutable `input-provided` evidence, conflicting-response rejection, and
   crash-gap retry tests.
 - [ ] Add the product-level durable input request/wait, cancellation, timeout,
   and resume policy using the receipt-backed response path.
-- [ ] Session naming, rename, list, resume, archive, and possibly branch.
+- [ ] Consume Hongxian session naming, rename, list, resume, and archive after
+  those generic lifecycle contracts are published. Branching remains a
+  Hongxian design question until selective rerun and a second consumer prove
+  useful semantics.
 - [ ] Project create/find/open APIs with stable project identity distinct from
   session, workflow definition, and workflow run identity.
-- [ ] Operator states: `Healthy`, `Warning`, `ReconciliationRequired`, `Corrupt`.
+- [ ] Map Hongxian's generic operator conditions to Guyabano-specific severity,
+  explanations, and recovery actions.
 - [ ] Disclosure preview before repository context is sent externally.
 
 ### 6. Real dogfood evidence and context-quality evaluation — active
@@ -479,22 +494,24 @@ session database or ask users to diagnose raw SQLite state.
   rate, token use, irrelevant-context rate, and provenance completeness.
 - [x] Update this tracker from the first full-run evidence.
 
-## Package boundary
+## Package boundary and dependency
 
-`Guyabano.Session` may own identity, lifecycle, event envelopes, causation and
-correlation, pending-input and approval models, projections, and reconciliation
-status. `Guyabano.Session.Sqlite` may own embedded persistence.
+[`Penghou.Hongxian`](https://github.com/jenolaszlo-sketch/penghou-hongxian) now
+owns reusable session identity, lifecycle, event envelopes, causation and
+correlation, projections, decision coordination, operational catalogs,
+recovery evidence, and reconciliation contracts. Its roadmap is authoritative
+for that work.
 
-It must not own code-generation tasks, Zhinu workflow policy, Hetu queries,
-Cangjie promotion rules, Baize requests, generated-file semantics, or host
-filesystem layout. Those remain Guyabano application/integration concerns.
+`Guyabano.Session` and `Guyabano.Session.Sqlite` are temporary in-tree
+implementations until the first Hongxian preview packages are available.
+Guyabano retains code-generation tasks, workspace and promotion policy, Zhinu
+workflow behavior, Hetu queries, Cangjie promotion, Baize requests,
+generated-file semantics, product recovery explanations, and host filesystem
+layout.
 
-After priorities 1–4 and the realistic recovery dogfood scenario, evaluate
-extracting the proven generic portion as `Penghou.Hongxian`. The reviewed
-responsibility boundary, package shape, media-batching validation, and
-extraction criteria live in the `Penghou.Hongxian` section of
-[`ROADMAP.md`](../ROADMAP.md); this backlog continues to track implementation
-inside Guyabano until extraction is justified.
+Integration must use published packages, not sibling project references. Add an
+explicit domain mapping layer, prove package-backed behavioral parity and the
+realistic recovery scenario, then remove the duplicate internal kernel code.
 
 ## Other engineering backlog
 
@@ -512,9 +529,10 @@ inside Guyabano until extraction is justified.
 - Is the initial project-to-session mapping permanently one-to-one, or should a
   project later contain multiple named sessions or branches? Keep the durable
   identities distinct until real usage answers this.
-- Can one session span more than one logical repository?
 - Which clarification cascades may apply automatically?
-- What are the retention rules for conversation, model payloads, staging,
-  backups, and diagnostics?
-- Is signed audit evidence required, or is hash-chain evidence sufficient?
-- What branching semantics are useful after selective regeneration is proven?
+- What are Guyabano's retention rules for model payloads, staging candidates,
+  generated artifacts, backups, and diagnostics? Generic ledger and session
+  retention belongs to Hongxian and Siming.
+
+Generic multi-resource sessions, audit checkpoint/signature policy, and session
+branching are tracked as Hongxian design decisions rather than duplicated here.

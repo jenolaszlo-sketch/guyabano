@@ -1,10 +1,11 @@
 # Rejection and recovery ownership matrix
 
-Last reviewed: **2026-08-29**
+Last reviewed: **2026-08-31**
 
 Reference implementations inspected:
 
 - Guyabano current session-hardening implementation;
+- Penghou.Hongxian extracted durable-session kernel;
 - Penghou.Zhinu `0.1.0-preview.11` (idempotent restart and signal receipts);
 - Penghou.Siming `9365ba1` (`0.1.0-preview.2`).
 
@@ -12,8 +13,10 @@ Reference implementations inspected:
 
 1. The component that owns authoritative state owns its invariants and atomic
    transition. Guyabano owns workspace, revision, approval, Hetu, and promotion
-   policy. Zhinu owns workflow runs, steps, generations, signals, retries, and
-   restart transactions. Siming owns immutable ordering and verification.
+   policy. Hongxian owns generic session correlation, catalog/projection,
+   decision coordination, and reconciliation contracts. Zhinu owns workflow
+   runs, steps, generations, signals, retries, and restart transactions. Siming
+   owns immutable ordering and verification.
 2. Cross-store recovery is forward-only. No component pretends to offer a
    distributed transaction.
 3. Durable Zhinu events determine what committed in Zhinu. Siming records the
@@ -30,7 +33,8 @@ Reference implementations inspected:
 
 | Repository | Owns | Should expose to Guyabano | Must not own |
 | --- | --- | --- | --- |
-| **Guyabano** | Code-generation sessions, workspace candidates, approvals, product recovery policy, promotion, and the operator-facing explanation | One coherent session API and projections assembled from stable provider receipts | Generic workflow, ledger, memory, graph, or model-runtime infrastructure |
+| **Guyabano** | The code-generation session profile: workspace candidates, approvals, product recovery policy, promotion, and operator-facing explanations | One coherent application API assembled from Hongxian and stable provider receipts | Generic session, workflow, ledger, memory, graph, or model-runtime infrastructure |
+| **Penghou.Hongxian** | Provider-neutral session identity/lifecycle, external-operation correlation, decisions, incidents, recovery receipts, projections, catalogs, leases, and cross-store operation contracts | Package APIs that Guyabano maps to its workspace, workflow, and recovery vocabulary | Code-generation policy, workflow scheduling, workspace mutation, or cryptographic ledger format |
 | **Penghou.Zhinu** | Durable workflow/step state, retries, leases, fencing, signals, cancellation, restart transactions, and durable workflow events | Typed retry-safe administrative commands and authoritative receipts/events | Guyabano workspace, approval, graph, or session statuses |
 | **Penghou.Siming** | Append-only event ordering, canonical payload integrity, checkpoints, verification, and storage-provider contracts | Idempotent append/read/verify operations and exact corruption diagnostics | Workflow policy, sagas, projections, or cross-store rollback |
 | **Penghou.Hetu** | Code-graph publication, immutable graph/repository revision identity, impact queries, and graph-store consistency | Stable publication receipts and revision-bound impact results | Whether a Guyabano approval is valid or a workspace may be promoted |
@@ -38,9 +42,10 @@ Reference implementations inspected:
 | **Penghou.Baize** | Model invocation execution, rendered-input/model/tool provenance, streaming behavior, usage, and provider errors | A complete invocation receipt/result with stable correlation supplied by the caller | Selecting session memory, graph context, or deciding how generation recovers |
 
 Cross-cutting rule: a provider owns the atomicity and idempotency of mutations to
-its own store. Guyabano owns the forward-only saga that composes those receipts
-into a useful code-generation session. Siming records that composition; it does
-not coordinate it.
+its own store. Guyabano chooses the code-generation saga and recovery policy;
+Hongxian supplies reusable forward-only operation, receipt, projection, and
+reconciliation mechanics. Siming records immutable evidence and does not
+coordinate the participants.
 
 ## Scenario matrix
 
@@ -118,7 +123,8 @@ or catch `Exception` to infer commit state.
 - a distributed transaction across Zhinu, Siming, Hetu, Cangjie, and files;
 - automatic compensation for filesystem promotion without a genuine reversible
   contract;
-- a generic saga abstraction extracted from one consumer;
+- session catalog, projection, decision-lease, or cross-store reconciliation
+  mechanics now owned by Hongxian;
 - a Siming-specific publisher inside the core workflow runtime.
 
 Zhinu already provides durable events and cursor-based inspection. Guyabano can
@@ -138,9 +144,15 @@ atomic workspace-promotion lifecycle receipt/outbox.
 Structured pending approval/input and active-incident projections now derive
 operator state from explicit precedence, with ledger commit time authoritative
 and implausible future occurrence claims rejected. Remaining: define the
-product-level input request/wait, timeout, cancellation, and resume policy.
+product-level input request/wait, timeout, cancellation, and resume policy. The
+reusable mechanics have been extracted to Hongxian; Guyabano package integration
+is waiting for the first preview release.
 
 ## Recommended sequence
 
-1. Prove the recovery and audit paths in a real generation run.
-2. Build interactive input/approval APIs on the consumed Zhinu Z2 receipt.
+1. Publish the first Hongxian preview packages.
+2. Consume them through an explicit Guyabano mapping layer and prove parity
+   before removing the temporary in-tree kernel.
+3. Prove the recovery and audit paths in a real generation run.
+4. Build Guyabano's interactive input/approval policy on Hongxian projections
+   and the consumed Zhinu Z2 receipt.

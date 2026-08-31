@@ -713,13 +713,12 @@ Interactive workflow behavior:
   revision, then promotes it into the session workspace. Failed mutations cannot
   silently become the session's current revision.
 
-Create a focused `Guyabano.Session` component for session identity, commands,
-events, projections, audit queries, clarification and approval models, and
-cross-product reference types. A persistence adapter may provide an embedded
-SQLite event store. Penghou-facing adapters translate Zhinu, Cangjie, Hetu, and
-Baize activity into session references and events, while workflow sequencing,
-dependency declarations, acceptance gates, and restart policy remain visible in
-Guyabano's workflow code.
+Consume `Penghou.Hongxian` as the focused session kernel for identity, commands,
+events, projections, audit queries, decisions, recovery, and cross-product
+references. Guyabano-facing adapters translate Zhinu, Cangjie, Hetu, and Baize
+activity into Hongxian references and events, while application vocabulary,
+workflow sequencing, dependency declarations, acceptance gates, and restart
+policy remain visible in Guyabano's code.
 
 Required tests:
 
@@ -748,83 +747,26 @@ Session exit criteria:
 - A consistency audit detects missing or mismatched workflow artifacts, memory
   references, graph publications, workspace revisions, and validation evidence.
 
-### Deferred extraction candidate: `Penghou.Hongxian`
+### External dependency: `Penghou.Hongxian`
 
-`Penghou.Hongxian` (红线, "red thread") is the working name for a reusable
-durable-session kernel. Its purpose is continuity and correlation across one
-evolving human/AI interaction—not execution sequencing. It should answer what
-belongs to a session, which revisions and decisions relate to each other, and
-what happened over time despite retries, failures, restarts, and changing
-execution systems.
+The reusable durable-session kernel has been extracted to
+[`Penghou.Hongxian`](https://github.com/jenolaszlo-sketch/penghou-hongxian).
+Its roadmap is now the source of truth for generic session identity, lifecycle,
+event envelopes, projections, decision coordination, recovery evidence,
+reconciliation contracts, operational catalogs, SQLite persistence, query APIs,
+and second-consumer validation.
 
-The intended ownership boundary is:
+Guyabano retains only its application profile: workspace staging and promotion,
+generated-file ownership, impact analysis, selective regeneration, coding
+evidence, product recovery explanations, and all Hetu, Cangjie, Baize, and
+Zhinu policy.
 
-| Component | Responsibility |
-| --- | --- |
-| Hongxian | Session identity and lifecycle, opaque revision lineage, external-execution correlation, decision coordination, incidents and recovery records, projections, reconciliation contracts, audit queries, and operational-catalog abstractions |
-| Siming | Cryptographically verifiable immutable evidence and ledger persistence |
-| Zhinu or another engine | Workflow execution and sequencing; always optional to Hongxian |
-| Application profile | Domain policy, recovery actions, artifact meaning, user explanations, and mappings to external systems |
-
-Hongxian may define event envelopes and append/query ports, but must not
-reimplement Siming's hash chain or claim ownership of cryptographic persistence.
-It may record an application-invoked recovery handler's attempt and receipt,
-but must not schedule recovery graphs, choose domain policy, or become a second
-workflow engine. Actor authentication and authorization remain host-supplied
-claims; Hongxian preserves and correlates them but cannot manufacture trust.
-
-Guyabano retains workspace staging and promotion, generated-file ownership,
-impact analysis, selective regeneration, coding evidence, and all Hetu,
-Cangjie, Baize, and Zhinu policy. Hongxian sees only stable opaque references,
-content identities, relationships, and application-defined event data. Large
-artifacts remain in their authoritative stores.
-
-Expected package shape after the boundary is proven:
-
-```text
-Penghou.Hongxian
-    session, revision, decision, incident, projection, and reconciliation contracts
-
-Penghou.Hongxian.Sqlite
-    transactional operational catalog, projections, leases, and concurrency
-
-Penghou.Hongxian.Zhinu
-    optional workflow correlation and reconciliation adapter
-```
-
-Keep Siming behind a core ledger port. The first deployment may compose
-`Penghou.Siming.Sqlite` inside `Penghou.Hongxian.Sqlite`; create a separate
-Hongxian/Siming adapter package only if that keeps provider replacement and
-dependency ownership materially cleaner.
-
-Do not extract yet. First complete the four active session-hardening priorities
-and exercise a realistic Guyabano failure, clarification, selective rerun,
-process interruption, reconciliation, approval, and completion. The extraction
-spike then must prove that a small application can create sessions and
-revisions, attach arbitrary external operations, append application-defined
-events, coordinate decisions, record recovery attempts and receipts, resume,
-rebuild projections, reconcile incomplete work, and query history without
-referencing Guyabano, workspace paths, generated files, Hetu, Cangjie, Baize,
-or Zhinu types.
-
-A Baize media-generation and batching profile is the intended second-consumer
-validation. It should correlate batch members, attempts, variants, selections,
-partial success, retries, and media lineage using generic artifact references
-such as identity, content hash, media type, location, producer invocation, and
-parent artifacts. Hongxian must not store image or video bytes or acquire
-media-specific policy merely to satisfy this scenario.
-
-Extraction exit criteria:
-
-- The realistic Guyabano recovery scenario succeeds and reconstructs its audit
-  history after process loss.
-- The media-batch spike resumes partial work without regenerating acknowledged
-  outputs and records variant selection and lineage without core API changes.
-- The public kernel has no Guyabano or provider-specific types.
-- Replacing the operational catalog or workflow adapter does not change
-  application session policy.
-- No Hongxian API performs general workflow scheduling or embeds domain recovery
-  decisions.
+**Dependency status:** Guyabano integration is waiting for the first published
+`Penghou.Hongxian` and `Penghou.Hongxian.Sqlite` preview packages. Until then,
+the existing `Guyabano.Session` projects remain the production implementation;
+do not add a sibling-repository project reference. After publication, add an
+explicit Guyabano mapping layer, prove package-backed parity, run the recovery
+dogfood scenario, and only then remove the duplicate internal kernel code.
 
 ```text
 Analyze
@@ -955,13 +897,17 @@ The session correctness boundary now includes structured operator-state
 precedence, authoritative ledger commit time, bounded future occurrence claims,
 and retry-safe Zhinu input responses. Resume deferred work:
 
-5. Add operator query APIs and product-level interactive Zhinu
-   request/wait/cancel/timeout/resume behavior.
-6. Repeat real dogfood generation after the second-run structured-output and
+5. **Waiting on Hongxian preview:** consume `Penghou.Hongxian` and
+   `Penghou.Hongxian.Sqlite`, add the explicit Guyabano mapping layer, prove
+   package-backed parity, and remove the duplicate internal kernel only after
+   the recovery scenario passes.
+6. Add Guyabano-specific workspace, artifact, restart, and audit query APIs plus
+   product-level interactive Zhinu request/wait/cancel/timeout/resume policy.
+   Generic catalog, timeline, pending-input, decision, incident, and lifecycle
+   APIs are tracked in Hongxian.
+7. Repeat real dogfood generation after the second-run structured-output and
    recovery-UX hardening; approve the focused decomposition restart, verify
    generation/build completion, then complete the store-level audit.
-7. Run the `Penghou.Hongxian` extraction spike and validate the boundary with a
-   Baize media-generation/batching profile before creating reusable packages.
 8. Prove the minimal typed capability gateway with Codex-backed read-only web
    research and immutable session/workflow provenance.
 9. Extract workflow phase collaborators without hiding the explicit Zhinu graph.

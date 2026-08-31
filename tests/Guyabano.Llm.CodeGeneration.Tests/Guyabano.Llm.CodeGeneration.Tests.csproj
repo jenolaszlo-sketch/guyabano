@@ -16,7 +16,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-    <PackageReference Include="Penghou.Baize.Tools" Version="0.3.0-preview.4" />
+    <PackageReference Include="Penghou.Baize.Tools" Version="0.3.0-preview.5" />
 		<ProjectReference Include="..\..\src\Guyabano.Llm.CodeGeneration\Guyabano.Llm.CodeGeneration.csproj" />
 		<ProjectReference Include="..\..\src\Guyabano.Llm.Prompting\Guyabano.Llm.Prompting.csproj" />
 	</ItemGroup>

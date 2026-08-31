@@ -31,14 +31,18 @@ internal static class CodeGenerationProgressDiagnostics
         if (outcome.Failure ==
             CodeGenerationFailure.SchemaValidationFailed)
         {
+            var details = string.IsNullOrWhiteSpace(outcome.Error)
+                ? []
+                : new[] { outcome.Error };
             diagnostics.Add(
                 new WorkflowDiagnostic(
                     WorkflowDiagnosticSeverity.Error,
                     "schema-validation-failed",
                     "The generated tool arguments did not match the required schema.",
-                    string.IsNullOrWhiteSpace(outcome.Error)
-                        ? []
-                        : [outcome.Error]));
+                    details.Concat(FailureFingerprint.Evidence(
+                            outcome.Failure.ToString(),
+                            outcome.Error))
+                        .ToArray()));
         }
 
         if (outcome.Failure ==

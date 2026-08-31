@@ -3,6 +3,8 @@ using Guyabano.CodeGeneration.Workflows;
 using Guyabano.WorkflowWorker;
 using Microsoft.Extensions.Options;
 using Guyabano.Session;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Guyabano.WebTerminal.Services;
 
@@ -11,7 +13,10 @@ internal sealed class CodeGenerationWorkflowClient(
     IOptions<CodeGenerationWorkerOptions> options,
     CodeGenerationWorkspaceResolver workspaceResolver,
     IGuyabanoSessionStore sessionStore,
-    ISessionEventStore sessionEvents)
+    ISessionEventStore sessionEvents,
+    SessionWorkflowInputService inputService,
+    CodeGenerationWorkflowRestartService restartService,
+    IAuthenticatedActorProvider actorProvider)
     : ICodeGenerationWorkflowClient
 {
     public async Task<string> StartAsync(
@@ -58,6 +63,7 @@ internal sealed class CodeGenerationWorkflowClient(
                     cancellationToken);
             }
         }
+        var workspace = workspaceResolver.EnsureAvailable(session);
         await sessionStore.AttachWorkflowRunAsync(
             session.Id,
             workflowId,
@@ -67,10 +73,13 @@ internal sealed class CodeGenerationWorkflowClient(
             session.Id,
             resumeFromWorkflowId,
             continuationMode,
-            resumeFallback);
+            resumeFallback)
+        {
+            GenerationModelTierCount =
+                1 + settings.EscalationModels.Count
+        };
         if (settings.RepositoryContextEnabled)
         {
-            var workspace = workspaceResolver.Resolve(session.Id);
             request = request with
             {
                 Repository = new RepositoryReference(
@@ -130,6 +139,81 @@ internal sealed class CodeGenerationWorkflowClient(
         }
 
         return WaitForSessionResultAsync(runId, cancellationToken);
+    }
+
+    public Task<SessionInputResponseReceipt> ProvideInputAsync(
+        string workflowId,
+        string requestEventId,
+        Guid responseId,
+        string signalName,
+        object? response,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(workflowId, out var workflowRunId))
+            throw new ArgumentException("Zhinu workflow IDs must be GUID values.", nameof(workflowId));
+        if (!Guid.TryParse(requestEventId, out var parsedRequestEventId))
+            throw new ArgumentException("Input request event IDs must be GUID values.", nameof(requestEventId));
+        var actor = actorProvider.GetRequiredActor();
+        return inputService.ProvideAsync(
+            workflowRunId,
+            parsedRequestEventId,
+            responseId,
+            signalName,
+            actor.SubjectId,
+            response,
+            cancellationToken);
+    }
+
+    public async Task<RestartPreview> PreviewFailedDecompositionRestartAsync(
+        string workflowId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(workflowId, out var workflowRunId))
+            throw new ArgumentException(
+                "Zhinu workflow IDs must be GUID values.",
+                nameof(workflowId));
+        var result = await WaitForResultAsync(workflowId, cancellationToken)
+            .ConfigureAwait(false);
+        var failed = result.Decompositions.LastOrDefault(item =>
+            !item.Succeeded) ?? throw new InvalidOperationException(
+                "The workflow result has no failed decomposition to retry.");
+        var targetStepKey =
+            $"decomposition/{result.ArchitectureVersion}/{failed.ParentTaskId}";
+        return await restartService.PreviewAsync(
+            workflowRunId,
+            targetStepKey,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<RestartOutcome> ApproveRestartAsync(
+        RestartPreview preview,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        var actor = actorProvider.GetRequiredActor();
+        var approvalId = Guid.CreateVersion7();
+        var changeSet = string.Join("\n",
+            preview.WorkflowRunId.ToString("D"),
+            preview.TargetStepKey,
+            preview.WorkspaceRevision ?? string.Empty,
+            string.Join("\n", preview.InvalidatedStepKeys
+                .Order(StringComparer.Ordinal)));
+        var changeSetHash = Convert.ToHexString(SHA256.HashData(
+                Encoding.UTF8.GetBytes(changeSet)))
+            .ToLowerInvariant();
+        return restartService.RestartAsync(new RestartApproval(
+            approvalId,
+            Guid.CreateVersion7(),
+            preview.PreviewId,
+            preview.WorkflowRunId,
+            preview.TargetStepKey,
+            preview.WorkspaceRevision,
+            ApprovedIndexIdentity: null,
+            changeSetHash,
+            actor.SubjectId,
+            Approved: true,
+            ApprovedAt: DateTimeOffset.UtcNow),
+            cancellationToken);
     }
 
     private async Task<CodeGenerationWorkflowResult> WaitForSessionResultAsync(

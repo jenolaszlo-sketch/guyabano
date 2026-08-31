@@ -60,4 +60,9 @@ public sealed record BaizeExecutionRecord(
     bool Succeeded,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
-    string? Error);
+    string? Error)
+{
+    public int? WorkflowStepAttempt { get; init; }
+
+    public int InvocationOrdinal { get; init; }
+}

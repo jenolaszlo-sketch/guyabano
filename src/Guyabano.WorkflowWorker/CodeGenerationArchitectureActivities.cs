@@ -316,30 +316,47 @@ public sealed class CodeGenerationArchitectureActivities(
         using var disclosureScope = SessionContextDisclosureScope.Push(
             assembledContext?.Content);
         ContextSnapshot? gapSnapshot = null;
-        try
+        if (request.RepositoryContext is not null)
         {
-            gapSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
-                contextStore,
+            try
+            {
+                gapSnapshot = await CangjieSnapshotHelper.DeriveSnapshotAsync(
+                    contextStore,
+                    request.RepositoryContext.SnapshotId,
+                    workspace.SessionId.ToString(),
+                    workflowId,
+                    info.ActivityId,
+                    CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
+                    queryIdentity: $"guyabano:{workflowId}:architecture-gap:{request.Finding.Id}",
+                    strategy: "architecture-gap-resolution",
+                    strategyVersion: "2",
+                    purpose: "architecture-gap-resolution",
+                    workspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
+                    hetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
+                    hetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                    cancellationToken: context.CancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Unable to derive the Cangjie snapshot for gap {GapId} workflow {WorkflowId}", request.Finding.Id, workflowId);
+            }
+        }
+
+        using var correlationScope = gapSnapshot is not null
+            ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,
                 info.ActivityId,
-                CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
-                queryIdentity: $"guyabano:{workflowId}:architecture-gap:{request.Finding.Id}",
-                strategy: "architecture-gap-resolution",
-                strategyVersion: "1",
-                purpose: "architecture-gap-resolution",
-                workspaceRevision: null,
-                hetuIndexRunId: null,
-                hetuIndexIdentity: null,
-                itemIds: [],
-                cancellationToken: context.CancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Unable to create Cangjie snapshot for gap {GapId} workflow {WorkflowId}", request.Finding.Id, workflowId);
-        }
-
-        using var correlationScope = request.RepositoryContext is not null
+                CangjieSnapshotId: gapSnapshot.Id,
+                CangjieStrategy: gapSnapshot.Strategy,
+                CangjieStrategyVersion: gapSnapshot.StrategyVersion,
+                CangjieQueryIdentity: gapSnapshot.QueryIdentity,
+                CangjiePurpose: "architecture-gap-resolution",
+                HetuIndexRunId: request.RepositoryContext!.Revision.IndexRunId,
+                HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : request.RepositoryContext is not null
             ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,
@@ -350,17 +367,7 @@ public sealed class CodeGenerationArchitectureActivities(
                 CangjiePurpose: "architecture-gap-resolution",
                 HetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
                 HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
-                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
-            : gapSnapshot is not null
-            ? LlmRequestCorrelationScope.Push(new(
-                workspace.SessionId.ToString(),
-                workflowId,
-                info.ActivityId,
-                CangjieSnapshotId: gapSnapshot.Id,
-                CangjieStrategy: gapSnapshot.Strategy,
-                CangjieStrategyVersion: gapSnapshot.StrategyVersion,
-                CangjieQueryIdentity: gapSnapshot.QueryIdentity,
-                CangjiePurpose: gapSnapshot.Purpose,
+                WorkspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
                 WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
             : LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
@@ -526,30 +533,47 @@ public sealed class CodeGenerationArchitectureActivities(
             assembledContext?.Content);
         var nextVersion = request.ArchitectureVersion + 1;
         ContextSnapshot? integrationSnapshot = null;
-        try
+        if (request.RepositoryContext is not null)
         {
-            integrationSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
-                contextStore,
+            try
+            {
+                integrationSnapshot = await CangjieSnapshotHelper.DeriveSnapshotAsync(
+                    contextStore,
+                    request.RepositoryContext.SnapshotId,
+                    workspace.SessionId.ToString(),
+                    workflowId,
+                    info.ActivityId,
+                    CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
+                    queryIdentity: $"guyabano:{workflowId}:architecture-integration:{nextVersion}",
+                    strategy: "architecture-integration",
+                    strategyVersion: "2",
+                    purpose: "architecture-integration",
+                    workspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
+                    hetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
+                    hetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                    cancellationToken: context.CancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Unable to derive the Cangjie snapshot for architecture integration {WorkflowId} step {StepKey}", workflowId, info.ActivityId);
+            }
+        }
+
+        using var correlationScope = integrationSnapshot is not null
+            ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,
                 info.ActivityId,
-                CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
-                queryIdentity: $"guyabano:{workflowId}:architecture-integration:{nextVersion}",
-                strategy: "architecture-integration",
-                strategyVersion: "1",
-                purpose: "architecture-integration",
-                workspaceRevision: null,
-                hetuIndexRunId: null,
-                hetuIndexIdentity: null,
-                itemIds: [],
-                cancellationToken: context.CancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Unable to create Cangjie snapshot for architecture integration {WorkflowId} step {StepKey}", workflowId, info.ActivityId);
-        }
-
-        using var correlationScope = request.RepositoryContext is not null
+                CangjieSnapshotId: integrationSnapshot.Id,
+                CangjieStrategy: integrationSnapshot.Strategy,
+                CangjieStrategyVersion: integrationSnapshot.StrategyVersion,
+                CangjieQueryIdentity: integrationSnapshot.QueryIdentity,
+                CangjiePurpose: "architecture-integration",
+                HetuIndexRunId: request.RepositoryContext!.Revision.IndexRunId,
+                HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : request.RepositoryContext is not null
             ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,
@@ -560,20 +584,7 @@ public sealed class CodeGenerationArchitectureActivities(
                 CangjiePurpose: "architecture-integration",
                 HetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
                 HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
-                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
-            : integrationSnapshot is not null
-            ? LlmRequestCorrelationScope.Push(new(
-                workspace.SessionId.ToString(),
-                workflowId,
-                info.ActivityId,
-                CangjieSnapshotId: integrationSnapshot.Id,
-                CangjieStrategy: integrationSnapshot.Strategy,
-                CangjieStrategyVersion: integrationSnapshot.StrategyVersion,
-                CangjieQueryIdentity: integrationSnapshot.QueryIdentity,
-                CangjiePurpose: integrationSnapshot.Purpose,
-                HetuIndexRunId: integrationSnapshot.Metadata.TryGetValue("hetuIndexRunId", out var hetuRun2) ? hetuRun2 : null,
-                HetuIndexIdentity: integrationSnapshot.Metadata.TryGetValue("hetuIndexIdentity", out var hetuId2) ? hetuId2 : null,
-                WorkspaceRevision: integrationSnapshot.Metadata.TryGetValue("workspaceRevision", out var wsRev2) ? wsRev2 : null,
+                WorkspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
                 WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
             : LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),

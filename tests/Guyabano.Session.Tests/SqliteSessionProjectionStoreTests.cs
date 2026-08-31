@@ -69,6 +69,69 @@ public sealed class SqliteSessionProjectionStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Apply_PersistsStructuredDecisionAndIncidentState()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var catalogPath = Path.Combine(rootPath, "catalog.db");
+        var projections = new SqliteSessionProjectionStore(catalogPath, pooling: false);
+        await using var events = new SimingSessionEventStore(
+            Path.Combine(rootPath, "sessions"), projectionStore: projections);
+        var sessionId = GuyabanoSessionId.New();
+        var workflowRun = Guid.CreateVersion7();
+        var previewId = Guid.CreateVersion7();
+        var incidentId = Guid.CreateVersion7();
+        var input = await events.AppendAsync(new SessionEventRequest(
+            sessionId,
+            "guyabano",
+            SessionEventTypes.InputRequested,
+            DateTimeOffset.UtcNow,
+            CorrelationId: workflowRun,
+            CrossSystemRefs: new Dictionary<string, string>
+            {
+                ["signalName"] = "clarification"
+            }), ct);
+        await events.AppendAsync(new SessionEventRequest(
+            sessionId,
+            "guyabano",
+            SessionEventTypes.InvalidationPreviewed,
+            DateTimeOffset.UtcNow,
+            CorrelationId: workflowRun,
+            CrossSystemRefs: new Dictionary<string, string>
+            {
+                ["previewId"] = previewId.ToString("D"),
+                ["workflowRunId"] = workflowRun.ToString("D"),
+                ["targetStepKey"] = "generation/task-1",
+                ["workspaceRevision"] = "workspace:7"
+            }), ct);
+        await events.AppendAsync(new SessionEventRequest(
+            sessionId,
+            "guyabano",
+            SessionEventTypes.IncidentDetected,
+            DateTimeOffset.UtcNow,
+            CorrelationId: workflowRun,
+            CrossSystemRefs: new Dictionary<string, string>
+            {
+                ["incidentId"] = incidentId.ToString("D"),
+                ["reasonCode"] = "NeedsReconciliation",
+                ["severity"] = SessionIncidentSeverity.Error.ToString()
+            }), ct);
+
+        // Read through a fresh store instance so the assertion covers the JSON
+        // persistence contract rather than only the in-memory projection.
+        var reopened = new SqliteSessionProjectionStore(catalogPath, pooling: false);
+        var snapshot = await reopened.GetAsync(sessionId, ct);
+
+        snapshot!.State.PendingInputs.Should().ContainSingle(item =>
+            item.RequestEventId == input.EventId && item.SignalName == "clarification");
+        snapshot.State.PendingApprovals.Should().ContainSingle(item =>
+            item.PreviewId == previewId && item.WorkspaceRevision == "workspace:7");
+        snapshot.State.ActiveIncidents.Should().ContainSingle(item =>
+            item.IncidentId == incidentId && item.ReasonCode == "NeedsReconciliation");
+        snapshot.State.OperatorState.Should().Be(SessionOperatorState.AwaitingInput,
+            "an unresolved user input request takes precedence over a recoverable incident");
+    }
+
+    [Fact]
     public async Task Apply_SameSequenceFromDifferentChain_RejectsHeadConflict()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -22,14 +22,15 @@ public sealed class ResolvedDependencyContextBuilder
                 nameof(targetTaskId));
 
         var dependencyIds = GetTransitiveDependencies(target, tasks);
+        var orderedDependencies = OrderDependencies(
+            plan.Tasks,
+            dependencyIds);
         var decompositions = upstreamDecompositions.ToDictionary(
             item => item.ParentTaskId,
             StringComparer.Ordinal);
         var artifacts = new List<ResolvedArtifactDependency>();
 
-        foreach (var dependency in OrderDependencies(
-                     plan.Tasks,
-                     dependencyIds))
+        foreach (var dependency in orderedDependencies)
         {
             if (dependency.ExecutionKind !=
                 PlanTaskExecutionKind.CodeGeneration)
@@ -72,6 +73,7 @@ public sealed class ResolvedDependencyContextBuilder
         ValidateUniqueTypeOwnership(artifacts);
         var relatedContractIds = artifacts
             .SelectMany(item => item.RelatedContractIds)
+            .Concat(orderedDependencies.SelectMany(DeclaredContractIds))
             .ToHashSet(StringComparer.Ordinal);
         var contracts = plan.Contracts
             .Where(contract => relatedContractIds.Contains(contract.Id))
@@ -84,6 +86,14 @@ public sealed class ResolvedDependencyContextBuilder
             .ToArray();
         return new ResolvedDependencyContext(artifacts, contracts);
     }
+
+    private static IEnumerable<string> DeclaredContractIds(
+        GenerationTaskPlan task) =>
+        task.ContractIds
+            .Concat(task.Relationships.DefinesContractIds)
+            .Concat(task.Relationships.ImplementsPortContractIds)
+            .Concat(task.Relationships.ConsumesContractIds)
+            .Distinct(StringComparer.Ordinal);
 
     private static HashSet<string> GetTransitiveDependencies(
         GenerationTaskPlan target,

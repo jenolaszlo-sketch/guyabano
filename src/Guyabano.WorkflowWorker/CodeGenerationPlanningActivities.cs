@@ -300,8 +300,9 @@ public sealed class CodeGenerationPlanningActivities(
     }
 
     private static IReadOnlyDictionary<string, string> CreateMetadata(
-        CodeGenerationPlanningOutcome outcome) =>
-        new Dictionary<string, string>
+        CodeGenerationPlanningOutcome outcome)
+    {
+        var metadata = new Dictionary<string, string>
         {
             ["failure"] = outcome.Failure.ToString(),
             ["jsonWasRepaired"] = outcome.JsonWasRepaired.ToString(),
@@ -310,6 +311,12 @@ public sealed class CodeGenerationPlanningActivities(
                 .Sum(task => task.ComplexityPoints)
                 .ToString() ?? "0"
         };
+        if (!outcome.Succeeded)
+            metadata["failureFingerprint"] = FailureFingerprint.Create(
+                outcome.Failure.ToString(),
+                outcome.Error);
+        return metadata;
+    }
 
     private static IReadOnlyList<WorkflowDiagnostic> CreateDiagnostics(
         CodeGenerationPlanningOutcome outcome,
@@ -334,11 +341,14 @@ public sealed class CodeGenerationPlanningActivities(
 
         if (includeFailure && !string.IsNullOrWhiteSpace(outcome.Error))
         {
+            var evidence = FailureFingerprint.Evidence(
+                outcome.Failure.ToString(),
+                outcome.Error);
             diagnostics.Add(new WorkflowDiagnostic(
                 WorkflowDiagnosticSeverity.Error,
                 $"planning-{outcome.Failure.ToString().ToLowerInvariant()}",
                 "The planning activity failed.",
-                [outcome.Error]));
+                new[] { outcome.Error }.Concat(evidence).ToArray()));
         }
 
         return diagnostics;

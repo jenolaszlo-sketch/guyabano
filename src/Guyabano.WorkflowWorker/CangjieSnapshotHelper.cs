@@ -6,6 +6,48 @@ namespace Guyabano.WorkflowWorker;
 
 public static class CangjieSnapshotHelper
 {
+    public static async Task<ContextSnapshot> DeriveSnapshotAsync(
+        IContextStore contextStore,
+        Guid sourceSnapshotId,
+        string sessionId,
+        string workflowRunId,
+        string stepKey,
+        int stepRevision,
+        string queryIdentity,
+        string strategy,
+        string strategyVersion,
+        string purpose,
+        string? workspaceRevision,
+        string? hetuIndexRunId,
+        string? hetuIndexIdentity,
+        CancellationToken cancellationToken = default)
+    {
+        var source = await contextStore.GetSnapshotAsync(
+            sourceSnapshotId,
+            cancellationToken).ConfigureAwait(false) ??
+            throw new KeyNotFoundException(
+                $"Cangjie source snapshot '{sourceSnapshotId:D}' does not exist.");
+        if (source.ItemIds.Count == 0)
+            throw new InvalidOperationException(
+                $"Cangjie source snapshot '{sourceSnapshotId:D}' has no context items.");
+
+        return await EnsureSnapshotAsync(
+            contextStore,
+            sessionId,
+            workflowRunId,
+            stepKey,
+            stepRevision,
+            queryIdentity,
+            strategy,
+            strategyVersion,
+            purpose,
+            workspaceRevision,
+            hetuIndexRunId,
+            hetuIndexIdentity,
+            source.ItemIds,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public static async Task<ContextSnapshot> EnsureSnapshotAsync(
         IContextStore contextStore,
         string sessionId,

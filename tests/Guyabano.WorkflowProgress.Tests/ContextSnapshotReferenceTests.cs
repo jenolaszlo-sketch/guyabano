@@ -144,6 +144,31 @@ public sealed class ContextSnapshotReferenceTests : IDisposable
             "selection order is part of the exact disclosed context");
         nextRevision.Id.Should().NotBe(snapshot.Id,
             "a rerun is a distinct model invocation snapshot");
+
+        var derived = await CangjieSnapshotHelper.DeriveSnapshotAsync(
+            cangjieStore,
+            snapshot.Id,
+            session.Id.ToString(),
+            runId.ToString("D"),
+            "decomposition/1/TASK-TESTS",
+            stepRevision: 1,
+            queryIdentity: $"guyabano:{runId:D}:decomposition:TASK-TESTS",
+            strategy: "decomposition-input-closure",
+            strategyVersion: "2",
+            purpose: "code-generation-decomposition",
+            workspaceRevision: "ws-rev-abc",
+            hetuIndexRunId: "hetu-run-1",
+            hetuIndexIdentity: "ws-rev-abc",
+            cancellationToken: ct);
+        var resolvedDerived = await cangjieStore.ResolveSnapshotAsync(
+            derived.Id,
+            ct);
+
+        derived.Id.Should().NotBe(snapshot.Id);
+        derived.ItemIds.Should().Equal(item1.Id, item2.Id);
+        resolvedDerived!.Items.Select(item => item.Id)
+            .Should().Equal(item1.Id, item2.Id);
+        derived.Purpose.Should().Be("code-generation-decomposition");
     }
 
     public void Dispose()

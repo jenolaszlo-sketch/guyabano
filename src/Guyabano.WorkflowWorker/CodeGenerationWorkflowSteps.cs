@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using Penghou.Zhinu;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Workflows;
@@ -105,6 +107,98 @@ internal sealed class AdvanceSessionOperationStep(
                     $"{operation.IdempotencyKey}:event:{input.TargetState}:{input.Participant}"),
             cancellationToken).ConfigureAwait(false);
         return operation;
+    }
+}
+
+internal sealed class RecordProductOutcomeFailureStep(
+    ISessionEventStore sessionEvents,
+    SessionRecoveryCoordinator recovery,
+    CodeGenerationActivityHeartbeatStore heartbeatStore) :
+    CodeGenerationWorkflowStep<RecordProductOutcomeFailureRequest, bool>(
+        heartbeatStore)
+{
+    protected override async Task<bool> ExecuteCoreAsync(
+        RecordProductOutcomeFailureRequest input,
+        CancellationToken cancellationToken)
+    {
+        var failureIdempotencyKey =
+            $"product-outcome:{input.OperationId}:{input.FailureCode}";
+        var existing = (await sessionEvents.ReadAsync(
+                input.SessionId,
+                cancellationToken: cancellationToken).ConfigureAwait(false))
+            .LastOrDefault(item => item.IdempotencyKey ==
+                failureIdempotencyKey);
+        var now = existing?.OccurredAt ?? DateTimeOffset.UtcNow;
+        var incidentId = DeterministicId(
+            $"product-outcome\n{input.OperationId}\n{input.FailureCode}\n{input.RecoveryTargetStepKey}");
+        var action = input.RecoveryTargetStepKey is null
+            ? SessionRecoveryAction.ReconcileForward
+            : SessionRecoveryAction.RetryIdempotently;
+        var planId = DeterministicId($"plan\n{incidentId:D}\n{action}");
+        var references = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["operationId"] = input.OperationId.ToString(),
+            ["workflowRunId"] = input.WorkflowRunId.ToString("D"),
+            ["failureCode"] = input.FailureCode,
+            ["safeState"] = "accepted-workspace-unchanged"
+        };
+        if (input.RecoveryTargetStepKey is not null)
+            references["recoveryTargetStepKey"] =
+                input.RecoveryTargetStepKey;
+
+        var failed = await sessionEvents.AppendAsync(new SessionEventRequest(
+                input.SessionId,
+                "guyabano",
+                SessionEventTypes.WorkflowFailed,
+                now,
+                CorrelationId: input.WorkflowRunId,
+                CrossSystemRefs: references,
+                PayloadJson: input.Explanation,
+                IdempotencyKey: failureIdempotencyKey),
+            cancellationToken).ConfigureAwait(false);
+        var detected = await recovery.DetectAsync(new SessionIncident(
+                incidentId,
+                input.SessionId,
+                input.FailureCode,
+                SessionIncidentSeverity.Error,
+                input.Explanation,
+                now,
+                input.WorkflowRunId,
+                references,
+                failed.EventId),
+            cancellationToken).ConfigureAwait(false);
+        var planned = await recovery.PlanAsync(new SessionRecoveryPlan(
+                planId,
+                incidentId,
+                input.SessionId,
+                action,
+                input.UserAction,
+                SafeWorkspaceRevision: null,
+                Automatic: false,
+                PlannedAt: now,
+                input.WorkflowRunId,
+                references),
+            detected.EventId,
+            cancellationToken).ConfigureAwait(false);
+        await recovery.CompleteAsync(new SessionRecoveryResolution(
+                planId,
+                incidentId,
+                input.SessionId,
+                SessionRecoveryOutcome.UserActionRequired,
+                Attempt: 0,
+                input.UserAction,
+                now,
+                input.WorkflowRunId,
+                references),
+            planned.EventId,
+            cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private static Guid DeterministicId(string value)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return new Guid(bytes.AsSpan(0, 16));
     }
 }
 

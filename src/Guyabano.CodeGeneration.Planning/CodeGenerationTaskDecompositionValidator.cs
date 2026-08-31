@@ -172,9 +172,8 @@ internal static class CodeGenerationTaskDecompositionValidator
 
         foreach (var leaf in leaves)
         {
-            ValidateReferences(
+            ValidateSiblingDependencies(
                 leaf.Id,
-                "sibling dependency",
                 leaf.DependsOn,
                 leafIds,
                 errors);
@@ -218,6 +217,25 @@ internal static class CodeGenerationTaskDecompositionValidator
     {
         foreach (var reference in references.Where(item => !known.Contains(item)))
             errors.Add($"{owner} references unknown {kind} '{reference}'.");
+    }
+
+    private static void ValidateSiblingDependencies(
+        string owner,
+        IEnumerable<string> references,
+        IReadOnlySet<string> known,
+        ICollection<string> errors)
+    {
+        var valid = known
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .Select(item => $"'{item}'")
+            .ToArray();
+        var validList = valid.Length == 0
+            ? "There are no valid sibling dependencies."
+            : $"Valid sibling dependencies are: {string.Join(", ", valid)}.";
+
+        foreach (var reference in references.Where(item => !known.Contains(item)))
+            errors.Add(
+                $"{owner} references unknown sibling dependency '{reference}'. {validList}");
     }
 
     private static void ValidateGraph(

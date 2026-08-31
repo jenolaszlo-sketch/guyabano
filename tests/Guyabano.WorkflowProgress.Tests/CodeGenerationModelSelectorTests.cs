@@ -1,10 +1,37 @@
 using FluentAssertions;
+using Guyabano.CodeGeneration.Workflows;
 using Guyabano.WorkflowWorker;
 
 namespace Guyabano.WorkflowProgressTests;
 
 public sealed class CodeGenerationModelSelectorTests
 {
+    [Theory]
+    [InlineData(1, 1, 2)]
+    [InlineData(1, 2, 4)]
+    [InlineData(2, 1, 2)]
+    [InlineData(2, 2, 2)]
+    public void TaskActivityOptions_UsesPersistedConfiguredTierCount(
+        int startingTier,
+        int configuredTierCount,
+        int expectedAttempts)
+    {
+        var options = CodeGenerationWorkflow.TaskActivityOptions(
+            startingTier,
+            configuredTierCount);
+
+        options.Retry.MaxAttempts.Should().Be(expectedAttempts);
+    }
+
+    [Fact]
+    public void CreateOwnershipQuery_StaysWithinCangjieProviderLimit()
+    {
+        var query = CodeGenerationTaskActivities.CreateOwnershipQuery(
+            Guid.NewGuid().ToString("D"));
+
+        query.Limit.Should().Be(100);
+    }
+
     [Fact]
     public void Select_AllowsPrimaryModelWithoutFallback()
     {

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Guyabano.Messaging;
 using Guyabano.WebTerminal.Components.Pages;
+using Guyabano.WorkflowWorker;
 
 namespace Guyabano.WorkflowProgressTests;
 
@@ -34,7 +35,7 @@ public sealed class ChatRunStateTests
     }
 
     [Fact]
-    public void AddProgress_SeparatesWorkflowRetryAttempts()
+    public void AddProgress_GroupsWorkflowRetryAttemptsAsOneLogicalActivity()
     {
         using var run = new ChatRunState(
             "test prompt",
@@ -49,11 +50,11 @@ public sealed class ChatRunStateTests
             WorkflowProgressEventType.Started,
             attempt: 2));
 
-        run.Activities.Should().HaveCount(2);
-        run.Activities[0].VisualState.Should().Be("failed");
-        run.Activities[1].VisualState.Should().Be("running");
-        run.Activities[0].Progress.IsTerminal.Should().BeFalse();
-        run.Activities[1].Progress.MaximumAttempts.Should().Be(2);
+        var activity = run.Activities.Should().ContainSingle().Subject;
+        activity.VisualState.Should().Be("running");
+        activity.AttemptCount.Should().Be(2);
+        activity.WasRetried.Should().BeTrue();
+        activity.Progress.MaximumAttempts.Should().Be(2);
     }
 
     [Fact]
@@ -83,11 +84,49 @@ public sealed class ChatRunStateTests
             WorkflowProgressEventType.Completed,
             attempt: 2));
 
-        run.Activities.Should().HaveCount(2);
-        run.Activities[0].VisualState.Should().Be("failed");
-        run.Activities[1].VisualState.Should().Be("succeeded");
-        run.Activities[1].Progress.Attempt.Should().Be(2);
-        run.Activities[1].Diagnostics.Should().BeEmpty();
+        var activity = run.Activities.Should().ContainSingle().Subject;
+        activity.VisualState.Should().Be("warning");
+        activity.SucceededAfterRetry.Should().BeTrue();
+        activity.Progress.Attempt.Should().Be(2);
+        activity.Diagnostics.Should().OnlyContain(diagnostic =>
+            diagnostic.Severity == WorkflowDiagnosticSeverity.Warning);
+    }
+
+    [Fact]
+    public void AddProgress_FocusedRetryDemotesPriorTerminalFailure()
+    {
+        using var run = new ChatRunState(
+            "test prompt",
+            CancellationToken.None);
+        run.AddProgress(CreateEntry(
+            "1-0",
+            WorkflowProgressEventType.Started));
+        run.AddProgress(CreateEntry(
+            "2-0",
+            WorkflowProgressEventType.Failed,
+            [
+                new WorkflowDiagnostic(
+                    WorkflowDiagnosticSeverity.Error,
+                    "invalid-output",
+                    "The decomposition was rejected.",
+                    [])
+            ]));
+        run.AddProgress(CreateEntry(
+            "3-0",
+            WorkflowProgressEventType.Started));
+        run.AddProgress(CreateEntry(
+            "4-0",
+            WorkflowProgressEventType.Completed));
+
+        var activity = run.Activities.Should().ContainSingle().Subject;
+        activity.WasRetried.Should().BeTrue();
+        activity.SucceededAfterRetry.Should().BeTrue();
+        activity.AttemptCount.Should().Be(2);
+        activity.VisualState.Should().Be("warning");
+        activity.Diagnostics.Should().OnlyContain(diagnostic =>
+            diagnostic.Severity == WorkflowDiagnosticSeverity.Warning);
+        activity.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Code == "previous-invalid-output");
     }
 
     [Fact]
@@ -123,6 +162,49 @@ public sealed class ChatRunStateTests
         file.Checks.Should().Contain(check =>
             check.Kind == WorkflowFileCheckKind.Compilation &&
             check.Status == WorkflowFileCheckStatus.Failed);
+    }
+
+    [Fact]
+    public void SetRestartPreview_MakesApprovalRequirementExplicit()
+    {
+        using var run = new ChatRunState(
+            "test prompt",
+            CancellationToken.None);
+        var preview = new RestartPreview(
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            "decomposition/1/TASK-001",
+            "revision-1",
+            DateTimeOffset.UtcNow,
+            ["decomposition/1/TASK-001"],
+            ["decomposition/1/TASK-001"],
+            ["planning"],
+            [],
+            RequiresApproval: true);
+
+        run.SetRestartPreview(preview);
+
+        run.RestartPreview.Should().BeSameAs(preview);
+        run.RecoveryNotice.Should().Be(
+            "Retry preview ready — approval required.");
+        run.IsRunning.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BeginRestart_ReportsAcceptedRestartBeforeProgressArrives()
+    {
+        using var run = new ChatRunState(
+            "test prompt",
+            CancellationToken.None);
+
+        run.BeginRestart();
+
+        run.IsRunning.Should().BeTrue();
+        run.Result.Should().BeNull();
+        run.Status.Should().Be(
+            "Restart accepted; waiting for activity");
+        run.RecoveryNotice.Should().Be(
+            "Restart accepted; waiting for workflow activity.");
     }
 
     private static WorkflowProgressEntry CreateEntry(

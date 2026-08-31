@@ -41,30 +41,61 @@ public sealed class CodeGenerationDecompositionActivities(
         using var disclosureScope = SessionContextDisclosureScope.Push(
             assembledContext?.Content);
         ContextSnapshot? decompositionSnapshot = null;
-        try
+        if (request.RepositoryContext is not null)
         {
-            decompositionSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
-                contextStore,
+            try
+            {
+                var sourceSnapshot = await contextStore.GetSnapshotAsync(
+                    request.RepositoryContext.SnapshotId,
+                    context.CancellationToken).ConfigureAwait(false);
+                if (sourceSnapshot is null)
+                {
+                    logger.LogWarning(
+                        "Repository Cangjie snapshot {SnapshotId} was not found for decomposition {ParentId} workflow {WorkflowId}; provenance will retain the referenced source identity.",
+                        request.RepositoryContext.SnapshotId,
+                        request.ParentTaskId,
+                        workflowId);
+                }
+                else
+                {
+                    decompositionSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
+                        contextStore,
+                        workspace.SessionId.ToString(),
+                        workflowId,
+                        info.ActivityId,
+                        CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
+                        queryIdentity: $"guyabano:{workflowId}:decomposition:{request.ParentTaskId}",
+                        strategy: "decomposition-input-closure",
+                        strategyVersion: "2",
+                        purpose: "code-generation-decomposition",
+                        workspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
+                        hetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
+                        hetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                        itemIds: sourceSnapshot.ItemIds,
+                        cancellationToken: context.CancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Unable to derive the Cangjie input snapshot for decomposition {ParentId} workflow {WorkflowId}", request.ParentTaskId, workflowId);
+            }
+        }
+
+        using var correlationScope = decompositionSnapshot is not null
+            ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,
                 info.ActivityId,
-                CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
-                queryIdentity: $"guyabano:{workflowId}:decomposition:{request.ParentTaskId}",
-                strategy: "decomposition",
-                strategyVersion: "1",
-                purpose: "decomposition",
-                workspaceRevision: null,
-                hetuIndexRunId: null,
-                hetuIndexIdentity: null,
-                itemIds: [],
-                cancellationToken: context.CancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Unable to create Cangjie snapshot for decomposition {ParentId} workflow {WorkflowId}", request.ParentTaskId, workflowId);
-        }
-
-        using var correlationScope = request.RepositoryContext is not null
+                CangjieSnapshotId: decompositionSnapshot.Id,
+                CangjieStrategy: decompositionSnapshot.Strategy,
+                CangjieStrategyVersion: decompositionSnapshot.StrategyVersion,
+                CangjieQueryIdentity: decompositionSnapshot.QueryIdentity,
+                CangjiePurpose: decompositionSnapshot.Purpose,
+                HetuIndexRunId: request.RepositoryContext!.Revision.IndexRunId,
+                HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
+                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
+            : request.RepositoryContext is not null
             ? LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
                 workflowId,
@@ -75,17 +106,7 @@ public sealed class CodeGenerationDecompositionActivities(
                 CangjiePurpose: "code-generation-decomposition",
                 HetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
                 HetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
-                WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
-            : decompositionSnapshot is not null
-            ? LlmRequestCorrelationScope.Push(new(
-                workspace.SessionId.ToString(),
-                workflowId,
-                info.ActivityId,
-                CangjieSnapshotId: decompositionSnapshot.Id,
-                CangjieStrategy: decompositionSnapshot.Strategy,
-                CangjieStrategyVersion: decompositionSnapshot.StrategyVersion,
-                CangjieQueryIdentity: decompositionSnapshot.QueryIdentity,
-                CangjiePurpose: decompositionSnapshot.Purpose,
+                WorkspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
                 WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision))
             : LlmRequestCorrelationScope.Push(new(
                 workspace.SessionId.ToString(),
@@ -232,7 +253,12 @@ public sealed class CodeGenerationDecompositionActivities(
                         CodeGenerationWorkflowConstants
                             .MaximumAttemptsPerModel
                             .ToString(),
-                    ["artifactId"] = artifact?.ArtifactId ?? string.Empty
+                    ["artifactId"] = artifact?.ArtifactId ?? string.Empty,
+                    ["failureFingerprint"] = succeeded
+                        ? string.Empty
+                        : FailureFingerprint.Create(
+                            outcome.Failure.ToString(),
+                            error)
                 },
                 Diagnostics: CreateDiagnostics(outcome, error),
                 MaximumAttempts: maximumAttempts,
@@ -413,11 +439,14 @@ public sealed class CodeGenerationDecompositionActivities(
 
         if (!string.IsNullOrWhiteSpace(error))
         {
+            var evidence = FailureFingerprint.Evidence(
+                outcome.Failure.ToString(),
+                error);
             result.Add(new(
                 WorkflowDiagnosticSeverity.Error,
                 "decomposition-failed",
                 "The target decomposition did not produce executable leaves.",
-                [error]));
+                new[] { error }.Concat(evidence).ToArray()));
         }
 
         return result;

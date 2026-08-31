@@ -65,6 +65,15 @@
                     <div class="workflow-id">@run.WorkflowId</div>
                 }
 
+                @if (run.RecoveryNotice is not null &&
+                    run.RestartPreview is null)
+                {
+                    <div class="result-card warning" role="status">
+                        <div class="result-heading">Focused retry</div>
+                        <p>@run.RecoveryNotice</p>
+                    </div>
+                }
+
                 @if (run.Activities.Count > 0)
                 {
                     <div class="progress-list">
@@ -105,6 +114,18 @@
                                         {
                                             <span class="attempt-chip">
                                                 Attempt @activity.Progress.Attempt of @activity.Progress.MaximumAttempts
+                                            </span>
+                                        }
+                                        @if (activity.WasRetried)
+                                        {
+                                            <span class="attempt-chip">
+                                                @activity.AttemptCount attempts
+                                            </span>
+                                        }
+                                        @if (activity.SucceededAfterRetry)
+                                        {
+                                            <span class="attempt-chip">
+                                                Succeeded after retry
                                             </span>
                                         }
                                     </div>
@@ -148,6 +169,48 @@
                         @if (run.Result.Error is not null)
                         {
                             <p>@run.Result.Error</p>
+                        }
+                        @if (!run.Result.Succeeded &&
+                            run.Result.Decompositions.Any(item => !item.Succeeded))
+                        {
+                            <div class="recovery-actions">
+                                @if (run.RestartPreview is null)
+                                {
+                                    <button
+                                        type="button"
+                                        class="button-link"
+                                        disabled="@run.IsRecoveryBusy"
+                                        @onclick="() => PreviewFailedDecompositionAsync(run)">
+                                        @(run.IsRecoveryBusy
+                                            ? "Preparing preview..."
+                                            : "Preview retry impact")
+                                    </button>
+                                }
+                                else
+                                {
+                                    <p class="recovery-status" role="status">
+                                        <strong>@run.RecoveryNotice</strong>
+                                    </p>
+                                    <p>
+                                        Retry <strong>@run.RestartPreview.TargetStepKey</strong> and
+                                        @run.RestartPreview.RerunStepKeys.Count dependent step(s);
+                                        @run.RestartPreview.ReusableStepKeys.Count completed step(s) remain reusable.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        class="button-link"
+                                        disabled="@run.IsRecoveryBusy"
+                                        @onclick="() => ApproveFailedDecompositionAsync(run)">
+                                        @(run.IsRecoveryBusy
+                                            ? "Applying restart..."
+                                            : "Approve focused retry")
+                                    </button>
+                                }
+                                @if (run.RecoveryError is not null)
+                                {
+                                    <p role="alert">@run.RecoveryError</p>
+                                }
+                            </div>
                         }
                         <div class="result-metrics">
                             <span>Model: @run.Result.Model</span>
@@ -414,7 +477,63 @@
         }
         finally
         {
-            run.CompleteObservation();
+            if (run.Result?.Succeeded == true)
+                run.CompleteObservation();
+        }
+    }
+
+    private async Task PreviewFailedDecompositionAsync(ChatRunState run)
+    {
+        if (run.WorkflowId is null || run.IsRecoveryBusy)
+            return;
+        run.IsRecoveryBusy = true;
+        run.RecoveryError = null;
+        try
+        {
+            var preview = await WorkflowClient
+                .PreviewFailedDecompositionRestartAsync(
+                    run.WorkflowId,
+                    run.CancellationToken);
+            run.SetRestartPreview(preview);
+        }
+        catch (Exception exception)
+        {
+            run.SetRecoveryFailure(exception.Message);
+        }
+        finally
+        {
+            run.IsRecoveryBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ApproveFailedDecompositionAsync(ChatRunState run)
+    {
+        if (run.RestartPreview is null || run.IsRecoveryBusy)
+            return;
+        run.IsRecoveryBusy = true;
+        run.RecoveryError = null;
+        try
+        {
+            var outcome = await WorkflowClient.ApproveRestartAsync(
+                run.RestartPreview,
+                run.CancellationToken);
+            if (!outcome.Applied)
+            {
+                run.SetRecoveryFailure(outcome.Explanation);
+                return;
+            }
+            run.BeginRestart();
+            _ = ObserveCompletionAsync(run);
+        }
+        catch (Exception exception)
+        {
+            run.SetRecoveryFailure(exception.Message);
+        }
+        finally
+        {
+            run.IsRecoveryBusy = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -433,7 +552,9 @@
 
     private static string ActivityIcon(
         ActivityProgressState activity) =>
-        activity.VisualState switch
+        activity.SucceededAfterRetry
+            ? "✓"
+            : activity.VisualState switch
         {
             "failed" => "×",
             "warning" => "!",
@@ -443,7 +564,9 @@
 
     private static string ActivityLabel(
         ActivityProgressState activity) =>
-        activity.VisualState switch
+        activity.SucceededAfterRetry
+            ? "Activity succeeded after retry; earlier diagnostics are retained"
+            : activity.VisualState switch
         {
             "failed" => "Activity failed",
             "warning" => "Activity completed with warnings",

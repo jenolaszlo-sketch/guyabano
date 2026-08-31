@@ -71,7 +71,7 @@ public sealed class BaizeExecutionProvenanceTests : IDisposable
         var envelope = await artifacts.ReadLatestAsync<BaizeExecutionRecord>(
             runId.ToString("D"),
             "baize-execution",
-            "code-generation-planning/planning",
+            "code-generation-planning/planning/revision-2/attempt-1/invocation-0001",
             ct);
         envelope.Should().NotBeNull();
         var record = envelope!.Payload;
@@ -79,6 +79,8 @@ public sealed class BaizeExecutionProvenanceTests : IDisposable
         record.WorkflowRunId.Should().Be(runId.ToString("D"));
         record.WorkflowStepKey.Should().Be("planning");
         record.WorkflowStepRevision.Should().Be(2);
+        record.WorkflowStepAttempt.Should().Be(1);
+        record.InvocationOrdinal.Should().Be(1);
         record.CangjieSnapshotId.Should().Be(snapshotId);
         record.CangjieStrategy.Should().Be("hetu-public-surface-and-symbol-neighborhood");
         record.HetuIndexRunId.Should().Be("hetu-run-1");
@@ -142,7 +144,7 @@ public sealed class BaizeExecutionProvenanceTests : IDisposable
         var envelope = await artifacts.ReadLatestAsync<BaizeExecutionRecord>(
             runId.ToString("D"),
             "baize-execution",
-            "code-generation-planning/planning",
+            "code-generation-planning/planning/revision-1/attempt-1/invocation-0001",
             ct);
         envelope.Should().NotBeNull();
         envelope!.Payload.Succeeded.Should().BeFalse();
@@ -253,11 +255,47 @@ public sealed class BaizeExecutionProvenanceTests : IDisposable
         var envelope = await artifacts.ReadLatestAsync<BaizeExecutionRecord>(
             runId.ToString("D"),
             "baize-execution",
-            "code-generation-planning/planning",
+            "code-generation-planning/planning/revision-1/attempt-1/invocation-0001",
             CancellationToken.None);
         envelope.Should().NotBeNull();
         envelope!.Payload.Succeeded.Should().BeFalse();
         envelope.Payload.ResponseHash.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task MultipleInvocationsInOneStepReceiveDistinctPublicationKeys()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var runId = Guid.NewGuid();
+        var artifacts = new FileSystemArtifactRepository(
+            Path.Combine(rootPath, ".gen", "multi-invocation-artifacts"));
+        var router = new BaizeExecutionProvenanceRouter(
+            new StubLlmRouter(),
+            artifacts,
+            NullLogger<BaizeExecutionProvenanceRouter>.Instance);
+        var request = new StubPromptBuilder().Build(ModelStrategy.Auto);
+
+        using (LlmRequestCorrelationScope.Push(new(
+            GuyabanoSessionId.New().ToString(),
+            runId.ToString("D"),
+            "planning",
+            CangjiePurpose: "code-generation-planning")))
+        {
+            await router.CompleteStreamingAsync("test-model", request, ct);
+            await router.CompleteStreamingAsync("test-model", request, ct);
+        }
+
+        var first = await artifacts.ReadLatestAsync<BaizeExecutionRecord>(
+            runId.ToString("D"), "baize-execution",
+            "code-generation-planning/planning/revision-1/attempt-1/invocation-0001", ct);
+        var second = await artifacts.ReadLatestAsync<BaizeExecutionRecord>(
+            runId.ToString("D"), "baize-execution",
+            "code-generation-planning/planning/revision-1/attempt-1/invocation-0002", ct);
+
+        first.Should().NotBeNull();
+        second.Should().NotBeNull();
+        first!.Reference.ArtifactId.Should().NotBe(second!.Reference.ArtifactId);
+        second.Payload.InvocationOrdinal.Should().Be(2);
     }
 
     public void Dispose()

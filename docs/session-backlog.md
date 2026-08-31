@@ -15,12 +15,19 @@ handover notes, completed review narratives, or speculative feature lists.
 
 ## Current state
 
-Last reviewed: **2026-08-29**
+Last reviewed: **2026-08-30**
 
 - The session foundation and consolidated integration work are on `main`; this
   checkpoint closes the remaining approval, audit-gap, recovery-routing, and
   revision-evidence work in the active session-hardening boundary.
-- The full solution passes **343 tests**.
+- The first complete container dogfood run reached decomposition and stopped
+  safely before file mutation. Its five integration findings are implemented
+  and awaiting the next dogfood run: relationship-aware contract closure,
+  product-outcome incidents, focused restart UX, collision-free Baize
+  invocation publications with derived Cangjie snapshots, and deployment/UI
+  precedence cleanup.
+- The full solution passes **374 tests** after the second dogfood hardening
+  batch.
 - `git diff --check` passes with only existing LF-to-CRLF warnings.
 - The P0 review defects are corrected: Baize streaming and overload coverage,
   invocation-specific Cangjie snapshots, task-scoped file ownership,
@@ -37,10 +44,13 @@ Last reviewed: **2026-08-29**
   approvals produce persisted replacement previews, expose their IDs to the
   caller, and leave the session awaiting fresh approval. Executor failure is
   retained as reconciliation-required evidence rather than success.
-- Remaining correctness work is concentrated in complete operator-state
-  precedence, structured pending-input/incident projections, and
-  occurrence-time validation. Interactive input still requires Zhinu's planned
-  idempotent signal receipt.
+- The pre-extraction correctness boundary is complete. Projections now retain
+  structured pending inputs, approval previews, and active incidents; derive
+  operator state from all active conditions by explicit severity precedence;
+  and use ledger commit time as the audit clock while preserving bounded
+  occurrence-time claims. Zhinu's idempotent signal receipt is integrated for
+  retry-safe responses. The remaining interactive work is product-level input
+  request/wait, cancellation, timeout, and resume policy.
 
 ## Active priority boundary
 
@@ -143,12 +153,14 @@ Work in this order. Do not add more feature breadth before items 1–4 are prove
   transitions, and explicit reconciliation state.
 - [x] Start and resume an operation from the Zhinu workflow and carry its
   operation ID through every concrete participant.
-- [x] Add explicit Zhinu workflow-v5 steps for operation preparation, Hetu
+- [x] Add explicit Zhinu workflow-v6 steps for operation preparation, Hetu
   publication receipt, final-checkpoint receipt, and successful completion.
 - [x] Append idempotent, hash-chained session events for operation preparation
   and transitions; retry changes neither the original event nor its sequence.
-- [x] Mark unsuccessful returned results and unhandled exceptions as
-  `ReconciliationRequired` without masking the original workflow failure.
+- [x] Distinguish safe unsuccessful product results from infrastructure
+  exceptions: product rejection appends `workflow-failed`, incident, recovery
+  plan, and `UserActionRequired` without poisoning the resumable operation;
+  unhandled exceptions remain `ReconciliationRequired`.
 - [x] Record immutable receipts and append-only session events for every typed
   artifact/Zhinu publication and revisioned Cangjie concept write.
 - [x] Persist `Prepared`, `WorkspacePromoted`, `Published`, `Completed`, and
@@ -286,12 +298,14 @@ plain-language explanation, and next state without inspecting databases.
   Siming commits an event, projection failure must surface as projection lag
   with a rebuild cursor—not as an ambiguous append failure that a caller might
   retry into a duplicate event.
-- [ ] Project pending approval/input and structured active incidents, then
+- [x] Project pending approval/input and structured active incidents, then
   derive operator state from all active conditions by precedence. Resolving one
   incident must not hide a remaining `Corrupt` or `ReconciliationRequired`
   condition; `AwaitingApproval` must be reachable.
-- [ ] Use ledger `CommittedAt` as the primary audit time and preserve
+- [x] Use ledger `CommittedAt` as the primary audit time and preserve
   caller-supplied occurrence time as a claim with bounded skew validation.
+  Delayed historical claims remain valid for mirroring and reconciliation;
+  implausible future claims are rejected by configurable policy.
 
 Acceptance: multiple processes append safely and timeline reads do not scan the
 complete event history.
@@ -355,23 +369,115 @@ session database or ask users to diagnose raw SQLite state.
 
 - [ ] Query APIs for current workspace, latest task manifest, file owner, pending
   input, restart preview, paged timeline, and audit.
-- [ ] Durable input request/response, cancellation, timeout, and resume via Zhinu
-  signals.
+- [x] Deliver input responses through Zhinu `0.1.0-preview.11` with a stable
+  request-bound signal ID, authoritative receipt, authenticated host actor,
+  immutable `input-provided` evidence, conflicting-response rejection, and
+  crash-gap retry tests.
+- [ ] Add the product-level durable input request/wait, cancellation, timeout,
+  and resume policy using the receipt-backed response path.
 - [ ] Session naming, rename, list, resume, archive, and possibly branch.
 - [ ] Project create/find/open APIs with stable project identity distinct from
   session, workflow definition, and workflow run identity.
 - [ ] Operator states: `Healthy`, `Warning`, `ReconciliationRequired`, `Corrupt`.
 - [ ] Disclosure preview before repository context is sent externally.
 
-### 6. Real dogfood evidence and context-quality evaluation — deferred
+### 6. Real dogfood evidence and context-quality evaluation — active
 
-- [ ] Run a real generation with the current embedded stores.
+- [x] Run a real generation with the current embedded stores. The first full
+  run reached task decomposition, retained seven validated sibling
+  decompositions, and rejected the final test-task decomposition before any
+  workspace files were generated.
+- [x] First container dogfood attempt exposed a lifecycle-ordering defect:
+  Hetu indexed the stable session workspace before it existed. New,
+  uninitialized sessions now provision that directory before workflow start;
+  a missing workspace with an accepted revision is rejected with an actionable
+  typed failure and is never silently recreated empty.
+- [x] Planning recovered from duplicate model-produced names through an outer
+  Zhinu retry, but leaked `Dictionary`'s duplicate-key exception and displayed
+  two planning attempts. Staged validation now keeps the first value only for
+  safe analysis, reports every duplicate as correction feedback, and lets the
+  existing focused planning retry repair the artifact inside one activity.
+- [x] Fix the five findings from the first full run:
+  - dependency context now includes contracts declared by transitive tested
+    and upstream tasks even when their decomposition leaves do not repeat them;
+  - an unsuccessful Guyabano result records an immutable product incident and
+    explicit recovery target instead of masquerading only as Zhinu completion;
+  - the terminal offers preview-and-approve restart of the failed decomposition
+    with dependent invalidation and sibling reuse, and successful restart closes
+    the recovery incident with a verified Zhinu receipt;
+  - every Baize invocation has a revision/attempt/ordinal publication identity,
+    while decomposition derives a non-empty invocation snapshot from the exact
+    repository Cangjie selection instead of attempting an empty snapshot;
+  - environment variables and command-line settings override component JSON,
+    and UI retries render as one logical activity with retained warning evidence.
+- [x] Review the second dogfood run. Planning eventually succeeded after Nuwa
+  repaired several malformed responses, but repeated repaired-shape mismatch,
+  missing empty relationship arrays, and overlapping relationship semantics
+  consumed most of the run. Decomposition then safely rejected a doubled
+  `TASK-TASK-...` sibling identifier before generation.
+- [x] Harden Guyabano at the host boundary found by that run:
+  - staged relationship collections default to empty when omitted while core
+    domain and planning collections remain schema-required;
+  - staged parsing retains bounded Nuwa repair-shape diagnostics even when the
+    response was not truncated;
+  - unknown decomposition dependencies report the complete valid sibling-ID
+    set and are never silently rewritten;
+  - failure progress carries a stable privacy-safe fingerprint and bounded JSON
+    paths, without storing raw prompt/response payloads;
+  - focused retry visibly separates impact preview from approval and reports
+    restart acceptance before new progress arrives; preview and approval now
+    publish distinct progress activities, while a manually restarted step
+    demotes its prior terminal error to retained warning evidence;
+  - golden tests cover wrong-stage valid JSON, concatenated documents,
+    repaired-but-mismatched output, omitted relationship collections, doubled
+    task prefixes, recovery-state transitions, and fingerprint stability.
+- [x] Assign malformed syntax recovery and repaired-but-mismatched candidate
+  selection to Penghou.Nuwa; the observed corpus and acceptance rules are
+  recorded in Nuwa's roadmap. Guyabano remains responsible for strict rejection,
+  correction feedback, diagnostics, and bounded retry policy.
+- [x] Inspect the next UI dogfood attempt (`01a0529a-c25a-78a9-9fa6-85627e1196c5`).
+  It ran from the August 27 container image rather than the current source and
+  therefore did not validate this batch. It safely stopped with two failed
+  decompositions. The only recovery evidence was an invalidation preview at
+  `decomposition/1/TASK-TODOAPICONTROLLER`; no approval or Zhinu restart was
+  submitted.
+- [x] Diagnose the following rebuilt-container failure at `repository/index`:
+  Hetu Ladybug replay treated older completed runs as non-success terminal
+  updates once a newer publication owned the single latest-state row. The fix
+  belongs to Hetu and is implemented for `0.2.0-preview.3` with a
+  two-successful-runs/reopen regression test. Guyabano now consumes that
+  package; no adapter workaround was introduced.
+- [x] Publish focused-recovery progress explicitly. Preview, restart accepted,
+  restart applied, and restart failure now have visible progress activities;
+  manually restarted task activity retains its prior failure as warning
+  evidence instead of remaining falsely failed after success.
+- [x] Diagnose workflow `01a052c1-8113-71be-b26c-cf0f8384a917`. The
+  `TASK-TODOCONTRACTS` decomposition succeeded on attempt 2, but retained
+  diagnostics obscured that outcome in the UI. Both DTO generation calls also
+  succeeded; their ownership lookup exceeded Cangjie's 100-result query limit,
+  and subsequent retries collided with immutable task-context artifacts before
+  exhausting a model budget that did not match the configured tiers.
+- [x] Harden that failure chain: successful retries now display an explicit
+  `Succeeded after retry` state while preserving prior evidence; ownership
+  queries stay within Cangjie's provider limit; the configured model-tier count
+  is captured in workflow input and used by Zhinu's durable retry policy; and
+  publication or
+  reconciliation failures after successful model output return an auditable
+  `ArtifactPublicationFailed` result instead of regenerating files. Workflow
+  version 7 owns the new persisted retry contract.
+- [ ] Replace the current `LastOrDefault` failed-decomposition selection with a
+  UI list or deterministic recovery queue. A run can contain multiple failed
+  decompositions, and retrying only the last one cannot make the overall result
+  successful.
+- [ ] Repeat the same generation and verify it passes decomposition, produces
+  files, and can complete build/validation; deliberately force one decomposition
+  rejection and exercise the focused retry from the UI.
 - [ ] Clarify after success, preview and approve the cascade, selectively rerun,
   reuse siblings, validate staging, promote, reindex, and reconstruct history.
 - [ ] Inspect SQLite/Ladybug/artifact/workspace state, not only return values.
 - [ ] Compare context-disabled and context-enabled runs for correctness, repair
   rate, token use, irrelevant-context rate, and provenance completeness.
-- [ ] Update this tracker from observed evidence.
+- [x] Update this tracker from the first full-run evidence.
 
 ## Package boundary
 

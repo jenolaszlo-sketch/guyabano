@@ -25,7 +25,7 @@ public sealed class CodeGenerationImpactAnalysisService(
     ISessionDecisionLeaseProvider decisionLeases,
     SessionRecoveryCoordinator recovery,
     IOptions<CodeGenerationWorkerOptions> options,
-    IApprovalActorProvider? approvalActors = null)
+    IAuthenticatedActorProvider? approvalActors = null)
 {
     private static readonly Penghou.Hetu.CodeGraphQueryOptions ImpactQueryOptions = new(
         maxDepth: 6,
@@ -226,7 +226,7 @@ public sealed class CodeGenerationImpactAnalysisService(
         ArgumentNullException.ThrowIfNull(approval);
         if (approval.ApprovalId == Guid.Empty)
             throw new ArgumentException("A stable approval ID is required.", nameof(approval));
-        var actor = (approvalActors ?? new RejectingApprovalActorProvider())
+        var actor = (approvalActors ?? new RejectingAuthenticatedActorProvider())
             .GetRequiredActor();
         ArgumentException.ThrowIfNullOrWhiteSpace(actor.SubjectId);
 

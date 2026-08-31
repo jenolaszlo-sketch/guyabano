@@ -44,6 +44,25 @@ public static class SessionEventTypes
 }
 
 /// <summary>
+/// Validates caller-supplied occurrence-time claims. Commit time remains the
+/// authoritative ordering time; old claims are allowed for delayed mirroring
+/// and reconciliation, while implausible future claims are rejected.
+/// </summary>
+public sealed record SessionEventTimePolicy(TimeSpan MaximumFutureSkew)
+{
+    public static SessionEventTimePolicy Default { get; } =
+        new(TimeSpan.FromMinutes(5));
+
+    public void Validate()
+    {
+        if (MaximumFutureSkew < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(
+                nameof(MaximumFutureSkew),
+                "Maximum future occurrence-time skew cannot be negative.");
+    }
+}
+
+/// <summary>
 /// An immutable, ordered session event envelope. Sequence is contiguous within
 /// the session's authoritative ledger.
 /// </summary>

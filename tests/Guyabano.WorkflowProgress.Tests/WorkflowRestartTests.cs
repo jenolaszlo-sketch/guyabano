@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Guyabano.Messaging;
 using Guyabano.Session;
 using Guyabano.Session.Sqlite;
 using Guyabano.WorkflowWorker;
@@ -40,6 +41,76 @@ public sealed class WorkflowRestartTests : IDisposable
         preview.ReusableStepKeys.Should().Contain("b-child");
         preview.ReusableStepKeys.Should().NotContain("branch-a");
         preview.RequiresApproval.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ApprovedRestart_PublishesDistinctRecoveryProgress()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var runId = Guid.CreateVersion7();
+        await CreateSessionAsync(runId, ct);
+        var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
+        {
+            DatabasePath = Path.Combine(rootPath, ".gen", "zhinu.db"),
+            Pooling = false
+        });
+        var engine = new WorkflowEngine(
+            store,
+            new WorkflowRegistry().Register(
+                "restart-progress",
+                "1",
+                new BranchedWorkflow()));
+        var sessionStore = new FileSystemGuyabanoSessionStore(
+            Path.Combine(rootPath, ".gen", "sessions"));
+        await using var sessionEvents = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events"));
+        var progress = new InMemoryWorkflowProgressHub();
+        var service = new CodeGenerationWorkflowRestartService(
+            engine,
+            sessionStore,
+            sessionEvents,
+            NullLogger<CodeGenerationWorkflowRestartService>.Instance,
+            progressPublisher: progress);
+
+        await engine.StartAsync(
+            "restart-progress",
+            "1",
+            "input",
+            runId,
+            cancellationToken: ct);
+        await engine.ExecuteAsync(runId, ct);
+        await engine.WaitForCompletionAsync<string>(
+            runId,
+            cancellationToken: ct);
+        var preview = await service.PreviewAsync(runId, "branch-a", ct);
+        var outcome = await service.RestartAsync(
+            Approval(preview, "tester", approved: true),
+            ct);
+
+        outcome.Applied.Should().BeTrue();
+        await using var subscription = progress.SubscribeAsync(
+                runId.ToString("D"),
+                cancellationToken: ct)
+            .GetAsyncEnumerator(ct);
+        var entries = new List<WorkflowProgressEntry>();
+        for (var index = 0; index < 3; index++)
+        {
+            (await subscription.MoveNextAsync()).Should().BeTrue();
+            entries.Add(subscription.Current);
+        }
+
+        entries.Select(entry => entry.Progress.Stage).Should().Equal(
+            "Focused retry preview",
+            "Focused retry",
+            "Focused retry");
+        entries.Select(entry => entry.Progress.EventType).Should().Equal(
+            WorkflowProgressEventType.Completed,
+            WorkflowProgressEventType.Started,
+            WorkflowProgressEventType.Completed);
+        entries[0].Progress.ActivityId.Should().StartWith(
+            "restart-preview:");
+        entries[1].Progress.ActivityId.Should().Be(
+            entries[2].Progress.ActivityId);
     }
 
     [Fact]
@@ -150,6 +221,95 @@ public sealed class WorkflowRestartTests : IDisposable
         var branchB = steps.Single(s => s.StepKey == "branch-b");
         branchA.Revision.Should().BeGreaterThan(0, "restarted branch should have incremented revision");
         // branch-b may have revision bumped due to workflow re-execution, but should not be re-executed (counter proves reuse)
+    }
+
+    [Fact]
+    public async Task ApprovedFocusedRestart_ClosesMatchingProductOutcomeIncident()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var runId = Guid.NewGuid();
+        var (session, _) = await CreateSessionAsync(runId, ct);
+        var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
+        {
+            DatabasePath = Path.Combine(rootPath, ".gen", "zhinu.db"),
+            Pooling = false
+        });
+        var engine = new WorkflowEngine(
+            store,
+            new WorkflowRegistry().Register(
+                "product-recovery",
+                "1",
+                new BranchedWorkflow()));
+        await engine.StartAsync(
+            "product-recovery",
+            "1",
+            "input",
+            runId,
+            cancellationToken: ct);
+        await engine.ExecuteAsync(runId, ct);
+        await engine.WaitForCompletionAsync<string>(
+            runId,
+            cancellationToken: ct);
+
+        await using (var events = new SimingSessionEventStore(
+            Path.Combine(rootPath, ".gen", "session-events")))
+        {
+            var recovery = new SessionRecoveryCoordinator(events);
+            var incidentId = Guid.CreateVersion7();
+            var planId = Guid.CreateVersion7();
+            var refs = new Dictionary<string, string>
+            {
+                ["recoveryTargetStepKey"] = "branch-a"
+            };
+            var detected = await recovery.DetectAsync(new SessionIncident(
+                incidentId,
+                session.Id,
+                "DecompositionFailed",
+                SessionIncidentSeverity.Error,
+                "Generation stopped safely.",
+                DateTimeOffset.UtcNow,
+                runId,
+                refs), ct);
+            var planned = await recovery.PlanAsync(new SessionRecoveryPlan(
+                planId,
+                incidentId,
+                session.Id,
+                SessionRecoveryAction.RetryIdempotently,
+                "Retry branch-a.",
+                null,
+                false,
+                DateTimeOffset.UtcNow,
+                runId,
+                refs), detected.EventId, ct);
+            await recovery.CompleteAsync(new SessionRecoveryResolution(
+                planId,
+                incidentId,
+                session.Id,
+                SessionRecoveryOutcome.UserActionRequired,
+                0,
+                "Approve branch-a restart.",
+                DateTimeOffset.UtcNow,
+                runId,
+                refs), planned.EventId, ct);
+        }
+
+        var service = CreateRestartService(engine);
+        var preview = await service.PreviewAsync(runId, "branch-a", ct);
+        var outcome = await service.RestartAsync(
+            Approval(preview, "tester", approved: true),
+            ct);
+
+        outcome.Applied.Should().BeTrue();
+        var history = await ReadSessionEventsAsync(session.Id, ct);
+        var recordedIncidentId = history.Single(candidate =>
+                candidate.EventType == SessionEventTypes.IncidentDetected)
+            .CrossSystemRefs!["incidentId"];
+        history.Any(item =>
+            item.EventType == SessionEventTypes.RecoverySucceeded &&
+            item.CrossSystemRefs?.GetValueOrDefault("incidentId") ==
+                recordedIncidentId).Should().BeTrue();
+        SessionTimelineProjection.Project(history).OperatorState.Should()
+            .Be(SessionOperatorState.Ready);
     }
 
     [Fact]

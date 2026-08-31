@@ -128,7 +128,9 @@ public static class ServiceCollectionExtensions
             sessionsRoot,
             projectionStore: sessionProjections));
         services.AddSingleton<SessionRecoveryCoordinator>();
-        services.TryAddSingleton<IApprovalActorProvider, RejectingApprovalActorProvider>();
+        services.TryAddSingleton<
+            IAuthenticatedActorProvider,
+            RejectingAuthenticatedActorProvider>();
         services.AddSingleton<ICrossStoreOperationStore>(
             new SqliteCrossStoreOperationStore(sessionCatalogPath));
         services.AddSingleton<CrossStoreOperationReconciliationService>();
@@ -182,6 +184,8 @@ public static class ServiceCollectionExtensions
                 CodeGenerationWorkflowConstants.StartSessionOperationStep);
         services.AddZhinuStep<AdvanceSessionOperationStep>(
                 CodeGenerationWorkflowConstants.AdvanceSessionOperationStep);
+        services.AddZhinuStep<RecordProductOutcomeFailureStep>(
+                CodeGenerationWorkflowConstants.RecordProductOutcomeFailureStep);
         services.AddZhinuStep<ReindexGeneratedWorkspaceStep>(
                 CodeGenerationWorkflowConstants.ReindexStep);
         services.AddZhinuStep<IndexRepositoryStep>(
@@ -269,6 +273,7 @@ public static class ServiceCollectionExtensions
                 provider.GetService<IWorkflowEventPublisher>()));
         services.AddHostedService<SessionWorkflowRuntimeHostedService>();
         services.AddSingleton<SessionWorkflowFailureRecoveryService>();
+        services.AddSingleton<SessionWorkflowInputService>();
         services.AddSingleton<SessionWorkflowEventMirrorService>();
         services.AddHostedService(provider =>
             provider.GetRequiredService<SessionWorkflowEventMirrorService>());
@@ -285,7 +290,8 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<IGuyabanoSessionStore>(),
             provider.GetRequiredService<ISessionEventStore>(),
             provider.GetRequiredService<ILogger<CodeGenerationWorkflowRestartService>>(),
-            provider.GetService<SessionRecoveryCoordinator>()));
+            provider.GetService<SessionRecoveryCoordinator>(),
+            provider.GetRequiredService<IWorkflowProgressPublisher>()));
         services.AddSingleton<CodeGenerationImpactAnalysisService>();
         services.AddSingleton<CodeGenerationStagingService>();
         services.AddSingleton<SessionClarificationService>();

@@ -5,8 +5,7 @@ Last reviewed: **2026-08-29**
 Reference implementations inspected:
 
 - Guyabano current session-hardening implementation;
-- Penghou.Zhinu `0.1.0-preview.10` release candidate (idempotent restart
-  receipt implemented and locally validated);
+- Penghou.Zhinu `0.1.0-preview.11` (idempotent restart and signal receipts);
 - Penghou.Siming `9365ba1` (`0.1.0-preview.2`).
 
 ## Boundary rules
@@ -54,11 +53,12 @@ not coordinate it.
 | Zhinu restart rejects before commit | Workflow remains unchanged; return typed rejection/recovery state | Map typed failure to an incident and user action | Return a typed administrative mutation failure | Record failure and plan | Zhinu taxonomy + Guyabano policy |
 | Process dies after Zhinu restart commit but before Siming append | Reconciliation discovers the committed restart and fills the audit gap | Run a durable-event reconciliation worker with a cursor | Persist command ID and restart receipt in the atomic `step-restarted` event | Idempotently accept the mirrored event | Z1 + Guyabano bridge; no distributed transaction |
 | Build, test, or review rejects staging | Accepted workspace remains unchanged; bounded repair or clarification | Domain validation policy, fresh staging, repair limits, explanation | Durable step result/retry already exists | Record rejection and each repair attempt | Guyabano using existing Zhinu steps |
+| Planning or decomposition returns an invalid product result after retries | Stop before mutation, preserve validated siblings, and offer a focused restart preview | Record the product failure and recovery target; present explicit preview/approval and useful error context | Persist the returned step result and selectively restart the target plus dependents | Append `workflow-failed`, incident, plan, `UserActionRequired`, approval, restart receipt, and verified recovery | Guyabano policy using existing Zhinu restart receipts |
 | Staging validation throws | Candidate is discarded/quarantined; accepted workspace is unchanged | Filesystem cleanup, candidate evidence, typed result | Persist step failure/retry if executed as a durable step | Record incident and cleanup outcome | Guyabano using existing Zhinu retry semantics |
 | Promotion baseline/CAS conflict | Restore prior workspace, supersede candidate, refresh preview | Filesystem/session CAS and rollback verification | None; Zhinu cannot atomically validate external workspace state | Record conflict and verified rollback | Guyabano |
 | Filesystem promotion succeeds but downstream publication fails | Keep accepted workspace; replay remaining participants | Cross-store operation receipts and participant-specific recovery | Durable workflow steps and stable step idempotency already exist | Record every participant failure/retry/outcome | Guyabano saga using existing Zhinu primitives |
 | Step side effect succeeds but process dies before step completion | Replay without duplicating external effect | Pass Zhinu step idempotency key to Cangjie/Hetu/artifact participant | Stable step key, retry, lease, and fencing already exist | Record the eventual observed outcome | Existing Zhinu + idempotent providers |
-| User-input signal send receives an ambiguous response | Repeating the same user response must not create another signal | Generate stable response/signal ID and show delivery state | Deduplicate optional signal command ID; conflicting reuse is rejected | Record user response and delivery correlation | **New Zhinu feature Z2** before interactive sessions |
+| User-input signal send receives an ambiguous response | Repeating the same user response must not create another signal | Bind the signal command to the immutable request event and show delivery state | Atomically deduplicate signal ID and return its committed receipt; conflicting reuse is rejected | Record user response and delivery correlation | **Implemented:** Zhinu preview.11 + Guyabano response service |
 | User-input wait times out | Return to `AwaitingInput`, retry, cancel, or close according to product policy | Decide timeout policy and explanation | Durable signal waits and timeouts already exist | Record timeout and chosen recovery | Guyabano using existing Zhinu signals |
 | User cancels a workflow | Show cancelled safe revision and candidate disposition | Decide staging cleanup and session state | Durable idempotent `CancelAsync` already exists | Record request, Zhinu outcome, and cleanup | Existing Zhinu + Guyabano |
 | Lease expires or stale worker attempts commit | Resume/fence automatically and retain warning history | Translate durable evidence into session incident only when useful | Lease recovery, generation fencing, and events already exist | Record unusual recovery if mirrored | Existing Zhinu |
@@ -95,12 +95,15 @@ conflicting reuse, generation stability, event uniqueness, and reopen recovery.
 Guyabano must consume the published package and remove its current Siming-history
 check as the authority for restart idempotency.
 
-### Z2. Idempotent signal send — required before interactive sessions
+### Z2. Idempotent signal send — implemented and consumed in preview.11
 
-Keep additive signal semantics as the default, but allow a caller-supplied
-`SignalId`/idempotency key. Identical retry returns the buffered/delivered signal
-receipt; conflicting payload reuse is rejected. This prevents browser/network
-retries from submitting the same clarification or approval twice.
+Additive signal semantics remain the default. The optional caller-supplied
+`SignalId` returns an authoritative durable receipt for identical retry and
+rejects conflicting canonical payload reuse. Guyabano binds that ID to the
+immutable input-request event, so even a newly generated browser response ID
+after process loss cannot buffer a second answer. The session ledger records
+the authenticated actor, causation, response ID, signal ID, and Zhinu event
+sequence.
 
 ### Z3. Complete typed administrative failure taxonomy — useful, not blocking Z1
 
@@ -132,12 +135,12 @@ operational catalog, append/projection separation, clarification receipts, a
 durable Zhinu-to-Siming cursor, terminal rejection classification, and an
 atomic workspace-promotion lifecycle receipt/outbox.
 
-Remaining: project structured pending approval/input and all active incidents
-with explicit precedence; validate claimed occurrence time against ledger commit
-time; implement Zhinu Z2 before accepting interactive signals.
+Structured pending approval/input and active-incident projections now derive
+operator state from explicit precedence, with ledger commit time authoritative
+and implausible future occurrence claims rejected. Remaining: define the
+product-level input request/wait, timeout, cancellation, and resume policy.
 
 ## Recommended sequence
 
-1. Complete structured operator-state precedence and occurrence-time handling.
-2. Prove the recovery and audit paths in a real generation run.
-3. Implement Zhinu Z2 immediately before interactive input/approval APIs.
+1. Prove the recovery and audit paths in a real generation run.
+2. Build interactive input/approval APIs on the consumed Zhinu Z2 receipt.

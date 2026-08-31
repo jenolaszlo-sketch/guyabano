@@ -1,21 +1,21 @@
 namespace Guyabano.WorkflowWorker;
 
-public sealed record ApprovalActor(
+public sealed record AuthenticatedActor(
     string SubjectId,
     string DisplayName,
     string AuthenticationType);
 
 /// <summary>
-/// Resolves an approval actor from trusted host authentication state. Approval
+/// Resolves an actor from trusted host authentication state. Privileged
 /// commands deliberately contain no free-form actor field.
 /// </summary>
-public interface IApprovalActorProvider
+public interface IAuthenticatedActorProvider
 {
-    ApprovalActor GetRequiredActor();
+    AuthenticatedActor GetRequiredActor();
 }
 
-public sealed class RejectingApprovalActorProvider : IApprovalActorProvider
+public sealed class RejectingAuthenticatedActorProvider : IAuthenticatedActorProvider
 {
-    public ApprovalActor GetRequiredActor() => throw new UnauthorizedAccessException(
-        "Restart approval requires an authenticated host actor.");
+    public AuthenticatedActor GetRequiredActor() => throw new UnauthorizedAccessException(
+        "This operation requires an authenticated host actor.");
 }

@@ -17,12 +17,12 @@
     <PackageReference Include="Penghou.Baize.Router" Version="0.3.0-preview.5" />
     <PackageReference Include="Penghou.Baize.Tools" Version="0.3.0-preview.5" />
     <PackageReference Include="Penghou.Cangjie.Sqlite" Version="0.1.0-preview.3" />
-    <PackageReference Include="Penghou.Hetu" Version="0.2.0-preview.2" />
-    <PackageReference Include="Penghou.Hetu.CSharp" Version="0.2.0-preview.2" />
-    <PackageReference Include="Penghou.Hetu.Ladybug" Version="0.2.0-preview.2" />
+    <PackageReference Include="Penghou.Hetu" Version="0.2.0-preview.3" />
+    <PackageReference Include="Penghou.Hetu.CSharp" Version="0.2.0-preview.3" />
+    <PackageReference Include="Penghou.Hetu.Ladybug" Version="0.2.0-preview.3" />
     <PackageReference Include="LadybugDB.Native" Version="0.19.1" />
-    <PackageReference Include="Penghou.Zhinu.Hosting" Version="0.1.0-preview.10" />
-    <PackageReference Include="Penghou.Zhinu.Sqlite" Version="0.1.0-preview.10" />
+    <PackageReference Include="Penghou.Zhinu.Hosting" Version="0.1.0-preview.11" />
+    <PackageReference Include="Penghou.Zhinu.Sqlite" Version="0.1.0-preview.11" />
   </ItemGroup>
 
   <ItemGroup>

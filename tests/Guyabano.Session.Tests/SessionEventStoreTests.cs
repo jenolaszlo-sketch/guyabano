@@ -187,6 +187,148 @@ public sealed class SessionEventStoreTests : IDisposable
         whyUser.Actor.Should().Be("user");
     }
 
+    [Fact]
+    public void Projection_UsesStructuredPendingStateAndExplicitOperatorPrecedence()
+    {
+        var sessionId = GuyabanoSessionId.New();
+        var workflowRun = Guid.CreateVersion7();
+        var inputId = Guid.CreateVersion7();
+        var previewId = Guid.CreateVersion7();
+        var criticalIncidentId = Guid.CreateVersion7();
+        var warningIncidentId = Guid.CreateVersion7();
+        var committed = new DateTimeOffset(2026, 8, 30, 10, 0, 0, TimeSpan.Zero);
+        var claimed = committed.AddDays(-1);
+        var sequence = 0L;
+
+        SessionEvent Next(
+            string eventType,
+            Guid? eventId = null,
+            Guid? causationId = null,
+            IReadOnlyDictionary<string, string>? refs = null) => new()
+            {
+                SchemaVersion = 1,
+                Sequence = ++sequence,
+                EventId = eventId ?? Guid.CreateVersion7(),
+                SessionId = sessionId,
+                Actor = "test",
+                EventType = eventType,
+                OccurredAt = claimed.AddMinutes(sequence),
+                CommittedAt = committed.AddMinutes(sequence),
+                CausationId = causationId,
+                CorrelationId = workflowRun,
+                CrossSystemRefs = refs,
+                PayloadSensitivity = SessionPayloadSensitivity.Internal,
+                PayloadRetention = SessionPayloadRetention.Omit,
+                Hash = $"hash-{sequence}"
+            };
+
+        var events = new List<SessionEvent>
+        {
+            Next(SessionEventTypes.InputRequested, inputId, refs: new Dictionary<string, string>
+            {
+                ["signalName"] = "clarification"
+            }),
+            Next(SessionEventTypes.InvalidationPreviewed, refs: new Dictionary<string, string>
+            {
+                ["previewId"] = previewId.ToString("D"),
+                ["workflowRunId"] = workflowRun.ToString("D"),
+                ["targetStepKey"] = "generation/task-1",
+                ["workspaceRevision"] = "workspace:2"
+            }),
+            Next(SessionEventTypes.IncidentDetected, refs: new Dictionary<string, string>
+            {
+                ["incidentId"] = criticalIncidentId.ToString("D"),
+                ["reasonCode"] = "LedgerMismatch",
+                ["severity"] = SessionIncidentSeverity.Critical.ToString()
+            }),
+            Next(SessionEventTypes.IncidentDetected, refs: new Dictionary<string, string>
+            {
+                ["incidentId"] = warningIncidentId.ToString("D"),
+                ["reasonCode"] = "Retryable",
+                ["severity"] = SessionIncidentSeverity.Warning.ToString()
+            }),
+            Next(SessionEventTypes.RecoverySucceeded, refs: new Dictionary<string, string>
+            {
+                ["incidentId"] = warningIncidentId.ToString("D"),
+                ["outcome"] = SessionRecoveryOutcome.Recovered.ToString()
+            })
+        };
+
+        var corrupt = SessionTimelineProjection.Project(events);
+        corrupt.OperatorState.Should().Be(SessionOperatorState.Corrupt,
+            "resolving a lesser incident must not hide an active critical incident");
+        corrupt.PendingInputs.Should().ContainSingle(item =>
+            item.RequestEventId == inputId && item.SignalName == "clarification" &&
+            item.RequestedAt == events[0].CommittedAt &&
+            item.ClaimedOccurredAt == events[0].OccurredAt);
+        corrupt.PendingApprovals.Should().ContainSingle(item =>
+            item.PreviewId == previewId && item.TargetStepKey == "generation/task-1");
+        corrupt.ActiveIncidents.Should().ContainSingle(item =>
+            item.IncidentId == criticalIncidentId);
+        corrupt.LastEventAt.Should().Be(events[^1].CommittedAt);
+        corrupt.SessionCreatedAt.Should().Be(events[0].CommittedAt);
+
+        events.Add(Next(SessionEventTypes.RecoverySucceeded, refs: new Dictionary<string, string>
+        {
+            ["incidentId"] = criticalIncidentId.ToString("D"),
+            ["outcome"] = SessionRecoveryOutcome.Recovered.ToString()
+        }));
+        SessionTimelineProjection.Project(events).OperatorState.Should()
+            .Be(SessionOperatorState.AwaitingInput);
+
+        events.Add(Next(SessionEventTypes.InputProvided, causationId: inputId));
+        SessionTimelineProjection.Project(events).OperatorState.Should()
+            .Be(SessionOperatorState.AwaitingApproval);
+
+        events.Add(Next(SessionEventTypes.ApprovalDenied, refs: new Dictionary<string, string>
+        {
+            ["previewId"] = previewId.ToString("D")
+        }));
+        var ready = SessionTimelineProjection.Project(events);
+        ready.OperatorState.Should().Be(SessionOperatorState.Ready);
+        ready.PendingInputs.Should().BeEmpty();
+        ready.PendingApprovals.Should().BeEmpty();
+        ready.ActiveIncidents.Should().BeEmpty();
+        ready.ResolvedIncidentCount.Should().Be(2);
+
+        SessionTimelineProjection.RenderTimeline(events)[0]
+            .Should().StartWith($"[{events[0].CommittedAt:O}]")
+            .And.Contain($"claimed-at {events[0].OccurredAt:O}");
+    }
+
+    [Fact]
+    public async Task Append_RejectsImplausibleFutureOccurrenceClaimsButAllowsHistoricalClaims()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var now = new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero);
+        await using var store = new SimingSessionEventStore(
+            rootPath,
+            timePolicy: new SessionEventTimePolicy(TimeSpan.FromMinutes(2)),
+            timeProvider: new FixedTimeProvider(now));
+        var sessionId = GuyabanoSessionId.New();
+
+        var historical = await store.AppendAsync(new SessionEventRequest(
+            sessionId,
+            "mirror",
+            SessionEventTypes.ZhinuEventMirrored,
+            now.AddYears(-1)), ct);
+        historical.OccurredAt.Should().Be(now.AddYears(-1));
+        historical.CommittedAt.Should().NotBe(default);
+
+        var future = () => store.AppendAsync(new SessionEventRequest(
+            sessionId,
+            "user",
+            SessionEventTypes.UserMessage,
+            now.AddMinutes(3)), ct);
+        await future.Should().ThrowAsync<ArgumentOutOfRangeException>()
+            .WithMessage("*Occurrence-time claim*");
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

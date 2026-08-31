@@ -36,11 +36,11 @@ public sealed class CodeGenerationWorkflow
                 cancellationToken);
             if (!result.Succeeded)
             {
-                await MarkReconciliationRequiredAsync(
+                await MarkProductOutcomeFailedAsync(
                     workflow,
+                    request.SessionId,
                     operation.Id,
-                    result.Failure,
-                    result.Error,
+                    result,
                     cancellationToken);
             }
             return result;
@@ -549,7 +549,9 @@ public sealed class CodeGenerationWorkflow
                             node.Parent.Id,
                             node.Leaf,
                             RepositoryContext: planningResult.RepositoryContext),
-                        TaskActivityOptions(startingModelTier: 1) with
+                        TaskActivityOptions(
+                            1,
+                            request.GenerationModelTierCount) with
                         {
                             DependsOn = generationDependsOn.Distinct(StringComparer.Ordinal).ToArray()
                         },
@@ -606,7 +608,8 @@ public sealed class CodeGenerationWorkflow
             workflow,
             generatedResult,
             cancellationToken,
-            initialBuildDependsOn);
+            initialBuildDependsOn,
+            request.GenerationModelTierCount);
         var finalCheckpointDependsOn = finalResult.Build is not null
             ? new[] { $"build/{finalResult.BuildAttempts.Count}" }
             : generatedCheckpointDependsOn;
@@ -730,7 +733,8 @@ public sealed class CodeGenerationWorkflow
             workflow,
             resumed,
             cancellationToken,
-            ["checkpoint/continuation-loaded"]);
+            ["checkpoint/continuation-loaded"],
+            request.GenerationModelTierCount);
         var continuationFinalDependsOn = finalResult.Build is not null
             ? new[] { $"build/{finalResult.BuildAttempts.Count}" }
             : new[] { "checkpoint/continuation-loaded" };
@@ -800,7 +804,9 @@ public sealed class CodeGenerationWorkflow
             WorkflowContext workflow,
             CodeGenerationWorkflowResult generatedResult,
             CancellationToken cancellationToken,
-            IReadOnlyCollection<string>? initialBuildDependsOn = null)
+            IReadOnlyCollection<string>? initialBuildDependsOn = null,
+            int generationModelTierCount =
+                CodeGenerationWorkflowConstants.MaximumModelTiers)
     {
         var currentResult = generatedResult;
         var buildAttempts = new List<CodeGenerationBuildResult>();
@@ -889,7 +895,8 @@ public sealed class CodeGenerationWorkflow
                     CodeGenerationWorkflowConstants.GenerateTaskStep,
                     repairRequest,
                     TaskActivityOptions(
-                        repairRequest.StartingModelTier) with
+                        repairRequest.StartingModelTier,
+                        generationModelTierCount) with
                     {
                         DependsOn = repairDependsOn
                     },
@@ -1090,6 +1097,56 @@ public sealed class CodeGenerationWorkflow
                 "Inspect Zhinu step history and participant receipts, then start a forward recovery operation.",
             reconciliationReason: reason);
     }
+
+    private static Task MarkProductOutcomeFailedAsync(
+        WorkflowContext workflow,
+        GuyabanoSessionId sessionId,
+        CrossStoreOperationId operationId,
+        CodeGenerationWorkflowResult result,
+        CancellationToken cancellationToken)
+    {
+        var reason = string.IsNullOrWhiteSpace(result.Error)
+            ? result.Failure
+            : $"{result.Failure}: {result.Error}";
+        var failedDecomposition = result.Decompositions.LastOrDefault(item =>
+            !item.Succeeded);
+        var targetStepKey = failedDecomposition is null
+            ? null
+            : $"decomposition/{result.ArchitectureVersion}/" +
+                failedDecomposition.ParentTaskId;
+        var userAction = targetStepKey is null
+            ? "Review the failed product outcome and start a focused forward recovery."
+            : $"Preview and explicitly approve restart of '{targetStepKey}'; successful sibling steps remain reusable.";
+        return RecordProductOutcomeFailureAsync(
+            workflow,
+            new RecordProductOutcomeFailureRequest(
+                sessionId,
+                workflow.WorkflowRunId,
+                operationId,
+                result.Failure,
+                reason,
+                targetStepKey,
+                userAction),
+            cancellationToken);
+    }
+
+    private static async Task RecordProductOutcomeFailureAsync(
+        WorkflowContext workflow,
+        RecordProductOutcomeFailureRequest request,
+        CancellationToken cancellationToken) =>
+        _ = await workflow.StepAsync<
+            RecordProductOutcomeFailureRequest,
+            bool>(
+                "operation/product-outcome-failed",
+                CodeGenerationWorkflowConstants.RecordProductOutcomeFailureStep,
+                request,
+                SessionOperationOptions() with
+                {
+                    DependsOn = request.RecoveryTargetStepKey is null
+                        ? ["operation/start"]
+                        : [request.RecoveryTargetStepKey]
+                },
+                cancellationToken);
 
     internal static bool CanAcceptArchitecture(
         ArchitectureReview review,
@@ -1375,16 +1432,25 @@ public sealed class CodeGenerationWorkflow
             }
         };
 
-    private static StepOptions TaskActivityOptions(
-        int startingModelTier) =>
+    internal static StepOptions TaskActivityOptions(
+        int startingModelTier,
+        int configuredModelTierCount) =>
         new()
         {
             ExecutionTimeout = TimeSpan.FromMinutes(15),
             Retry = new RetryPolicy
             {
                 MaxAttempts =
-                    (CodeGenerationWorkflowConstants.MaximumModelTiers -
-                        startingModelTier + 1) *
+                    (Math.Clamp(
+                            configuredModelTierCount,
+                            1,
+                            CodeGenerationWorkflowConstants.MaximumModelTiers) -
+                        Math.Min(
+                            startingModelTier,
+                            Math.Clamp(
+                                configuredModelTierCount,
+                                1,
+                                CodeGenerationWorkflowConstants.MaximumModelTiers)) + 1) *
                     CodeGenerationWorkflowConstants.MaximumAttemptsPerModel
             }
         };

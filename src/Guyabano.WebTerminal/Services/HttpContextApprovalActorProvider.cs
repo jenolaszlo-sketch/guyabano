@@ -4,9 +4,9 @@ using Guyabano.WorkflowWorker;
 namespace Guyabano.WebTerminal.Services;
 
 internal sealed class HttpContextApprovalActorProvider(
-    IHttpContextAccessor httpContextAccessor) : IApprovalActorProvider
+    IHttpContextAccessor httpContextAccessor) : IAuthenticatedActorProvider
 {
-    public ApprovalActor GetRequiredActor()
+    public AuthenticatedActor GetRequiredActor()
     {
         var principal = httpContextAccessor.HttpContext?.User ??
             throw new UnauthorizedAccessException(
@@ -21,7 +21,7 @@ internal sealed class HttpContextApprovalActorProvider(
         if (string.IsNullOrWhiteSpace(subject))
             throw new UnauthorizedAccessException(
                 "The authenticated user does not have a stable subject identifier.");
-        return new ApprovalActor(
+        return new AuthenticatedActor(
             subject,
             identity.Name ?? subject,
             identity.AuthenticationType ?? "authenticated-host");

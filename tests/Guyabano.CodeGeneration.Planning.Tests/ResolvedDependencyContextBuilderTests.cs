@@ -63,6 +63,44 @@ public sealed class ResolvedDependencyContextBuilderTests
     }
 
     [Fact]
+    public void Build_ExposesContractsDeclaredByTestedDependenciesEvenWhenLeavesDoNotRepeatThem()
+    {
+        var plan = CreateDependencyPlan();
+        var service = plan.Tasks.Single(task => task.Id == "T-Service");
+        service.ContractIds.Add("CONTRACT-CREATE-RESULT");
+        plan.Contracts.Add(new PlannedContract
+        {
+            Id = "CONTRACT-CREATE-RESULT",
+            Name = "CreateTodoResult",
+            Kind = "Record",
+            ModuleId = service.ModuleId!,
+            Purpose = "Reports the result returned by the tested service.",
+            Members = ["Todo Created"]
+        });
+
+        var result = new ResolvedDependencyContextBuilder().Build(
+            plan,
+            "T-Api",
+            [
+                CreateDecomposition(
+                    "T-Store",
+                    "T-Store-L1",
+                    "src/Todo.Api/Data/InMemoryTodoStore.cs",
+                    "Todo.Api.Data",
+                    "Todo.Api.Data.InMemoryTodoStore"),
+                CreateDecomposition(
+                    "T-Service",
+                    "T-Service-L1",
+                    "src/Todo.Api/Services/TodoService.cs",
+                    "Todo.Api.Services",
+                    "TodoService")
+            ]);
+
+        result.EffectiveContracts.Should().Contain(contract =>
+            contract.Id == "CONTRACT-CREATE-RESULT");
+    }
+
+    [Fact]
     public void Build_RejectsDuplicateFullyQualifiedTypeOwnership()
     {
         var plan = CreateDependencyPlan();

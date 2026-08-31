@@ -26,6 +26,30 @@ public sealed class CodeGenerationWorkspaceResolver(
         return new CodeGenerationWorkspace(sessionId, hostPath, ciPath);
     }
 
+    /// <summary>
+    /// Ensures that an uninitialized session has a stable workspace before any
+    /// filesystem-backed provider is asked to inspect it. A missing workspace
+    /// with an accepted revision is never recreated as an empty directory,
+    /// because that would conceal loss of authoritative session state.
+    /// </summary>
+    public CodeGenerationWorkspace EnsureAvailable(GuyabanoSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var workspace = Resolve(session.Id);
+        if (Directory.Exists(workspace.HostPath))
+            return workspace;
+        if (session.CurrentWorkspaceRevision is not null)
+        {
+            throw new SessionWorkspaceUnavailableException(
+                session.Id,
+                workspace.HostPath,
+                session.CurrentWorkspaceRevision);
+        }
+
+        Directory.CreateDirectory(workspace.HostPath);
+        return workspace;
+    }
+
     public async Task<CodeGenerationWorkspace> ResolveWorkflowAsync(
         string workflowId,
         CancellationToken cancellationToken = default)
@@ -117,3 +141,27 @@ public sealed record CodeGenerationWorkspace(
     GuyabanoSessionId SessionId,
     string HostPath,
     string CiRelativePath);
+
+public sealed class SessionWorkspaceUnavailableException : IOException
+{
+    public SessionWorkspaceUnavailableException(
+        GuyabanoSessionId sessionId,
+        string workspacePath,
+        string acceptedRevision)
+        : base(
+            $"Session '{sessionId}' workspace '{workspacePath}' is missing, " +
+            $"but accepted revision '{acceptedRevision}' is recorded. The " +
+            "workspace was not recreated; restore or reconcile the accepted " +
+            "revision before continuing.")
+    {
+        SessionId = sessionId;
+        WorkspacePath = workspacePath;
+        AcceptedRevision = acceptedRevision;
+    }
+
+    public GuyabanoSessionId SessionId { get; }
+
+    public string WorkspacePath { get; }
+
+    public string AcceptedRevision { get; }
+}

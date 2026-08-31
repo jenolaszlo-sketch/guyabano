@@ -135,6 +135,29 @@ public sealed class CodeGenerationTaskDecompositionValidatorTests
                 "unknown contract 'CONTRACT-UNKNOWN'"));
     }
 
+    [Fact]
+    public void Validate_UnknownSiblingDependencyListsValidIdentifiers()
+    {
+        var plan = PlanTestData.Create();
+        var parent = plan.Tasks.Single();
+        var decomposition = CreateReady(parent.Id);
+        decomposition.LeafTasks[0].DependsOn.Add(
+            "TASK-TASK-001-L02");
+
+        var errors = CodeGenerationTaskDecompositionValidator.Validate(
+            plan,
+            parent,
+            decomposition);
+
+        errors.Should().Contain(error =>
+            error.Contains(
+                "unknown sibling dependency 'TASK-TASK-001-L02'",
+                StringComparison.Ordinal) &&
+            error.Contains(
+                "Valid sibling dependencies are: 'TASK-001-L01'",
+                StringComparison.Ordinal));
+    }
+
     internal static CodeGenerationTaskDecomposition CreateReady(
         string parentTaskId) =>
         new()

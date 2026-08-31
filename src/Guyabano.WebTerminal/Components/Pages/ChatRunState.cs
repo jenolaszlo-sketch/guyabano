@@ -1,6 +1,7 @@
 using Penghou.Baize;
 using Guyabano.CodeGeneration.Workflows;
 using Guyabano.Messaging;
+using Guyabano.WorkflowWorker;
 
 namespace Guyabano.WebTerminal.Components.Pages;
 
@@ -24,6 +25,14 @@ internal sealed class ChatRunState(
     public string? Error { get; set; }
 
     public CodeGenerationWorkflowResult? Result { get; set; }
+
+    public RestartPreview? RestartPreview { get; set; }
+
+    public string? RecoveryError { get; set; }
+
+    public string? RecoveryNotice { get; private set; }
+
+    public bool IsRecoveryBusy { get; set; }
 
     public List<WorkflowProgressEntry> Progress { get; } = [];
 
@@ -80,6 +89,31 @@ internal sealed class ChatRunState(
 
     public void CompleteObservation() =>
         cancellation.CancelAfter(TimeSpan.FromSeconds(2));
+
+    public void BeginRestart()
+    {
+        Result = null;
+        RestartPreview = null;
+        RecoveryError = null;
+        RecoveryNotice = "Restart accepted; waiting for workflow activity.";
+        Status = "Restart accepted; waiting for activity";
+        IsRunning = true;
+    }
+
+    public void SetRestartPreview(RestartPreview preview)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        RestartPreview = preview;
+        RecoveryError = null;
+        RecoveryNotice = "Retry preview ready — approval required.";
+    }
+
+    public void SetRecoveryFailure(string error)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(error);
+        RecoveryError = error;
+        RecoveryNotice = null;
+    }
 
     public void Dispose() =>
         cancellation.Dispose();

@@ -1,5 +1,29 @@
 namespace Guyabano.Session;
 
+public sealed record SessionPendingInput(
+    Guid RequestEventId,
+    Guid? WorkflowRunId,
+    string? SignalName,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset ClaimedOccurredAt);
+
+public sealed record SessionPendingApproval(
+    Guid PreviewId,
+    Guid? WorkflowRunId,
+    string? TargetStepKey,
+    string? WorkspaceRevision,
+    DateTimeOffset PreviewedAt,
+    DateTimeOffset ClaimedOccurredAt);
+
+public sealed record SessionActiveIncident(
+    Guid IncidentId,
+    string? ReasonCode,
+    SessionIncidentSeverity Severity,
+    DateTimeOffset DetectedAt,
+    DateTimeOffset ClaimedOccurredAt,
+    Guid? WorkflowRunId = null,
+    SessionRecoveryOutcome? Outcome = null);
+
 public sealed record SessionCurrentState(
     int TotalEvents,
     string? LastEventType,
@@ -12,7 +36,10 @@ public sealed record SessionCurrentState(
     SessionOperatorState OperatorState = SessionOperatorState.Ready,
     IReadOnlyList<string>? OpenIncidentIds = null,
     int ResolvedIncidentCount = 0,
-    string? LastIncidentReason = null);
+    string? LastIncidentReason = null,
+    IReadOnlyList<SessionPendingInput>? PendingInputs = null,
+    IReadOnlyList<SessionPendingApproval>? PendingApprovals = null,
+    IReadOnlyList<SessionActiveIncident>? ActiveIncidents = null);
 
 public sealed record SessionProjectionSnapshot(
     GuyabanoSessionId SessionId,
@@ -89,12 +116,39 @@ public static class SessionTimelineProjection
     public static SessionCurrentState Apply(SessionCurrentState? state, SessionEvent sessionEvent)
     {
         ArgumentNullException.ThrowIfNull(sessionEvent);
-        var pending = (state?.PendingInputEventIds ?? [])
-            .ToHashSet(StringComparer.Ordinal);
+        var pendingInputs = RestorePendingInputs(state);
         if (sessionEvent.EventType == SessionEventTypes.InputRequested)
-            pending.Add(sessionEvent.EventId.ToString("D"));
+        {
+            pendingInputs[sessionEvent.EventId] = new SessionPendingInput(
+                sessionEvent.EventId,
+                sessionEvent.CorrelationId,
+                Reference(sessionEvent, "signalName"),
+                sessionEvent.CommittedAt,
+                sessionEvent.OccurredAt);
+        }
         else if (sessionEvent.EventType == SessionEventTypes.InputProvided && sessionEvent.CausationId is not null)
-            pending.Remove(sessionEvent.CausationId.Value.ToString("D"));
+            pendingInputs.Remove(sessionEvent.CausationId.Value);
+
+        var pendingApprovals = (state?.PendingApprovals ?? [])
+            .ToDictionary(item => item.PreviewId);
+        if (sessionEvent.EventType == SessionEventTypes.InvalidationPreviewed &&
+            TryReferenceGuid(sessionEvent, "previewId", out var previewId))
+        {
+            pendingApprovals[previewId] = new SessionPendingApproval(
+                previewId,
+                ReferenceGuid(sessionEvent, "workflowRunId") ?? sessionEvent.CorrelationId,
+                Reference(sessionEvent, "targetStepKey"),
+                Reference(sessionEvent, "workspaceRevision"),
+                sessionEvent.CommittedAt,
+                sessionEvent.OccurredAt);
+        }
+        else if (sessionEvent.EventType is SessionEventTypes.ApprovalGranted or
+                 SessionEventTypes.ApprovalDenied or
+                 SessionEventTypes.PreviewSuperseded &&
+                 TryReferenceGuid(sessionEvent, "previewId", out previewId))
+        {
+            pendingApprovals.Remove(previewId);
+        }
 
         var workspaceRevision = state?.CurrentWorkspaceRevision;
         if (sessionEvent.EventType == SessionEventTypes.WorkspacePromoted)
@@ -103,62 +157,65 @@ public static class SessionTimelineProjection
         if (sessionEvent.EventType is SessionEventTypes.WorkflowStarted or SessionEventTypes.WorkflowCompleted or SessionEventTypes.WorkflowFailed)
             workflowRunId = sessionEvent.CorrelationId ?? workflowRunId;
 
-        var incidents = (state?.OpenIncidentIds ?? [])
-            .ToHashSet(StringComparer.Ordinal);
+        var incidents = RestoreIncidents(state);
         var resolvedCount = state?.ResolvedIncidentCount ?? 0;
         var lastIncidentReason = state?.LastIncidentReason;
-        var operatorState = state?.OperatorState ?? SessionOperatorState.Ready;
-        var incidentId = sessionEvent.CrossSystemRefs?.GetValueOrDefault("incidentId");
+        var incidentId = ReferenceGuid(sessionEvent, "incidentId");
         if (sessionEvent.EventType == SessionEventTypes.IncidentDetected && incidentId is not null)
         {
-            incidents.Add(incidentId);
-            lastIncidentReason = sessionEvent.CrossSystemRefs?.GetValueOrDefault("reasonCode");
-            operatorState = string.Equals(
-                sessionEvent.CrossSystemRefs?.GetValueOrDefault("severity"),
-                SessionIncidentSeverity.Critical.ToString(),
-                StringComparison.Ordinal)
-                ? SessionOperatorState.Corrupt
-                : SessionOperatorState.Recovering;
+            lastIncidentReason = Reference(sessionEvent, "reasonCode");
+            incidents[incidentId.Value] = new SessionActiveIncident(
+                incidentId.Value,
+                lastIncidentReason,
+                ParseEnum(Reference(sessionEvent, "severity"), SessionIncidentSeverity.Error),
+                sessionEvent.CommittedAt,
+                sessionEvent.OccurredAt,
+                sessionEvent.CorrelationId);
         }
         else if (sessionEvent.EventType == SessionEventTypes.RecoverySucceeded && incidentId is not null)
         {
-            if (incidents.Remove(incidentId)) resolvedCount++;
-            operatorState = incidents.Count == 0
-                ? string.Equals(
-                    sessionEvent.CrossSystemRefs?.GetValueOrDefault("recoveryAction"),
-                    SessionRecoveryAction.RefreshPreview.ToString(),
-                    StringComparison.Ordinal)
-                    ? SessionOperatorState.AwaitingApproval
-                    : SessionOperatorState.Ready
-                : SessionOperatorState.Recovering;
+            if (incidents.Remove(incidentId.Value)) resolvedCount++;
         }
-        else if (sessionEvent.EventType == SessionEventTypes.UserActionRequired)
+        else if (sessionEvent.EventType is SessionEventTypes.UserActionRequired or SessionEventTypes.RecoveryFailed &&
+                 incidentId is not null && incidents.TryGetValue(incidentId.Value, out var incident))
         {
-            operatorState = SessionOperatorState.AwaitingInput;
+            incidents[incidentId.Value] = incident with
+            {
+                Outcome = sessionEvent.EventType == SessionEventTypes.UserActionRequired
+                    ? SessionRecoveryOutcome.UserActionRequired
+                    : ParseEnum(
+                        Reference(sessionEvent, "outcome"),
+                        SessionRecoveryOutcome.ReconciliationRequired)
+            };
         }
-        else if (sessionEvent.EventType == SessionEventTypes.RecoveryFailed)
-        {
-            operatorState = string.Equals(
-                sessionEvent.CrossSystemRefs?.GetValueOrDefault("outcome"),
-                SessionRecoveryOutcome.Corrupt.ToString(),
-                StringComparison.Ordinal)
-                ? SessionOperatorState.Corrupt
-                : SessionOperatorState.ReconciliationRequired;
-        }
+
+        var orderedInputs = pendingInputs.Values
+            .OrderBy(item => item.RequestEventId)
+            .ToArray();
+        var orderedApprovals = pendingApprovals.Values
+            .OrderBy(item => item.PreviewId)
+            .ToArray();
+        var orderedIncidents = incidents.Values
+            .OrderBy(item => item.IncidentId)
+            .ToArray();
+        var operatorState = DeriveOperatorState(orderedInputs, orderedApprovals, orderedIncidents);
 
         return new SessionCurrentState(
             (state?.TotalEvents ?? 0) + 1,
             sessionEvent.EventType,
-            sessionEvent.OccurredAt,
-            pending.OrderBy(id => id, StringComparer.Ordinal).ToArray(),
+            sessionEvent.CommittedAt,
+            orderedInputs.Select(item => item.RequestEventId.ToString("D")).ToArray(),
             workspaceRevision,
             workflowRunId,
-            state?.SessionCreatedAt ?? sessionEvent.OccurredAt,
+            state?.SessionCreatedAt ?? sessionEvent.CommittedAt,
             sessionEvent.CommittedAt,
             operatorState,
-            incidents.OrderBy(id => id, StringComparer.Ordinal).ToArray(),
+            orderedIncidents.Select(item => item.IncidentId.ToString("D")).ToArray(),
             resolvedCount,
-            lastIncidentReason);
+            lastIncidentReason,
+            orderedInputs,
+            orderedApprovals,
+            orderedIncidents);
     }
 
     /// <summary>
@@ -167,10 +224,91 @@ public static class SessionTimelineProjection
     /// </summary>
     public static IReadOnlyList<string> RenderTimeline(IReadOnlyList<SessionEvent> events) =>
         events.Select(item =>
-            $"[{item.OccurredAt:O}] #{item.Sequence} {item.EventType} by {item.Actor}" +
+            $"[{item.CommittedAt:O}] #{item.Sequence} {item.EventType} by {item.Actor}" +
+            (item.OccurredAt != item.CommittedAt ? $" claimed-at {item.OccurredAt:O}" : string.Empty) +
             (item.CausationId is not null ? $" caused-by {item.CausationId:D}" : string.Empty) +
             (item.CrossSystemRefs is { Count: > 0 }
                 ? $" {string.Join(",", item.CrossSystemRefs.Select(pair => $"{pair.Key}={pair.Value}"))}"
                 : string.Empty))
             .ToArray();
+
+    private static Dictionary<Guid, SessionPendingInput> RestorePendingInputs(
+        SessionCurrentState? state)
+    {
+        if (state?.PendingInputs is not null)
+            return state.PendingInputs.ToDictionary(item => item.RequestEventId);
+
+        return (state?.PendingInputEventIds ?? [])
+            .Select(id => Guid.TryParse(id, out var parsed) ? parsed : (Guid?)null)
+            .Where(id => id is not null)
+            .ToDictionary(
+                id => id!.Value,
+                id => new SessionPendingInput(
+                    id!.Value,
+                    state?.LastWorkflowRunId,
+                    null,
+                    state?.LastCommittedAt ?? DateTimeOffset.MinValue,
+                    state?.LastEventAt ?? DateTimeOffset.MinValue));
+    }
+
+    private static Dictionary<Guid, SessionActiveIncident> RestoreIncidents(
+        SessionCurrentState? state)
+    {
+        if (state?.ActiveIncidents is not null)
+            return state.ActiveIncidents.ToDictionary(item => item.IncidentId);
+
+        return (state?.OpenIncidentIds ?? [])
+            .Select(id => Guid.TryParse(id, out var parsed) ? parsed : (Guid?)null)
+            .Where(id => id is not null)
+            .ToDictionary(
+                id => id!.Value,
+                id => new SessionActiveIncident(
+                    id!.Value,
+                    state?.LastIncidentReason,
+                    state?.OperatorState == SessionOperatorState.Corrupt
+                        ? SessionIncidentSeverity.Critical
+                        : SessionIncidentSeverity.Error,
+                    state?.LastCommittedAt ?? DateTimeOffset.MinValue,
+                    state?.LastEventAt ?? DateTimeOffset.MinValue,
+                    state?.LastWorkflowRunId,
+                    state?.OperatorState switch
+                    {
+                        SessionOperatorState.AwaitingInput => SessionRecoveryOutcome.UserActionRequired,
+                        SessionOperatorState.ReconciliationRequired => SessionRecoveryOutcome.ReconciliationRequired,
+                        SessionOperatorState.Corrupt => SessionRecoveryOutcome.Corrupt,
+                        _ => null
+                    }));
+    }
+
+    private static SessionOperatorState DeriveOperatorState(
+        IReadOnlyList<SessionPendingInput> pendingInputs,
+        IReadOnlyList<SessionPendingApproval> pendingApprovals,
+        IReadOnlyList<SessionActiveIncident> incidents)
+    {
+        if (incidents.Any(item => item.Severity == SessionIncidentSeverity.Critical ||
+                                  item.Outcome == SessionRecoveryOutcome.Corrupt))
+            return SessionOperatorState.Corrupt;
+        if (incidents.Any(item => item.Outcome == SessionRecoveryOutcome.ReconciliationRequired))
+            return SessionOperatorState.ReconciliationRequired;
+        if (pendingInputs.Count > 0 ||
+            incidents.Any(item => item.Outcome == SessionRecoveryOutcome.UserActionRequired))
+            return SessionOperatorState.AwaitingInput;
+        if (pendingApprovals.Count > 0)
+            return SessionOperatorState.AwaitingApproval;
+        return incidents.Count > 0
+            ? SessionOperatorState.Recovering
+            : SessionOperatorState.Ready;
+    }
+
+    private static string? Reference(SessionEvent sessionEvent, string name) =>
+        sessionEvent.CrossSystemRefs?.GetValueOrDefault(name);
+
+    private static Guid? ReferenceGuid(SessionEvent sessionEvent, string name) =>
+        TryReferenceGuid(sessionEvent, name, out var value) ? value : null;
+
+    private static bool TryReferenceGuid(SessionEvent sessionEvent, string name, out Guid value) =>
+        Guid.TryParse(Reference(sessionEvent, name), out value);
+
+    private static T ParseEnum<T>(string? value, T fallback) where T : struct, Enum =>
+        Enum.TryParse<T>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
 }

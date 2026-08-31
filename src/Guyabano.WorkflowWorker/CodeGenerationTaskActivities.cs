@@ -67,6 +67,7 @@ public sealed class CodeGenerationTaskActivities(
             MaximumAttempts: maximumAttempts));
 
         IReadOnlyDictionary<string, (string Hash, long Length)>? beforeSnapshot = null;
+        CodeGenerationOutcome? outcome = null;
         IDisposable? generationCorrelation = null;
         try
         {
@@ -105,34 +106,37 @@ public sealed class CodeGenerationTaskActivities(
                 context.CancellationToken);
 
             ContextSnapshot? generationSnapshot = null;
-            try
+            if (request.RepositoryContext is not null)
             {
-                if (request.RepositoryContext is null)
+                try
                 {
-                    generationSnapshot = await CangjieSnapshotHelper.EnsureSnapshotAsync(
+                    generationSnapshot = await CangjieSnapshotHelper.DeriveSnapshotAsync(
                         contextStore,
+                        request.RepositoryContext.SnapshotId,
                         workspace.SessionId.ToString(),
                         workflowId,
                         info.ActivityId,
                         CodeGenerationZhinuStepScope.Current?.Revision ?? 1,
                         queryIdentity: $"guyabano:{workflowId}:generation:{task.Id}",
                         strategy: "code-generation",
-                        strategyVersion: "1",
+                        strategyVersion: "2",
                         purpose: request.IsBuildRepair ? "code-generation-build-repair" : "code-generation",
-                        workspaceRevision: null,
-                        hetuIndexRunId: null,
-                        hetuIndexIdentity: null,
-                        itemIds: [],
+                        workspaceRevision: request.RepositoryContext.Revision.WorkspaceRevision,
+                        hetuIndexRunId: request.RepositoryContext.Revision.IndexRunId,
+                        hetuIndexIdentity: request.RepositoryContext.Revision.WorkspaceRevision,
                         cancellationToken: context.CancellationToken);
                 }
-                else
+                catch (Exception ex)
                 {
-                    generationSnapshot = (await contextStore.ResolveSnapshotAsync(
-                        request.RepositoryContext.SnapshotId,
-                        context.CancellationToken))?.Snapshot ??
-                        throw new InvalidOperationException(
-                            $"Cangjie snapshot '{request.RepositoryContext.SnapshotId:D}' could not be resolved.");
+                    logger.LogWarning(ex,
+                        "Unable to derive the Cangjie snapshot for generation {TaskId} workflow {WorkflowId}",
+                        task.Id,
+                        workflowId);
                 }
+            }
+
+            if (generationSnapshot is not null)
+            {
                 generationCorrelation = LlmRequestCorrelationScope.Push(new(
                     workspace.SessionId.ToString(),
                     workflowId,
@@ -147,12 +151,30 @@ public sealed class CodeGenerationTaskActivities(
                     WorkspaceRevision: generationSnapshot.Metadata.TryGetValue("workspaceRevision", out var wsRev) ? wsRev : null,
                     WorkflowStepRevision: CodeGenerationZhinuStepScope.Current?.Revision));
             }
-            catch (Exception ex)
+            else
             {
-                logger.LogWarning(ex, "Unable to create Cangjie snapshot for generation {TaskId} workflow {WorkflowId}", task.Id, workflowId);
+                generationCorrelation = LlmRequestCorrelationScope.Push(new(
+                    workspace.SessionId.ToString(),
+                    workflowId,
+                    info.ActivityId,
+                    CangjieSnapshotId: request.RepositoryContext?.SnapshotId,
+                    CangjieStrategy: request.RepositoryContext?.Strategy,
+                    CangjieStrategyVersion:
+                        request.RepositoryContext?.StrategyVersion,
+                    CangjiePurpose: request.IsBuildRepair
+                        ? "code-generation-build-repair"
+                        : "code-generation",
+                    HetuIndexRunId:
+                        request.RepositoryContext?.Revision.IndexRunId,
+                    HetuIndexIdentity:
+                        request.RepositoryContext?.Revision.WorkspaceRevision,
+                    WorkspaceRevision:
+                        request.RepositoryContext?.Revision.WorkspaceRevision,
+                    WorkflowStepRevision:
+                        CodeGenerationZhinuStepScope.Current?.Revision));
             }
 
-            var outcome = await taskService.GenerateAndEmitAsync(
+            outcome = await taskService.GenerateAndEmitAsync(
                 taskContext,
                 workspaceRoot,
                 model,
@@ -270,7 +292,13 @@ public sealed class CodeGenerationTaskActivities(
         {
             generationCorrelation?.Dispose();
             var transient = ActivityExceptionClassifier.IsTransient(exception);
-            var willRetry = transient && attempt < maximumAttempts;
+            // Once model output has succeeded, failures belong to publication
+            // or reconciliation. Re-running the model can change already-written
+            // files and collide with immutable artifacts, so only failures that
+            // occur before an outcome exists may consume a model retry.
+            var willRetry = outcome is null &&
+                transient &&
+                attempt < maximumAttempts;
             await PublishSafelyAsync(workflowId, new WorkflowProgress(
                 WorkflowProgressEventType.Failed,
                 stage,
@@ -300,11 +328,49 @@ public sealed class CodeGenerationTaskActivities(
                 ],
                 MaximumAttempts: maximumAttempts,
                 WillRetry: willRetry));
+            if (!willRetry)
+            {
+                if (outcome is not null)
+                {
+                    return Map(
+                        task.Id,
+                        outcome,
+                        workspaceRoot,
+                        selection.Tier,
+                        request.IsBuildRepair,
+                        request.BuildRepairCycle) with
+                    {
+                        Succeeded = false,
+                        Failure = "ArtifactPublicationFailed",
+                        Error = exception.Message
+                    };
+                }
+
+                return new CodeGenerationTaskWorkflowResult(
+                    task.Id,
+                    Succeeded: false,
+                    Failure: "UnhandledActivityException",
+                    Error: exception.Message,
+                    Model: model,
+                    JsonWasRepaired: false,
+                    JsonRepairAttempts: [],
+                    WrittenFiles: [],
+                    SkippedFiles: [],
+                    Usage: null,
+                    Diagnostics: null,
+                    FinishReason: null)
+                {
+                    ModelTier = selection.Tier,
+                    IsBuildRepair = request.IsBuildRepair,
+                    BuildRepairCycle = request.BuildRepairCycle
+                };
+            }
+
             throw new CodeGenerationActivityException(
                 exception.Message,
                 exception,
                 errorType: exception.GetType().Name,
-                nonRetryable: !transient);
+                nonRetryable: false);
         }
     }
 
@@ -522,14 +588,7 @@ public sealed class CodeGenerationTaskActivities(
             return;
 
         var hits = await contextStore.SearchAsync(
-            new ContextQuery
-            {
-                Text = workflowId,
-                Scope = ContextIndexingArtifactRepository.DefaultScope,
-                Kinds = [ContextKinds.Artifact],
-                Limit = 1000,
-                SearchMode = ContextSearchMode.AnyTerm
-            },
+            CreateOwnershipQuery(workflowId),
             cancellationToken).ConfigureAwait(false);
         foreach (var hit in hits)
         {
@@ -567,6 +626,23 @@ public sealed class CodeGenerationTaskActivities(
                     $"task '{taskId}'.");
             }
         }
+    }
+
+    internal static ContextQuery CreateOwnershipQuery(string workflowId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workflowId);
+        return new ContextQuery
+        {
+            Text = workflowId,
+            Scope = ContextIndexingArtifactRepository.DefaultScope,
+            Kinds = [ContextKinds.Artifact],
+            // Cangjie deliberately caps one search at 100 results. The
+            // workflow ID narrows this to the current run; exceeding the
+            // provider limit must never turn successful generation into a
+            // retrying activity.
+            Limit = 100,
+            SearchMode = ContextSearchMode.AnyTerm
+        };
     }
 
     private static CodeGenerationTaskWorkflowResult Map(

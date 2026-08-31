@@ -18,6 +18,8 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
     private readonly LedgerInputLimits inputLimits;
     private readonly ISessionProjectionStore? projectionStore;
     private readonly int maximumCachedLedgers;
+    private readonly SessionEventTimePolicy timePolicy;
+    private readonly TimeProvider timeProvider;
     private readonly SemaphoreSlim ledgerGate = new(1, 1);
     private readonly Dictionary<GuyabanoSessionId, CachedLedgerEntry> ledgers = [];
     private int disposed;
@@ -27,16 +29,21 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
         string rootPath,
         LedgerInputLimits? inputLimits = null,
         ISessionProjectionStore? projectionStore = null,
-        int maximumCachedLedgers = 32)
+        int maximumCachedLedgers = 32,
+        SessionEventTimePolicy? timePolicy = null,
+        TimeProvider? timeProvider = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
         this.rootPath = Path.GetFullPath(rootPath);
         this.inputLimits = inputLimits ?? LedgerInputLimits.Default;
         this.projectionStore = projectionStore;
+        this.timePolicy = timePolicy ?? SessionEventTimePolicy.Default;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
         if (maximumCachedLedgers < 1)
             throw new ArgumentOutOfRangeException(nameof(maximumCachedLedgers));
         this.maximumCachedLedgers = maximumCachedLedgers;
         this.inputLimits.Validate();
+        this.timePolicy.Validate();
         Directory.CreateDirectory(this.rootPath);
     }
 
@@ -46,6 +53,16 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Actor);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.EventType);
+        if (request.OccurredAt == default)
+            throw new ArgumentException(
+                "A caller-supplied occurrence-time claim is required.",
+                nameof(request));
+        var now = timeProvider.GetUtcNow();
+        if (request.OccurredAt - now > timePolicy.MaximumFutureSkew)
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                request.OccurredAt,
+                $"Occurrence-time claim cannot be more than {timePolicy.MaximumFutureSkew} in the future.");
         if (!Enum.IsDefined(request.PayloadSensitivity))
             throw new ArgumentOutOfRangeException(nameof(request.PayloadSensitivity));
         if (!Enum.IsDefined(request.PayloadRetention))

@@ -4,19 +4,21 @@ using Guyabano.WorkflowWorker;
 using Guyabano.WorkflowWorker.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Configuration.AddJsonFile(
+CodeGenerationConfiguration.AddDefaults(
+    builder.Configuration,
     Path.Combine(
         AppContext.BaseDirectory,
         "appsettings.CodeGeneration.json"),
-    optional: false,
-    reloadOnChange: true);
+    args);
 
 builder.Services
     .AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddGuyabanoCodeGeneration(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddSingleton<IApprovalActorProvider, HttpContextApprovalActorProvider>();
+builder.Services.AddSingleton<
+    IAuthenticatedActorProvider,
+    HttpContextApprovalActorProvider>();
 builder.Services.AddScoped<
     ICodeGenerationWorkflowClient,
     CodeGenerationWorkflowClient>();

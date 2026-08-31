@@ -19,3 +19,11 @@ public sealed record AdvanceSessionOperationRequest(
     string? RecoveryAction = null,
     string? ReconciliationReason = null);
 
+public sealed record RecordProductOutcomeFailureRequest(
+    GuyabanoSessionId SessionId,
+    Guid WorkflowRunId,
+    CrossStoreOperationId OperationId,
+    string FailureCode,
+    string Explanation,
+    string? RecoveryTargetStepKey,
+    string UserAction);

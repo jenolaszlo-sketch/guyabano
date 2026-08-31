@@ -10,12 +10,13 @@ namespace Guyabano.WorkflowProgressTests;
 public sealed class CodeGenerationWorkflowStepTests
 {
     [Fact]
-    public void ImplementationKeys_AreUniqueForWorkflowVersionFive()
+    public void ImplementationKeys_AreUniqueForCurrentWorkflowVersion()
     {
         WorkflowStepReference[] steps =
         {
             CodeGenerationWorkflowConstants.StartSessionOperationStep,
             CodeGenerationWorkflowConstants.AdvanceSessionOperationStep,
+            CodeGenerationWorkflowConstants.RecordProductOutcomeFailureStep,
             CodeGenerationWorkflowConstants.IndexRepositoryStep,
             CodeGenerationWorkflowConstants.SelectRepositoryContextStep,
             CodeGenerationWorkflowConstants.CaptureRepositoryContextStep,
@@ -31,9 +32,78 @@ public sealed class CodeGenerationWorkflowStepTests
             CodeGenerationWorkflowConstants.SaveCheckpointStep
         };
 
-        CodeGenerationWorkflowConstants.WorkflowVersion.Should().Be("5");
+        CodeGenerationWorkflowConstants.WorkflowVersion.Should().Be("7");
         steps.Select(step => step.ImplementationKey.Value)
             .Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public async Task ProductOutcomeFailure_IsAppendOnlyAndLeavesOperationResumable()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "guyabano-product-outcome-tests",
+            Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var operations = new FileSystemCrossStoreOperationStore(root);
+            using var events = new SimingSessionEventStore(
+                Path.Combine(root, "events"));
+            var heartbeats = new CodeGenerationActivityHeartbeatStore(
+                TimeProvider.System);
+            var runId = Guid.CreateVersion7();
+            var sessionId = GuyabanoSessionId.New();
+            var operation = await operations.StartAsync(
+                new StartCrossStoreOperationRequest(
+                    sessionId,
+                    runId,
+                    "code-generation-run",
+                    $"{runId:D}:code-generation-run",
+                    DateTimeOffset.UtcNow),
+                TestContext.Current.CancellationToken);
+            var step = new RecordProductOutcomeFailureStep(
+                events,
+                new SessionRecoveryCoordinator(events),
+                heartbeats);
+            var request = new RecordProductOutcomeFailureRequest(
+                sessionId,
+                runId,
+                operation.Id,
+                "DecompositionFailed",
+                "A decomposition referenced an unavailable contract.",
+                "decomposition/1/TASK-TESTS",
+                "Preview and approve a focused retry.");
+
+            await step.ExecuteAsync(
+                CreateContext(runId, 1),
+                request,
+                TestContext.Current.CancellationToken);
+            await step.ExecuteAsync(
+                CreateContext(runId, 2),
+                request,
+                TestContext.Current.CancellationToken);
+
+            var storedOperation = await operations.GetAsync(
+                operation.Id,
+                TestContext.Current.CancellationToken);
+            storedOperation!.State.Should().Be(CrossStoreOperationState.Prepared);
+            storedOperation.Participants.Should().BeEmpty();
+            var history = await events.ReadAsync(
+                sessionId,
+                cancellationToken: TestContext.Current.CancellationToken);
+            history.Select(item => item.EventType).Should().Equal(
+                SessionEventTypes.WorkflowFailed,
+                SessionEventTypes.IncidentDetected,
+                SessionEventTypes.RecoveryPlanned,
+                SessionEventTypes.UserActionRequired);
+            history.Last().CrossSystemRefs!["recoveryTargetStepKey"]
+                .Should().Be("decomposition/1/TASK-TESTS");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

@@ -23,22 +23,22 @@ public sealed class StagedComponent
     public required List<string> Responsibilities { get; init; }
 
     [JsonPropertyName("definesContractNames")]
-    public required List<string> DefinesContractNames { get; init; }
+    public List<string> DefinesContractNames { get; init; } = [];
 
     [JsonPropertyName("implementsPortNames")]
-    public required List<string> ImplementsPortNames { get; init; }
+    public List<string> ImplementsPortNames { get; init; } = [];
 
     [JsonPropertyName("consumesContractNames")]
-    public required List<string> ConsumesContractNames { get; init; }
+    public List<string> ConsumesContractNames { get; init; } = [];
 
     [JsonPropertyName("usesConcreteComponentNames")]
-    public required List<string> UsesConcreteComponentNames { get; init; }
+    public List<string> UsesConcreteComponentNames { get; init; } = [];
 
     [JsonPropertyName("registersImplementationNames")]
-    public required List<string> RegistersImplementationNames { get; init; }
+    public List<string> RegistersImplementationNames { get; init; } = [];
 
     [JsonPropertyName("testsComponentNames")]
-    public required List<string> TestsComponentNames { get; init; }
+    public List<string> TestsComponentNames { get; init; } = [];
 
     [JsonPropertyName("capabilityNames")]
     public required List<string> CapabilityNames { get; init; }

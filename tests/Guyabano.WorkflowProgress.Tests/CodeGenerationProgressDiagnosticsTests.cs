@@ -70,8 +70,27 @@ public sealed class CodeGenerationProgressDiagnosticsTests
             WorkflowDiagnosticSeverity.Error);
         diagnostic.Code.Should().Be(
             "schema-validation-failed");
-        diagnostic.Details.Should().ContainSingle()
-            .Which.Should().Be("$.files is required.");
+        diagnostic.Details.Should().Contain("$.files is required.");
+        diagnostic.Details.Should().Contain(item => item.StartsWith(
+            "Failure fingerprint: sha256:",
+            StringComparison.Ordinal));
+        diagnostic.Details.Should().Contain(
+            "Affected JSON paths: $.files");
+    }
+
+    [Fact]
+    public void FailureFingerprint_RemovesPayloadValuesAndAttemptNumbers()
+    {
+        var first = FailureFingerprint.Create(
+            "SchemaValidationFailed",
+            "$.components[3].name contains 'SecretCustomerName' on attempt 1.");
+        var second = FailureFingerprint.Create(
+            "SchemaValidationFailed",
+            "$.components[9].name contains 'AnotherName' on attempt 7.");
+
+        first.Should().Be(second);
+        first.Should().StartWith("sha256:");
+        first.Should().NotContain("SecretCustomerName");
     }
 
     [Fact]

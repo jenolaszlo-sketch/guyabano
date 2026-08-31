@@ -51,6 +51,33 @@ public sealed class StagedCodeGenerationPlanAssemblerTests
     }
 
     [Fact]
+    public void Validate_DuplicateModelNamesBecomeCorrectionFeedbackInsteadOfExceptions()
+    {
+        var artifacts = CreateArtifacts();
+        artifacts.Topology.Projects.Add(artifacts.Topology.Projects[0]);
+        artifacts.Topology.BoundedContexts.Add(
+            artifacts.Topology.BoundedContexts[0]);
+        artifacts.Topology.Modules.Add(artifacts.Topology.Modules[0]);
+        artifacts.ContractCatalogs[0].Contracts.Add(
+            artifacts.ContractCatalogs[0].Contracts[0]);
+        artifacts.ComponentManifests[0].Components.Add(
+            artifacts.ComponentManifests[0].Components[0]);
+
+        var errors = StagedPlanningValidator.Validate(artifacts);
+
+        errors.Should().Contain(error => error.Contains(
+            "Duplicate project name 'TodoApi'", StringComparison.Ordinal));
+        errors.Should().Contain(error => error.Contains(
+            "Duplicate bounded context name 'Todos'", StringComparison.Ordinal));
+        errors.Should().Contain(error => error.Contains(
+            "Duplicate topology module name 'TodoApi.Api'", StringComparison.Ordinal));
+        errors.Should().Contain(error => error.Contains(
+            "Duplicate contract name 'ITodoService'", StringComparison.Ordinal));
+        errors.Should().Contain(error => error.Contains(
+            "Duplicate component name 'TodoService'", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Assemble_DoesNotInferAcceptanceOwnershipFromCapability()
     {
         var artifacts = CreateArtifacts();

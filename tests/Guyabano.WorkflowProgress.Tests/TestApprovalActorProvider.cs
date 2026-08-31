@@ -2,8 +2,8 @@ using Guyabano.WorkflowWorker;
 
 namespace Guyabano.WorkflowProgressTests;
 
-internal sealed class TestApprovalActorProvider : IApprovalActorProvider
+internal sealed class TestApprovalActorProvider : IAuthenticatedActorProvider
 {
-    public ApprovalActor GetRequiredActor() =>
+    public AuthenticatedActor GetRequiredActor() =>
         new("tester", "Test User", "test-authentication");
 }

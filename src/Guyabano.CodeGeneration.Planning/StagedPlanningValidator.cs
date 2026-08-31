@@ -149,8 +149,10 @@ internal static class StagedPlanningValidator
             .SelectMany(item => item.Packages)
             .Select(item => item.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var projectByName = topology.Projects.ToDictionary(
+        var projectByName = ToFirstDictionary(
+            topology.Projects,
             item => item.Name,
+            item => item,
             StringComparer.Ordinal);
 
         foreach (var project in topology.Projects)
@@ -222,12 +224,14 @@ internal static class StagedPlanningValidator
                     $"Decision '{decision.Title}' references unknown package '{package}'.");
         }
 
-        if (ContainsCycle(topology.Projects.ToDictionary(
+        if (ContainsCycle(ToFirstDictionary(
+                topology.Projects,
                 item => item.Name,
                 item => (IReadOnlyCollection<string>)item.ProjectDependencies,
                 StringComparer.Ordinal)))
             errors.Add("The project dependency graph contains a cycle.");
-        if (ContainsCycle(topology.BoundedContexts.ToDictionary(
+        if (ContainsCycle(ToFirstDictionary(
+                topology.BoundedContexts,
                 item => item.Name,
                 item => (IReadOnlyCollection<string>)item.DependsOnContextNames,
                 StringComparer.Ordinal)))
@@ -270,8 +274,10 @@ internal static class StagedPlanningValidator
         var contextNames = topology.BoundedContexts
             .Select(item => item.Name)
             .ToHashSet(StringComparer.Ordinal);
-        var moduleByName = topology.Modules.ToDictionary(
+        var moduleByName = ToFirstDictionary(
+            topology.Modules,
             item => item.Name,
+            item => item,
             StringComparer.Ordinal);
         var capabilityNames = domain.Capabilities
             .Select(item => item.Name)
@@ -353,8 +359,10 @@ internal static class StagedPlanningValidator
         var contextNames = topology.BoundedContexts
             .Select(item => item.Name)
             .ToHashSet(StringComparer.Ordinal);
-        var moduleByName = topology.Modules.ToDictionary(
+        var moduleByName = ToFirstDictionary(
+            topology.Modules,
             item => item.Name,
+            item => item,
             StringComparer.Ordinal);
         var contractNames = catalogs.SelectMany(item => item.Contracts)
             .Select(item => item.Name)
@@ -384,11 +392,16 @@ internal static class StagedPlanningValidator
             .ToArray();
         var componentNames = components.Select(item => item.Name)
             .ToHashSet(StringComparer.Ordinal);
-        var projectByName = topology.Projects.ToDictionary(
+        var projectByName = ToFirstDictionary(
+            topology.Projects,
             item => item.Name,
+            item => item,
             StringComparer.Ordinal);
-        var contractByName = catalogs.SelectMany(item => item.Contracts)
-            .ToDictionary(item => item.Name, StringComparer.Ordinal);
+        var contractByName = ToFirstDictionary(
+            catalogs.SelectMany(item => item.Contracts),
+            item => item.Name,
+            item => item,
+            StringComparer.Ordinal);
 
         ValidateUniqueNames(
             manifests.Select(item => item.BoundedContextName),
@@ -464,11 +477,13 @@ internal static class StagedPlanningValidator
                 capabilityNames,
                 errors);
 
-            var contextCapabilities = topology.BoundedContexts
-                .Single(context => context.Name.Equals(
+            var topologyContext = topology.BoundedContexts
+                .FirstOrDefault(context => context.Name.Equals(
                     manifest.BoundedContextName,
-                    StringComparison.Ordinal))
-                .CapabilityNames;
+                    StringComparison.Ordinal));
+            if (topologyContext is null)
+                continue;
+            var contextCapabilities = topologyContext.CapabilityNames;
             var expectedCriteria = contextCapabilities
                 .Where(acceptanceIdsByCapability.ContainsKey)
                 .SelectMany(capability =>
@@ -563,8 +578,10 @@ internal static class StagedPlanningValidator
             errors.Add(
                 $"Component '{component.Name}' assigns multiple relationship types to component '{target}'.");
 
-        var componentByName = components.ToDictionary(
+        var componentByName = ToFirstDictionary(
+            components,
             item => item.Name,
+            item => item,
             StringComparer.Ordinal);
         foreach (var targetName in ComponentDependencies(component))
         {
@@ -588,7 +605,8 @@ internal static class StagedPlanningValidator
     {
         var known = components.Select(component => component.Name)
             .ToHashSet(StringComparer.Ordinal);
-        var dependencies = components.ToDictionary(
+        var dependencies = ToFirstDictionary(
+            components,
             component => component.Name,
             component => ComponentDependencies(component)
                 .Where(known.Contains)
@@ -659,6 +677,17 @@ internal static class StagedPlanningValidator
                     $"Decision '{decision.Title}' references unknown package '{package}'.");
         }
     }
+
+    private static Dictionary<string, TValue> ToFirstDictionary<TSource, TValue>(
+        IEnumerable<TSource> source,
+        Func<TSource, string> keySelector,
+        Func<TSource, TValue> valueSelector,
+        StringComparer comparer) =>
+        source.GroupBy(keySelector, comparer)
+            .ToDictionary(
+                group => group.Key,
+                group => valueSelector(group.First()),
+                comparer);
 
     private static void ValidateStageDefaults(
         IEnumerable<DiscoveredDomainDefault> defaults,

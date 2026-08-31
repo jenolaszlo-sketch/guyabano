@@ -120,6 +120,9 @@ public sealed class BaizeExecutionProvenanceRouter(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken,
         Func<IAsyncEnumerable<LlmStreamEvent>> produce)
     {
+        var invocationOrdinal = LlmRequestCorrelationScope.Current is null
+            ? 0
+            : LlmRequestCorrelationScope.NextInvocationOrdinal();
         var startedAt = DateTimeOffset.UtcNow;
         var requestHash = Hash(JsonSerializer.Serialize(
             new
@@ -184,6 +187,7 @@ public sealed class BaizeExecutionProvenanceRouter(
                     requestedModel,
                     request,
                     requestHash,
+                    invocationOrdinal,
                     startedAt,
                     DateTimeOffset.UtcNow,
                     last,
@@ -208,6 +212,7 @@ public sealed class BaizeExecutionProvenanceRouter(
         string requestedModel,
         LlmRequest request,
         string requestHash,
+        int invocationOrdinal,
         DateTimeOffset startedAt,
         DateTimeOffset completedAt,
         LlmStreamEvent? last,
@@ -290,19 +295,39 @@ public sealed class BaizeExecutionProvenanceRouter(
             Succeeded: success,
             StartedAt: startedAt,
             CompletedAt: completedAt,
-            Error: error);
+            Error: error)
+        {
+            WorkflowStepAttempt = CurrentAttempt(),
+            InvocationOrdinal = invocationOrdinal
+        };
 
         var workflowId = correlation.WorkflowRunId;
-        var stageKey = $"{purpose}/{correlation.WorkflowStepKey}";
+        var stepRevision = correlation.WorkflowStepRevision ?? 1;
+        var stepAttempt = CurrentAttempt();
+        var stageKey = $"{purpose}/{correlation.WorkflowStepKey}/" +
+            $"revision-{stepRevision}/attempt-{stepAttempt}/" +
+            $"invocation-{invocationOrdinal:D4}";
         await artifactRepository.WriteAsync(
             new ArtifactWriteRequest<BaizeExecutionRecord>(
                 WorkflowId: workflowId,
                 Kind: "baize-execution",
-                SchemaVersion: 1,
+                SchemaVersion: 2,
                 StageKey: stageKey,
                 Status: success ? ArtifactStatus.Validated : ArtifactStatus.Produced,
                 Payload: record),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private static int CurrentAttempt()
+    {
+        try
+        {
+            return CodeGenerationActivityExecutionContext.Current.Info.Attempt;
+        }
+        catch (InvalidOperationException)
+        {
+            return 1;
+        }
     }
 
     private static string Hash(string value) =>

@@ -1,4 +1,5 @@
 using Guyabano.Session;
+using Guyabano.Messaging;
 using Penghou.Zhinu;
 
 namespace Guyabano.WorkflowWorker;
@@ -59,20 +60,23 @@ public sealed class CodeGenerationWorkflowRestartService(
     IGuyabanoSessionStore sessionStore,
     ISessionEventStore sessionEvents,
     ILogger<CodeGenerationWorkflowRestartService> logger,
-    SessionRecoveryCoordinator? recoveryCoordinator = null)
+    SessionRecoveryCoordinator? recoveryCoordinator = null,
+    IWorkflowProgressPublisher? progressPublisher = null)
 {
     public CodeGenerationWorkflowRestartService(
         WorkflowEngine workflowEngine,
         IGuyabanoSessionStore sessionStore,
         ISessionEventStore sessionEvents,
         ILogger<CodeGenerationWorkflowRestartService> logger,
-        SessionRecoveryCoordinator? recoveryCoordinator = null)
+        SessionRecoveryCoordinator? recoveryCoordinator = null,
+        IWorkflowProgressPublisher? progressPublisher = null)
         : this(
             new FixedSessionWorkflowRuntimeProvider(workflowEngine),
             sessionStore,
             sessionEvents,
             logger,
-            recoveryCoordinator)
+            recoveryCoordinator,
+            progressPublisher)
     {
     }
 
@@ -138,6 +142,26 @@ public sealed class CodeGenerationWorkflowRestartService(
             "Restart preview for workflow {WorkflowRunId} step {StepKey}: {InvalidatedCount} to invalidate, {ReusableCount} reusable (session {SessionId})",
             workflowRunId, targetStepKey, invalidated.Length, reusable.Length, session.Id);
 
+        await PublishProgressSafelyAsync(
+            workflowRunId,
+            new WorkflowProgress(
+                WorkflowProgressEventType.Completed,
+                "Focused retry preview",
+                $"Preview ready: {invalidated.Length} step(s) will rerun and {reusable.Length} completed step(s) remain reusable. Approval is required.",
+                preview.GeneratedAt,
+                RunId: workflowRunId.ToString("D"),
+                ActivityId: $"restart-preview:{preview.PreviewId:D}",
+                Succeeded: true,
+                Metadata: new Dictionary<string, string>
+                {
+                    ["previewId"] = preview.PreviewId.ToString("D"),
+                    ["targetStepKey"] = preview.TargetStepKey,
+                    ["invalidatedCount"] = invalidated.Length.ToString(),
+                    ["reusableCount"] = reusable.Length.ToString(),
+                    ["requiresApproval"] = preview.RequiresApproval.ToString()
+                }),
+            cancellationToken).ConfigureAwait(false);
+
         return preview;
     }
 
@@ -197,6 +221,25 @@ public sealed class CodeGenerationWorkflowRestartService(
             "Restarting workflow {WorkflowRunId} at step {StepKey} approved by {ApprovedBy} (session {SessionId})",
             approval.WorkflowRunId, approval.TargetStepKey, approval.ApprovedBy, session.Id);
 
+        var restartActivityId = $"focused-restart:{approval.ApprovalId:D}";
+        await PublishProgressSafelyAsync(
+            approval.WorkflowRunId,
+            new WorkflowProgress(
+                WorkflowProgressEventType.Started,
+                "Focused retry",
+                $"Restart accepted for '{approval.TargetStepKey}'; waiting for Zhinu to apply the selective invalidation.",
+                DateTimeOffset.UtcNow,
+                RunId: approval.WorkflowRunId.ToString("D"),
+                ActivityId: restartActivityId,
+                Succeeded: null,
+                Metadata: new Dictionary<string, string>
+                {
+                    ["approvalId"] = approval.ApprovalId.ToString("D"),
+                    ["previewId"] = approval.PreviewId.ToString("D"),
+                    ["targetStepKey"] = approval.TargetStepKey
+                }),
+            cancellationToken).ConfigureAwait(false);
+
         var refs = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["sessionId"] = session.Id.ToString(),
@@ -242,6 +285,25 @@ public sealed class CodeGenerationWorkflowRestartService(
         }
         catch (Exception exception)
         {
+            await PublishProgressSafelyAsync(
+                approval.WorkflowRunId,
+                new WorkflowProgress(
+                    WorkflowProgressEventType.Failed,
+                    "Focused retry",
+                    $"Zhinu could not apply the focused retry: {exception.Message}",
+                    DateTimeOffset.UtcNow,
+                    RunId: approval.WorkflowRunId.ToString("D"),
+                    ActivityId: restartActivityId,
+                    Succeeded: false,
+                    Diagnostics:
+                    [
+                        new WorkflowDiagnostic(
+                            WorkflowDiagnosticSeverity.Error,
+                            "focused-restart-failed",
+                            "The focused retry was not applied.",
+                            [exception.Message])
+                    ]),
+                CancellationToken.None).ConfigureAwait(false);
             var failureRefs = new Dictionary<string, string>(refs,
                 StringComparer.Ordinal)
             {
@@ -310,7 +372,7 @@ public sealed class CodeGenerationWorkflowRestartService(
         refs["workflowEventSequence"] = receipt.Event.Sequence.ToString(
             System.Globalization.CultureInfo.InvariantCulture);
         refs["workflowEventType"] = receipt.Event.EventType;
-        await sessionEvents.AppendAsync(new SessionEventRequest(
+        var restartApplied = await sessionEvents.AppendAsync(new SessionEventRequest(
             session.Id,
             Actor: "guyabano",
             EventType: SessionEventTypes.RestartApplied,
@@ -318,6 +380,31 @@ public sealed class CodeGenerationWorkflowRestartService(
             CorrelationId: approval.WorkflowRunId,
             CrossSystemRefs: refs,
             IdempotencyKey: $"approval:{approval.ApprovalId:D}:restart-applied"),
+            cancellationToken).ConfigureAwait(false);
+        await ResolveProductOutcomeRecoveryAsync(
+            session,
+            approval,
+            receipt,
+            restartApplied.EventId,
+            cancellationToken).ConfigureAwait(false);
+        await PublishProgressSafelyAsync(
+            approval.WorkflowRunId,
+            new WorkflowProgress(
+                WorkflowProgressEventType.Completed,
+                "Focused retry",
+                receipt.WasApplied
+                    ? $"Focused retry applied to '{approval.TargetStepKey}'. Invalidated workflow work will now rerun."
+                    : $"Focused retry for '{approval.TargetStepKey}' was already applied; the durable receipt was replayed.",
+                DateTimeOffset.UtcNow,
+                RunId: approval.WorkflowRunId.ToString("D"),
+                ActivityId: restartActivityId,
+                Succeeded: true,
+                Metadata: new Dictionary<string, string>
+                {
+                    ["approvalId"] = approval.ApprovalId.ToString("D"),
+                    ["restartOperationId"] = receipt.OperationId.ToString("D"),
+                    ["restartWasApplied"] = receipt.WasApplied.ToString()
+                }),
             cancellationToken).ConfigureAwait(false);
         return new RestartOutcome(
             RestartOutcomeStatus.Applied,
@@ -329,6 +416,101 @@ public sealed class CodeGenerationWorkflowRestartService(
             WorkflowLeaseGeneration: receipt.LeaseGeneration,
             WorkflowEventSequence: receipt.Event.Sequence,
             RestartWasApplied: receipt.WasApplied);
+    }
+
+    private async Task PublishProgressSafelyAsync(
+        Guid workflowRunId,
+        WorkflowProgress progress,
+        CancellationToken cancellationToken)
+    {
+        if (progressPublisher is null)
+            return;
+        try
+        {
+            await progressPublisher.PublishAsync(
+                workflowRunId.ToString("D"),
+                progress,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Unable to publish focused-restart progress for workflow {WorkflowRunId}.",
+                workflowRunId);
+        }
+    }
+
+    private async Task ResolveProductOutcomeRecoveryAsync(
+        GuyabanoSession session,
+        RestartApproval approval,
+        RestartReceipt receipt,
+        Guid restartAppliedEventId,
+        CancellationToken cancellationToken)
+    {
+        var history = await sessionEvents.ReadAsync(
+            session.Id,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var pending = history.LastOrDefault(item =>
+            item.EventType == SessionEventTypes.UserActionRequired &&
+            item.CorrelationId == approval.WorkflowRunId &&
+            string.Equals(
+                item.CrossSystemRefs?.GetValueOrDefault(
+                    "recoveryTargetStepKey"),
+                approval.TargetStepKey,
+                StringComparison.Ordinal));
+        if (pending is null ||
+            !Guid.TryParse(
+                pending.CrossSystemRefs?.GetValueOrDefault("incidentId"),
+                out var incidentId) ||
+            !Guid.TryParse(
+                pending.CrossSystemRefs?.GetValueOrDefault("recoveryPlanId"),
+                out var recoveryPlanId))
+        {
+            return;
+        }
+        if (history.Any(item =>
+                item.Sequence > pending.Sequence &&
+                item.EventType is SessionEventTypes.RecoverySucceeded or
+                    SessionEventTypes.RecoveryFailed &&
+                item.CrossSystemRefs?.GetValueOrDefault("incidentId") ==
+                    incidentId.ToString("D")))
+        {
+            return;
+        }
+
+        var references = new Dictionary<string, string>(
+            pending.CrossSystemRefs!,
+            StringComparer.Ordinal)
+        {
+            ["approvalId"] = approval.ApprovalId.ToString("D"),
+            ["restartOperationId"] = receipt.OperationId.ToString("D"),
+            ["workflowLeaseGeneration"] = receipt.LeaseGeneration.ToString(
+                System.Globalization.CultureInfo.InvariantCulture)
+        };
+        var coordinator = recoveryCoordinator ??
+            new SessionRecoveryCoordinator(sessionEvents);
+        await coordinator.CompleteAsync(new SessionRecoveryResolution(
+                recoveryPlanId,
+                incidentId,
+                session.Id,
+                SessionRecoveryOutcome.Recovered,
+                Attempt: 1,
+                $"Approved focused restart of '{approval.TargetStepKey}' was accepted by Zhinu; previously accepted workspace state remained authoritative.",
+                receipt.Event.Timestamp,
+                approval.WorkflowRunId,
+                references,
+                new SessionRecoveryActionReceipt(
+                    receipt.OperationId,
+                    SessionRecoveryAction.RetryIdempotently,
+                    "zhinu-workflow-step",
+                    approval.TargetStepKey,
+                    $"Zhinu accepted restart operation '{receipt.OperationId:D}' at lease generation {receipt.LeaseGeneration}.",
+                    receipt.Event.Timestamp,
+                    Verified: true,
+                    references)),
+            restartAppliedEventId,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<RestartOutcome> RejectAndRecoverAsync(

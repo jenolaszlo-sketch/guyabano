@@ -929,8 +929,9 @@ authoritative evidence collection, and workflow policy remain in Guyabano.
 
 ## Near-term implementation order
 
-Zhinu `0.1.0-preview.10` is now consumed and its authoritative restart receipt
-is the restart authority. The active session-hardening scope is:
+Zhinu `0.1.0-preview.11` is now consumed. Its authoritative restart receipt is
+the restart authority, and request-bound signal receipts make ambiguous input
+response retries safe. The active session-hardening scope is:
 
 1. **Complete:** decision-bound approval integrity revalidates the persisted
    preview, binds workspace and Hetu revisions, holds a decision lease through
@@ -950,11 +951,15 @@ is the restart authority. The active session-hardening scope is:
    per-session/run cursor mirrors committed Zhinu events into Siming and routes
    terminal failures through recovery classification.
 
-The next session correctness slice is structured operator-state precedence and
-bounded occurrence-time validation. Then resume deferred work:
+The session correctness boundary now includes structured operator-state
+precedence, authoritative ledger commit time, bounded future occurrence claims,
+and retry-safe Zhinu input responses. Resume deferred work:
 
-5. Add operator query APIs and interactive Zhinu input/resume behavior.
-6. Prove the complete flow with a real dogfood generation and store-level audit.
+5. Add operator query APIs and product-level interactive Zhinu
+   request/wait/cancel/timeout/resume behavior.
+6. Repeat real dogfood generation after the second-run structured-output and
+   recovery-UX hardening; approve the focused decomposition restart, verify
+   generation/build completion, then complete the store-level audit.
 7. Run the `Penghou.Hongxian` extraction spike and validate the boundary with a
    Baize media-generation/batching profile before creating reusable packages.
 8. Prove the minimal typed capability gateway with Codex-backed read-only web

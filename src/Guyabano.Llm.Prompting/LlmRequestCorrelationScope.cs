@@ -16,10 +16,18 @@ public sealed record LlmRequestCorrelation(
 
 public static class LlmRequestCorrelationScope
 {
-    private static readonly AsyncLocal<LlmRequestCorrelation?> CurrentValue =
+    private static readonly AsyncLocal<CorrelationState?> CurrentValue =
         new();
 
-    public static LlmRequestCorrelation? Current => CurrentValue.Value;
+    public static LlmRequestCorrelation? Current =>
+        CurrentValue.Value?.Correlation;
+
+    public static int NextInvocationOrdinal()
+    {
+        var state = CurrentValue.Value ?? throw new InvalidOperationException(
+            "An LLM request correlation scope is required.");
+        return Interlocked.Increment(ref state.InvocationOrdinal);
+    }
 
     public static IDisposable Push(LlmRequestCorrelation correlation)
     {
@@ -29,11 +37,11 @@ public static class LlmRequestCorrelationScope
         ArgumentException.ThrowIfNullOrWhiteSpace(correlation.WorkflowStepKey);
 
         var previous = CurrentValue.Value;
-        CurrentValue.Value = correlation;
+        CurrentValue.Value = new CorrelationState(correlation);
         return new Scope(previous);
     }
 
-    private sealed class Scope(LlmRequestCorrelation? previous) : IDisposable
+    private sealed class Scope(CorrelationState? previous) : IDisposable
     {
         private bool disposed;
 
@@ -45,5 +53,12 @@ public static class LlmRequestCorrelationScope
             CurrentValue.Value = previous;
             disposed = true;
         }
+    }
+
+    private sealed class CorrelationState(LlmRequestCorrelation correlation)
+    {
+        public LlmRequestCorrelation Correlation { get; } = correlation;
+
+        public int InvocationOrdinal;
     }
 }

@@ -592,30 +592,24 @@ public sealed class CodeGenerationTaskActivities(
             cancellationToken).ConfigureAwait(false);
         foreach (var hit in hits)
         {
-            GeneratedFileManifest? manifest;
-            try
-            {
-                manifest = System.Text.Json.JsonSerializer
-                    .Deserialize<GeneratedFileManifest>(
-                        hit.Item.Content,
-                        new System.Text.Json.JsonSerializerOptions(
-                            System.Text.Json.JsonSerializerDefaults.Web));
-            }
-            catch (System.Text.Json.JsonException)
-            {
-                continue;
-            }
+            var manifest = DeserializeOwnershipManifest(
+                hit.Item.Content,
+                hit.Item.Key ?? hit.Item.Id.ToString("D"));
 
-            if (manifest is null ||
-                !manifest.WorkflowRunId.Equals(
+            if (!string.Equals(
+                    manifest.WorkflowRunId,
                     workflowId,
                     StringComparison.Ordinal) ||
-                manifest.TaskId.Equals(taskId, StringComparison.Ordinal))
+                string.Equals(
+                    manifest.TaskId,
+                    taskId,
+                    StringComparison.Ordinal))
             {
                 continue;
             }
 
             var conflict = manifest.Files.FirstOrDefault(file =>
+                file is not null &&
                 file.Operation is not "Deleted" and not "Stale" &&
                 currentOwnedPaths.Contains(file.RelativePath));
             if (conflict is not null)
@@ -628,16 +622,60 @@ public sealed class CodeGenerationTaskActivities(
         }
     }
 
+    internal static GeneratedFileManifest DeserializeOwnershipManifest(
+        string content,
+        string sourceIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceIdentity);
+
+        GeneratedFileManifest? manifest;
+        try
+        {
+            manifest = System.Text.Json.JsonSerializer
+                .Deserialize<GeneratedFileManifest>(
+                    content,
+                    new System.Text.Json.JsonSerializerOptions(
+                        System.Text.Json.JsonSerializerDefaults.Web));
+        }
+        catch (System.Text.Json.JsonException exception)
+        {
+            throw new InvalidDataException(
+                $"Generated-file ownership manifest '{sourceIdentity}' contains invalid JSON.",
+                exception);
+        }
+
+        if (manifest is null ||
+            string.IsNullOrWhiteSpace(manifest.WorkflowRunId) ||
+            string.IsNullOrWhiteSpace(manifest.TaskId) ||
+            manifest.Files is null ||
+            manifest.Files.Any(file =>
+                file is null ||
+                string.IsNullOrWhiteSpace(file.RelativePath)))
+        {
+            throw new InvalidDataException(
+                $"Generated-file ownership manifest '{sourceIdentity}' is missing " +
+                "workflowRunId, taskId, files, or a file relativePath.");
+        }
+
+        return manifest;
+    }
+
     internal static ContextQuery CreateOwnershipQuery(string workflowId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowId);
         return new ContextQuery
         {
-            Text = workflowId,
             Scope = ContextIndexingArtifactRepository.DefaultScope,
             Kinds = [ContextKinds.Artifact],
+            Tags =
+            [
+                $"workflow:{workflowId}",
+                "kind:generated-file-manifest"
+            ],
             // Cangjie deliberately caps one search at 100 results. The
-            // workflow ID narrows this to the current run; exceeding the
+            // exact workflow and artifact-kind tags narrow this to manifests
+            // from the current run; exceeding the
             // provider limit must never turn successful generation into a
             // retrying activity.
             Limit = 100,

@@ -186,8 +186,24 @@ public sealed class ChatRunStateTests
 
         run.RestartPreview.Should().BeSameAs(preview);
         run.RecoveryNotice.Should().Be(
-            "Retry preview ready — approval required.");
+            "Impact preview ready — no workflow work has restarted. " +
+            "Confirm below to run the focused retry.");
         run.IsRunning.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BeginRestartSubmission_DoesNotClaimRestartWasApplied()
+    {
+        using var run = new ChatRunState(
+            "test prompt",
+            CancellationToken.None);
+
+        run.BeginRestartSubmission();
+
+        run.Status.Should().Be("Submitting focused retry");
+        run.RecoveryNotice.Should().Be(
+            "Submitting the approved retry; no workflow work has restarted yet.");
+        run.Result.Should().BeNull();
     }
 
     [Fact]

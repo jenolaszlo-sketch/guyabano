@@ -146,8 +146,8 @@ public sealed class CodeGenerationWorkflowRestartService(
             workflowRunId,
             new WorkflowProgress(
                 WorkflowProgressEventType.Completed,
-                "Focused retry preview",
-                $"Preview ready: {invalidated.Length} step(s) will rerun and {reusable.Length} completed step(s) remain reusable. Approval is required.",
+                "Retry impact preview (no restart)",
+                $"Preview ready: {invalidated.Length} step(s) would rerun and {reusable.Length} completed step(s) would remain reusable. No workflow work has restarted; explicit approval is required.",
                 preview.GeneratedAt,
                 RunId: workflowRunId.ToString("D"),
                 ActivityId: $"restart-preview:{preview.PreviewId:D}",
@@ -222,24 +222,6 @@ public sealed class CodeGenerationWorkflowRestartService(
             approval.WorkflowRunId, approval.TargetStepKey, approval.ApprovedBy, session.Id);
 
         var restartActivityId = $"focused-restart:{approval.ApprovalId:D}";
-        await PublishProgressSafelyAsync(
-            approval.WorkflowRunId,
-            new WorkflowProgress(
-                WorkflowProgressEventType.Started,
-                "Focused retry",
-                $"Restart accepted for '{approval.TargetStepKey}'; waiting for Zhinu to apply the selective invalidation.",
-                DateTimeOffset.UtcNow,
-                RunId: approval.WorkflowRunId.ToString("D"),
-                ActivityId: restartActivityId,
-                Succeeded: null,
-                Metadata: new Dictionary<string, string>
-                {
-                    ["approvalId"] = approval.ApprovalId.ToString("D"),
-                    ["previewId"] = approval.PreviewId.ToString("D"),
-                    ["targetStepKey"] = approval.TargetStepKey
-                }),
-            cancellationToken).ConfigureAwait(false);
-
         var refs = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["sessionId"] = session.Id.ToString(),
@@ -260,6 +242,23 @@ public sealed class CodeGenerationWorkflowRestartService(
             CorrelationId: approval.WorkflowRunId,
             CrossSystemRefs: refs,
             IdempotencyKey: $"approval:{approval.ApprovalId:D}:granted"),
+            cancellationToken).ConfigureAwait(false);
+        await PublishProgressSafelyAsync(
+            approval.WorkflowRunId,
+            new WorkflowProgress(
+                WorkflowProgressEventType.Started,
+                "Focused retry",
+                $"Approval was recorded for '{approval.TargetStepKey}'; waiting for Zhinu to apply the selective invalidation.",
+                DateTimeOffset.UtcNow,
+                RunId: approval.WorkflowRunId.ToString("D"),
+                ActivityId: restartActivityId,
+                Succeeded: null,
+                Metadata: new Dictionary<string, string>
+                {
+                    ["approvalId"] = approval.ApprovalId.ToString("D"),
+                    ["previewId"] = approval.PreviewId.ToString("D"),
+                    ["targetStepKey"] = approval.TargetStepKey
+                }),
             cancellationToken).ConfigureAwait(false);
         RestartReceipt receipt;
         try

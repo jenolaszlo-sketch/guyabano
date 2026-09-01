@@ -100,12 +100,22 @@ internal sealed class ChatRunState(
         IsRunning = true;
     }
 
+    public void BeginRestartSubmission()
+    {
+        RecoveryError = null;
+        RecoveryNotice =
+            "Submitting the approved retry; no workflow work has restarted yet.";
+        Status = "Submitting focused retry";
+    }
+
     public void SetRestartPreview(RestartPreview preview)
     {
         ArgumentNullException.ThrowIfNull(preview);
         RestartPreview = preview;
         RecoveryError = null;
-        RecoveryNotice = "Retry preview ready — approval required.";
+        RecoveryNotice =
+            "Impact preview ready — no workflow work has restarted. " +
+            "Confirm below to run the focused retry.";
     }
 
     public void SetRecoveryFailure(string error)

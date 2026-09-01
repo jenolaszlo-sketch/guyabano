@@ -26,7 +26,7 @@ Last reviewed: **2026-08-31**
   product-outcome incidents, focused restart UX, collision-free Baize
   invocation publications with derived Cangjie snapshots, and deployment/UI
   precedence cleanup.
-- The full solution passes **374 tests** after the second dogfood hardening
+- The full solution passes **378 tests** after the latest dogfood hardening
   batch.
 - `git diff --check` passes with only existing LF-to-CRLF warnings.
 - The P0 review defects are corrected: Baize streaming and overload coverage,
@@ -480,6 +480,25 @@ session database or ask users to diagnose raw SQLite state.
   reconciliation failures after successful model output return an auditable
   `ArtifactPublicationFailed` result instead of regenerating files. Workflow
   version 7 owns the new persisted retry contract.
+- [x] Inspect the September 1 dogfood workflow
+  `01a05b27-c329-7022-940d-532bc7646828`. Four decompositions completed, while
+  `TASK-TODOAPIHOST` exhausted its two automatic attempts: the first response
+  omitted the result tool call and the second reached the 24,000-token limit
+  before closing its JSON or supplying four required collections. This is not
+  safely recoverable from syntax alone because the missing values carry domain
+  meaning. The workflow stopped in its accepted workspace and recorded the
+  product incident and recovery plan.
+- [x] Distinguish retry preview from retry execution in both evidence and UI.
+  The same run recorded `invalidation-previewed`, but no `approval-granted`,
+  Zhinu restart operation, or post-completion workflow event: execution had not
+  been requested. Preview now says that no restart occurred, the confirming
+  action is labelled `Run focused retry now`, submission renders immediately,
+  and the immutable approval entry is appended before started progress can be
+  displayed.
+- [x] Harden generated-file ownership lookup after the same dogfood cycle.
+  Exact workflow/artifact-kind tags exclude unrelated Cangjie artifacts, and
+  malformed actual manifests fail with an identified integrity error rather
+  than a null dereference or a silently skipped conflict check.
 - [ ] Replace the current `LastOrDefault` failed-decomposition selection with a
   UI list or deterministic recovery queue. A run can contain multiple failed
   decompositions, and retrying only the last one cannot make the overall result

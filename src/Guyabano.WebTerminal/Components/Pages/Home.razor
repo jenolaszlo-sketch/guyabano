@@ -183,7 +183,7 @@
                                         @onclick="() => PreviewFailedDecompositionAsync(run)">
                                         @(run.IsRecoveryBusy
                                             ? "Preparing preview..."
-                                            : "Preview retry impact")
+                                            : "Review retry impact")
                                     </button>
                                 }
                                 else
@@ -202,8 +202,8 @@
                                         disabled="@run.IsRecoveryBusy"
                                         @onclick="() => ApproveFailedDecompositionAsync(run)">
                                         @(run.IsRecoveryBusy
-                                            ? "Applying restart..."
-                                            : "Approve focused retry")
+                                            ? "Submitting focused retry..."
+                                            : "Run focused retry now")
                                     </button>
                                 }
                                 @if (run.RecoveryError is not null)
@@ -512,7 +512,8 @@
         if (run.RestartPreview is null || run.IsRecoveryBusy)
             return;
         run.IsRecoveryBusy = true;
-        run.RecoveryError = null;
+        run.BeginRestartSubmission();
+        await InvokeAsync(StateHasChanged);
         try
         {
             var outcome = await WorkflowClient.ApproveRestartAsync(

@@ -100,7 +100,7 @@ public sealed class WorkflowRestartTests : IDisposable
         }
 
         entries.Select(entry => entry.Progress.Stage).Should().Equal(
-            "Focused retry preview",
+            "Retry impact preview (no restart)",
             "Focused retry",
             "Focused retry");
         entries.Select(entry => entry.Progress.EventType).Should().Equal(

@@ -26,10 +26,29 @@ public sealed class CodeGenerationModelSelectorTests
     [Fact]
     public void CreateOwnershipQuery_StaysWithinCangjieProviderLimit()
     {
-        var query = CodeGenerationTaskActivities.CreateOwnershipQuery(
-            Guid.NewGuid().ToString("D"));
+        var workflowId = Guid.NewGuid().ToString("D");
+        var query = CodeGenerationTaskActivities.CreateOwnershipQuery(workflowId);
 
         query.Limit.Should().Be(100);
+        query.Text.Should().BeNull();
+        query.Tags.Should().BeEquivalentTo(
+            $"workflow:{workflowId}",
+            "kind:generated-file-manifest");
+    }
+
+    [Theory]
+    [InlineData("{\"name\":\"unrelated artifact\"}")]
+    [InlineData("{\"workflowRunId\":\"workflow-1\",\"taskId\":\"task-1\",\"files\":null}")]
+    [InlineData("not-json")]
+    public void DeserializeOwnershipManifest_RejectsMalformedEvidence(
+        string content)
+    {
+        var action = () => CodeGenerationTaskActivities
+            .DeserializeOwnershipManifest(content, "artifact-1");
+
+        action.Should()
+            .Throw<InvalidDataException>()
+            .WithMessage("*artifact-1*");
     }
 
     [Fact]

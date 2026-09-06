@@ -720,6 +720,17 @@ activity into Hongxian references and events, while application vocabulary,
 workflow sequencing, dependency declarations, acceptance gates, and restart
 policy remain visible in Guyabano's code.
 
+Code memory is an explicit optional host capability, even though Guyabano is a
+coding application and will normally enable it. Do not add Hetu to Hongxian core
+or storage. After Hongxian's optional session-resource boundary is proven,
+Guyabano may consume `Penghou.Hongxian.Hetu` (or host the equivalent mapping at
+the application boundary) to correlate each immutable workspace/session
+revision with one exact Hetu publication. A failed or lagging index records
+immutable evidence and reconciles forward; it does not roll back the session or
+pretend that stale graph state is current. Running Guyabano without the adapter
+must retain ordinary session, workflow, artifact, and recovery behavior while
+explicitly reporting that code-memory capability is absent.
+
 Required tests:
 
 - Unit tests cover command validation, idempotent event append, causation and
@@ -761,12 +772,14 @@ generated-file ownership, impact analysis, selective regeneration, coding
 evidence, product recovery explanations, and all Hetu, Cangjie, Baize, and
 Zhinu policy.
 
-**Dependency status:** Guyabano integration is waiting for the first published
-`Penghou.Hongxian` and `Penghou.Hongxian.Sqlite` preview packages. Until then,
-the existing `Guyabano.Session` projects remain the production implementation;
-do not add a sibling-repository project reference. After publication, add an
-explicit Guyabano mapping layer, prove package-backed parity, run the recovery
-dogfood scenario, and only then remove the duplicate internal kernel code.
+**Dependency status:** `Penghou.Hongxian` and `Penghou.Hongxian.Sqlite` preview
+packages are published. Package-backed replacement remains deferred while
+Fuwen is the active ecosystem priority. When work resumes, add an explicit
+Guyabano mapping layer without sibling-repository project references, prove
+package-backed parity, run the recovery dogfood scenario, and only then remove
+the duplicate internal kernel code. Do not couple that replacement to Hetu:
+the optional Hongxian/Hetu dependency boundary and its packed-consumer tests are
+a separate prerequisite for code-memory synchronization.
 
 ```text
 Analyze

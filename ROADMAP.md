@@ -26,6 +26,13 @@ The central boundary is:
 > Guyabano decides what must happen. Zhinu durably enforces the process. A coding
 > executor attempts one bounded workspace change.
 
+Longer term, Guyabano may learn that its current methodology is insufficient
+during execution. That is a replan, not an increasingly elaborate retry:
+Fuwen produces a new immutable plan revision, Zhinu activates a new deterministic
+execution generation, and Hongxian preserves the evidence. Guyabano remains the
+application policy deciding what objectives, acceptance criteria, and approvals
+mean for software development.
+
 Detailed session progress, remaining work, and verification evidence are tracked
 only in [`docs/session-backlog.md`](docs/session-backlog.md).
 
@@ -102,6 +109,16 @@ workspace authority, or final acceptance decision.
 - Enforces workflow transitions, retries, gates, and durable operation phases
 - Records revision-bound evidence and audit history as those contracts mature
 - Does not own Guyabano's coding methodology or provider-specific harness behavior
+
+### Fuwen
+
+- Compiles and admits immutable artifact-workflow plans with stable structural
+  identities and trusted callable contracts.
+- Owns plan-revision lineage and deterministic semantic comparison.
+- Does not decide whether Guyabano artifacts are physically reusable or activate
+  a Zhinu generation.
+- Enables a future `Accept` / `Retry` / `Replan` boundary without permitting
+  live mutation of an executing workflow.
 
 ### Hetu and Cangjie
 
@@ -928,6 +945,28 @@ and retry-safe Zhinu input responses. Resume deferred work:
 11. Resume executor/Luban extraction only after the session and workspace
    contracts are stable under real use.
 
+### Future adaptive-planning dependency
+
+Do not implement workflow evolution directly in Guyabano while its reusable
+contracts are still being established upstream. After Fuwen admission and plan
+comparison plus Zhinu workflow-instance/generation cutover are available:
+
+1. Express one bounded Guyabano methodology as an admitted Fuwen revision.
+2. Map review/checkpoint outcomes to typed `Accept`, `Retry`, or `Replan`
+   decisions; a replan proposal cannot authorize its own activation.
+3. Preview changed nodes, candidate artifact reuse, validation-only reruns,
+   invalidated dependents, affected running work, and estimated cost.
+4. Require user/supervisor approval initially, then activate a new Zhinu
+   generation through an authoritative transition receipt.
+5. Mirror plan proposal, decision, cutover, reuse/invalidation, late completion,
+   and recovery evidence into Hongxian through forward-only outbox delivery.
+6. Prove the original generation cannot progress after supersession, while a
+   rejected pre-cutover candidate leaves the current generation resumable.
+
+Guyabano owns objective/acceptance compatibility and workspace policy. Fuwen
+owns planning semantics, Zhinu owns transition authority, and Hongxian owns
+history. No Guyabano database becomes a competing source of truth.
+
 Detailed session acceptance criteria and current implementation evidence live
 in [`docs/session-backlog.md`](docs/session-backlog.md); do not duplicate those
 checkboxes here.
@@ -950,6 +989,9 @@ Cross-repository ownership for rejection and recovery behavior is defined in
 - Guyabano's methodology can later be represented as a validated Zhinu artifact.
 - A session remains auditable and selectively rerunnable after UI, process, or
   transient chat history is lost.
+- A materially changed objective can produce a supervised new immutable plan
+  generation that reuses only provenance-compatible work and preserves the
+  complete earlier history.
 
 ## Relationship to the Zhinu roadmap
 

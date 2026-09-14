@@ -634,6 +634,33 @@ Repository-intelligence follow-ups:
 - Add a host-visible disclosure preview showing which Cangjie snapshot and how
   many characters will be sent before a model route receives repository context.
 
+Memory/experience integration pilot, after upstream contracts stabilize:
+
+- Treat Cangjie as attributed working cognition: store changes in
+  understanding, constraints, questions, concerns, and decisions rather than
+  transcripts or hidden control instructions.
+- Compile bounded activity context and delta-oriented checkpoint context, then
+  persist the exact Cangjie snapshot supplied to every Baize execution.
+- Treat Hongxian as execution evidence and episodic experience. Project a
+  deterministic retrospective comparing original plan, activated revisions,
+  actual work, retries, mutations, validation, recovery, cost, and outcome.
+- Let Marang compose advisory model guidance and similar-run experience for
+  planning/checkpoint decisions; preserve freshness, sample size, provenance,
+  and truncation rather than presenting a universal model ranking.
+- Bind every Fuwen proposal to the exact recalled experience and context
+  snapshots that influenced it. Zhinu executes only an explicitly admitted and
+  activated immutable plan revision.
+- Record retrieval, inclusion, citation, decision use, contradiction, and
+  validation outcomes so future context-selection quality can be evaluated
+  without assuming retrieval caused success.
+- Keep long-term semantic/procedural knowledge promotion manual or
+  policy-supervised until repeated evidence, contradiction, supersession, and
+  demotion semantics are proven.
+
+Guyabano owns application policy and the end-to-end decision experience; it
+does not reimplement Cangjie storage, Hongxian projections, Baize execution,
+Fuwen planning semantics, or Zhinu transition authority.
+
 ### Guyabano sessions
 
 Introduce a long-lived `GuyabanoSession` as the user-visible and auditable

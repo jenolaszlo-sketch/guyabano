@@ -12,9 +12,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Penghou.Fuwen\src\Penghou.Fuwen\Penghou.Fuwen.csproj" />
-    <ProjectReference Include="..\..\..\Penghou.Fuwen\src\Penghou.Fuwen.Compiler\Penghou.Fuwen.Compiler.csproj" />
-    <ProjectReference Include="..\..\..\Penghou.Fuwen\src\Penghou.Fuwen.Zhinu\Penghou.Fuwen.Zhinu.csproj" />
+    <PackageReference Include="Penghou.Fuwen" Version="0.1.0-preview.2" />
+    <PackageReference Include="Penghou.Fuwen.Compiler" Version="0.1.0-preview.2" />
+    <PackageReference Include="Penghou.Fuwen.Zhinu" Version="0.1.0-preview.2" />
   </ItemGroup>
 
   <ItemGroup>

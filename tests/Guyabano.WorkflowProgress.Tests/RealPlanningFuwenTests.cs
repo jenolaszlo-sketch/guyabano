@@ -106,10 +106,11 @@ public sealed class RealPlanningFuwenTests
         var plan = new WorkflowPlanBuilder("realPlanning", "1", str, new PrimitiveType(FuwenPrimitiveKind.Json), "routing/1")
             .AddNode(new ContextNode("ctx", ctxPath, contextDescriptor,
                 [new ArgumentBinding("request", new InputBinding([]))], str))
+            // R25: the OptionalType previousFailure parameter is omitted
+            // (previously required an explicit null literal).
             .AddNode(new InferenceNode("domain", inferPath, profile, template,
                 [
                     new ArgumentBinding("request", new NodeOutputBinding(ctxPath, [])),
-                    new ArgumentBinding("previousFailure", new LiteralBinding(JsonDocument.Parse("null").RootElement.Clone())),
                 ], [], new PrimitiveType(FuwenPrimitiveKind.Json),
                 [new ContextRequirement("ctx", new NodeOutputBinding(ctxPath, []), str)]))
             .AddNode(new ReturnNode("return_result", returnPath, new NodeOutputBinding(inferPath, [])))

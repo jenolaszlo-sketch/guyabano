@@ -173,20 +173,15 @@ public sealed class RealPlanningRetryTests
             var loopPath = StructuralNodeIdentity.Create("realRetry", "attempts");
             var answerPath = loopPath + "/$body/answer";
             var returnPath = StructuralNodeIdentity.Create("realRetry", "return_result");
-            using var falseLiteral = JsonDocument.Parse("false");
-            using var nullLiteral = JsonDocument.Parse("null");
-            using var emptyLiteral = JsonDocument.Parse("\"\"");
+            // R24: the envelope seed is a plain object literal against the
+            // named attempt schema (previously required field-wise ObjectBinding).
+            using var initial = JsonDocument.Parse("""{"ok":false,"domain":null,"error":""}""");
             using var breakLiteral = JsonDocument.Parse("true");
             var plan = new WorkflowPlanBuilder("realRetry", "1", str, attemptType, "routing/1")
                 .AddSchema(attemptSchema)
                 .AddNode(new RepeatNode(
                     "attempts", loopPath, maxIterations, attemptType,
-                    new ObjectBinding(new Dictionary<string, Binding>
-                    {
-                        ["ok"] = new LiteralBinding(falseLiteral.RootElement.Clone()),
-                        ["domain"] = new LiteralBinding(nullLiteral.RootElement.Clone()),
-                        ["error"] = new LiteralBinding(emptyLiteral.RootElement.Clone()),
-                    }),
+                    new LiteralBinding(initial.RootElement.Clone()),
                     [
                         new InferenceNode("answer", answerPath, profile, template,
                             [

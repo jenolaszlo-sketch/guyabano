@@ -12,9 +12,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Penghou.Fuwen" Version="0.1.0-preview.3" />
-    <PackageReference Include="Penghou.Fuwen.Compiler" Version="0.1.0-preview.3" />
-    <PackageReference Include="Penghou.Fuwen.Zhinu" Version="0.1.0-preview.3" />
+    <PackageReference Include="Penghou.Fuwen" Version="0.1.0-preview.4" />
+    <PackageReference Include="Penghou.Fuwen.Compiler" Version="0.1.0-preview.4" />
+    <PackageReference Include="Penghou.Fuwen.Zhinu" Version="0.1.0-preview.4" />
   </ItemGroup>
 
   <ItemGroup>

@@ -14,15 +14,24 @@ namespace Guyabano.CodeGeneration.Planning.Fuwen;
 /// the configured planner model, the real <see cref="DomainDiscovery"/>
 /// JSON schema, and the real repair/parse/validate chain. It mirrors one
 /// <c>ExecuteStageAsync&lt;DomainDiscovery&gt;</c> attempt from
-/// <c>CodeGenerationPlanningService</c> (single attempt; stage retries map
-/// to Fuwen repeat loops, not to this executor).
+/// <c>CodeGenerationPlanningService</c>.
 /// </summary>
+/// <remarks>
+/// In strict mode (default) a failed attempt throws, failing the step.
+/// In envelope mode (<paramref name="outputEnvelope"/>), a failed attempt
+/// returns <c>{"ok":false,"error":...}</c> instead, so a Fuwen repeat loop
+/// can implement the service's bounded stage-retry loop: loop state carries
+/// the envelope, <c>previousFailure</c> binds the envelope's error back
+/// into the next attempt, and the break condition checks the envelope's
+/// <c>ok</c> flag.
+/// </remarks>
 public sealed class PlanningDomainDiscoveryExecutor(
     ILlmRouter llmRouter,
     IPromptBuilder<DomainDiscoveryPromptContext> promptBuilder,
     ILlmStructuredOutputRepairer repairer,
     string model,
-    int maxTokens = 8000) : IInferenceExecutor
+    int maxTokens = 8000,
+    bool outputEnvelope = false) : IInferenceExecutor
 {
     public async ValueTask<InferenceExecutionResult> ExecuteAsync(
         InferenceExecutionRequest request,
@@ -38,18 +47,43 @@ public sealed class PlanningDomainDiscoveryExecutor(
             cancellationToken).ConfigureAwait(false);
         var response = await llmRouter.CompleteStreamingAsync(
             model, llmRequest, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (response is null)
+            return Failed("The domain discovery stage returned no response.");
         var repaired = await repairer.RepairAsync(
             response, format, cancellationToken).ConfigureAwait(false);
         var parsed = StructuredPlanningStageParser<DomainDiscovery>.Parse(repaired);
         if (!parsed.Succeeded || parsed.Value is null)
-            throw new InvalidOperationException(
+            return Failed(
                 $"Domain discovery stage returned invalid structured output: {parsed.Error ?? "Parsing failed."}");
         var errors = StagedPlanningValidator.ValidateDomain(parsed.Value);
         if (errors.Count > 0)
-            throw new InvalidOperationException(
+            return Failed(
                 $"Domain discovery stage failed validation: {string.Join(" ", errors)}");
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(parsed.Value));
+        if (outputEnvelope)
+        {
+            using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                ok = true,
+                domain = parsed.Value,
+                error = (string?)null,
+            }));
+            return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
+        }
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(document.RootElement));
+    }
+
+    private InferenceExecutionResult Failed(string error)
+    {
+        if (!outputEnvelope)
+            throw new InvalidOperationException(error);
+        using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            ok = false,
+            domain = (DomainDiscovery?)null,
+            error,
+        }));
+        return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
     }
 
     private static string? ReadArgument(

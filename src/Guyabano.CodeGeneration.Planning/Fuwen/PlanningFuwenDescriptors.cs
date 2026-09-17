@@ -38,6 +38,29 @@ public static class PlanningFuwenDescriptors
             $"{ProfileName}@{Version}|model={model}|maxTokens={maxTokens}|pack=domain-discovery|schema=Guyabano.CodeGeneration.Planning.DomainDiscovery")));
 
     /// <summary>
+    /// Schema descriptor for a single stage-attempt envelope
+    /// (<c>{ok, domain, error}</c>) pinning the exact field shape.
+    /// </summary>
+    public static (DescriptorReference Descriptor, ObjectSchemaDefinition Schema) AttemptSchema()
+    {
+        const string name = "guyabano.planning-attempt";
+        var descriptor = new DescriptorReference(
+            DescriptorKind.Schema,
+            name,
+            Version,
+            Digest("descriptor/v1", Encoding.UTF8.GetBytes(
+                $"{name}@{Version}|{{ok:Boolean,domain:Json,error:Optional(String)}}")));
+        var schema = new ObjectSchemaDefinition(
+            descriptor,
+            [
+                new SchemaField("ok", new PrimitiveType(FuwenPrimitiveKind.Boolean)),
+                new SchemaField("domain", new PrimitiveType(FuwenPrimitiveKind.Json)),
+                new SchemaField("error", new OptionalType(new PrimitiveType(FuwenPrimitiveKind.String))),
+            ]);
+        return (descriptor, schema);
+    }
+
+    /// <summary>
     /// Prompt template pinning the exact rendered pack bytes
     /// (<c>system.sbn</c> + <c>user.sbn</c>).
     /// </summary>

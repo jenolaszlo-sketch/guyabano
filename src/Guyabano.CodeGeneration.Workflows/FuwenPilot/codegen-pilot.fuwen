@@ -1,12 +1,33 @@
-// Minimal pilot reproducing Guyabano's hard-coded CodeGenerationWorkflow
-// sequential spine: ctx -> plan (infer) -> scaffold (activity) -> build (activity)
-// This is the DSL surface that compiles to the same sequential IR
-// the programmatic builder below produces. Fan-out/loop waves are programmatic
-// only until fuwen-grammar adds fanout.
+// Extended pilot reproducing Guyabano's hard-coded CodeGenerationWorkflow
+// via Fuwen IR v3-v7 features in a single coherent pipeline.
+//
+// Features exercised:
+//   v3: context, infer, activity, return (sequential spine)
+//   v5: conditional merge (value-producing branch on review need)
+//   v6: repeat loop (bounded architecture review passes, seeded from input)
+//   v4: fan-out keyed decomposition wave (generation wave)
+//   v7: checkpoint (durable state persistence)
+//   v7: wait (external approval gate / signal suspend)
+//
+// Flow: ctx -> plan -> conditional(review) -> repeat(review passes) ->
+//       prepareTasks -> fan-out(decompose) -> checkpoint -> wait -> build -> return
 workflow codegenPilot(input: string) -> string {
   context ctx = context "guyabano.context@1#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" (request: input;) -> string;
   infer plan = infer "guyabano.plan-profile@1#bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" using "guyabano.plan-template@1#cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" (request: ctx;) with ctx -> string;
-  activity scaffold = activity "guyabano.scaffold@1#dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" (plan: plan;) -> string;
-  activity build = activity "guyabano.build@1#eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" (artifact: scaffold;) -> string;
+  if needsReview plan != "" {
+    activity reviewActivity = activity "guyabano.review@1#0000000000000000000000000000000000000000000000000000000000000000" (value: input;) -> string;
+  } else {
+    activity skipReview = activity "guyabano.review@1#0000000000000000000000000000000000000000000000000000000000000000" (value: input;) -> string;
+  } merge reviewActivity, skipReview -> string;
+  repeat reviewLoop max 3 state planState: string = input {
+    activity reviewPass = activity "guyabano.review@1#0000000000000000000000000000000000000000000000000000000000000000" (value: planState;) -> string;
+  } continue reviewPass break iter == 3 -> string;
+  activity prepareTasks = activity "guyabano.prepare-tasks@1#2222222222222222222222222222222222222222222222222222222222222222" (plan: reviewLoop;) -> list<string>[8];
+  fanout tasks over prepareTasks as task: string key task max 8 concurrency 4 {
+    activity generate = activity "guyabano.generate@1#ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" (task: task;) -> string;
+  } yield generate -> list<string>[8];
+  checkpoint generated value tasks -> list<string>[8];
+  wait approval signal approval-signal type string timeout 300;
+  activity build = activity "guyabano.build@1#eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" (artifact: approval;) -> string;
   return build;
 }

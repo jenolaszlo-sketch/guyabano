@@ -83,22 +83,25 @@ public static class PlanningFuwenDescriptors
 
     /// <summary>
     /// Schema descriptor for a single stage-attempt envelope
-    /// (<c>{ok, domain, error}</c>) pinning the exact field shape.
+    /// (<c>{ok, artifact, error}</c>) shared by every planning stage,
+    /// pinning the exact field shape. Retry loops carry this envelope as
+    /// state; <c>previousFailure</c> binds the envelope's error back into
+    /// the next attempt and the break condition checks its <c>ok</c> flag.
     /// </summary>
-    public static (DescriptorReference Descriptor, ObjectSchemaDefinition Schema) AttemptSchema()
+    public static (DescriptorReference Descriptor, ObjectSchemaDefinition Schema) StageAttemptSchema()
     {
-        const string name = "guyabano.planning-attempt";
+        const string name = "guyabano.stage-attempt";
         var descriptor = new DescriptorReference(
             DescriptorKind.Schema,
             name,
             Version,
             Digest("descriptor/v1", Encoding.UTF8.GetBytes(
-                $"{name}@{Version}|{{ok:Boolean,domain:Json,error:Optional(String)}}")));
+                $"{name}@{Version}|{{ok:Boolean,artifact:Json,error:Optional(String)}}")));
         var schema = new ObjectSchemaDefinition(
             descriptor,
             [
                 new SchemaField("ok", new PrimitiveType(FuwenPrimitiveKind.Boolean)),
-                new SchemaField("domain", new PrimitiveType(FuwenPrimitiveKind.Json)),
+                new SchemaField("artifact", new PrimitiveType(FuwenPrimitiveKind.Json)),
                 new SchemaField("error", new OptionalType(new PrimitiveType(FuwenPrimitiveKind.String))),
             ]);
         return (descriptor, schema);

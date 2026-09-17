@@ -20,4 +20,8 @@ public sealed class FuwenPlanningOptions
     public int ContractMaxTokens { get; set; } = 12000;
 
     public int ComponentMaxTokens { get; set; } = 16000;
+
+    public bool IncludeRepositoryContextInPrompts { get; set; } = false;
+
+    public int RepositoryContextMaximumPromptCharacters { get; set; } = 40000;
 }

@@ -65,7 +65,7 @@ public sealed class PlanningDomainDiscoveryExecutor(
             using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(new
             {
                 ok = true,
-                domain = parsed.Value,
+                artifact = parsed.Value,
                 error = (string?)null,
             }));
             return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
@@ -80,7 +80,7 @@ public sealed class PlanningDomainDiscoveryExecutor(
         using var envelope = JsonDocument.Parse(JsonSerializer.Serialize(new
         {
             ok = false,
-            domain = (DomainDiscovery?)null,
+            artifact = (DomainDiscovery?)null,
             error,
         }));
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));

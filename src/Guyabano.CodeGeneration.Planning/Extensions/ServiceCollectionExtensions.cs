@@ -102,7 +102,12 @@ public static class ServiceCollectionExtensions
                     options.ContractMaxTokens > 0 &&
                     options.ComponentMaxTokens > 0,
                 "All Fuwen planning token budgets must be positive.")
+            .Validate(
+                options => options.RepositoryContextMaximumPromptCharacters > 0,
+                "CodeGeneration:RepositoryContextMaximumPromptCharacters must be positive.")
             .ValidateOnStart();
+
+        services.AddSingleton<PlanningRequestContextProvider>();
 
         services.AddSingleton<PlanningDomainDiscoveryExecutor>(provider =>
             new PlanningDomainDiscoveryExecutor(

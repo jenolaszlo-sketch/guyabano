@@ -1,17 +1,21 @@
 using System.Text.Json;
+using Guyabano.CodeGeneration.Planning;
 using Guyabano.CodeGeneration.Planning.Extensions;
 using Guyabano.CodeGeneration.Planning.Fuwen;
 using Guyabano.Llm.Prompting;
 using Guyabano.Llm.Prompting.Extensions;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Penghou.Baize;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Penghou.Baize.Claude;
 using Penghou.Baize.Gemini;
 using Penghou.Baize.Ollama;
 using Penghou.Baize.OpenAi;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
+using Penghou.Baize.Router;
 using Penghou.Baize.Router.Extensions;
+using Penghou.Baize.Tools;
 using Penghou.Baize.Tools.Extensions;
 using Penghou.Fuwen;
 using Penghou.Fuwen.Compiler;
@@ -19,21 +23,29 @@ using Penghou.Fuwen.Zhinu;
 using Penghou.Zhinu;
 using Penghou.Zhinu.Sqlite;
 
-// Live Fuwen-hosted planning run: context -> domain discovery ->
-// solution topology -> per-context contract/component fan-out, using the
-// same appsettings.json (CodeGeneration + LlmRouting) as the worker.
-// Usage: Guyabano.FuwenPlanning "Plan a todo app." [--workdir <dir>]
+// Live Fuwen-hosted planning run: context -> domain discovery (with
+// bounded retries) -> solution topology (with bounded retries) ->
+// per-context contract/component fan-out, using the same appsettings.json
+// (CodeGeneration + LlmRouting) as the worker.
+// Usage: Guyabano.FuwenPlanning "<request>" [--workdir <dir>] [--context-file <path>]
 var request = args.FirstOrDefault(arg => !arg.StartsWith("--", StringComparison.Ordinal));
-var workdirFlag = Array.FindIndex(
-    args, arg => string.Equals(arg, "--workdir", StringComparison.Ordinal));
-var workdir = workdirFlag >= 0 && workdirFlag + 1 < args.Length
-    ? args[workdirFlag + 1]
-    : Path.Combine(Path.GetTempPath(), "guyabano-fuwen-live", Guid.NewGuid().ToString("N"));
+string? FlagValue(string flag)
+{
+    var index = Array.FindIndex(
+        args, arg => string.Equals(arg, flag, StringComparison.Ordinal));
+    return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+}
+var workdir = FlagValue("--workdir")
+    ?? Path.Combine(Path.GetTempPath(), "guyabano-fuwen-live", Guid.NewGuid().ToString("N"));
+var contextFile = FlagValue("--context-file");
 if (string.IsNullOrWhiteSpace(request))
 {
-    Console.Error.WriteLine("Usage: Guyabano.FuwenPlanning \"<request>\" [--workdir <dir>]");
+    Console.Error.WriteLine("Usage: Guyabano.FuwenPlanning \"<request>\" [--workdir <dir>] [--context-file <path>]");
     return 2;
 }
+string? repositoryContent = contextFile is not null
+    ? await File.ReadAllTextAsync(contextFile)
+    : null;
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -66,7 +78,10 @@ static async Task<byte[]> PackBytes(string root, string pack, string file, Cance
     await File.ReadAllBytesAsync(Path.Combine(root, pack, file), ct);
 
 var str = new PrimitiveType(FuwenPrimitiveKind.String);
+var boolean = new PrimitiveType(FuwenPrimitiveKind.Boolean);
+var integer = new PrimitiveType(FuwenPrimitiveKind.Integer);
 var json = new PrimitiveType(FuwenPrimitiveKind.Json);
+var optionalStr = new OptionalType(str);
 var list8 = new ListType(json, 8);
 var contextDescriptor = PlanningFuwenDescriptors.Context();
 var domainProfile = PlanningFuwenDescriptors.StageProfile("domain-discovery", options.PlannerModel, options.DomainMaxTokens);
@@ -74,6 +89,8 @@ var topologyProfile = PlanningFuwenDescriptors.StageProfile("solution-topology",
 var contractProfile = PlanningFuwenDescriptors.StageProfile("contract-design", options.PlannerModel, options.ContractMaxTokens);
 var componentProfile = PlanningFuwenDescriptors.StageProfile("component-design", options.PlannerModel, options.ComponentMaxTokens);
 var bundleActivity = PlanningFuwenDescriptors.BundleActivity();
+var (attemptSchemaDescriptor, attemptSchema) = PlanningFuwenDescriptors.StageAttemptSchema();
+var attemptType = new NamedTypeReference(attemptSchemaDescriptor);
 var (bundleSchemaDescriptor, bundleSchema) = PlanningFuwenDescriptors.BundleSchema();
 var bundleType = new NamedTypeReference(bundleSchemaDescriptor);
 var bundleList = new ListType(bundleType, 8);
@@ -90,7 +107,11 @@ var contractTemplate = await Template("contract-design", "Guyabano.CodeGeneratio
 var componentTemplate = await Template("component-design", "Guyabano.CodeGeneration.Planning.BoundedContextComponentManifest");
 
 var ctxPath = StructuralNodeIdentity.Create("livePlanning", "ctx");
-var domainPath = StructuralNodeIdentity.Create("livePlanning", "domain");
+var domainLoopPath = StructuralNodeIdentity.Create("livePlanning", "domainLoop");
+var domainPath = domainLoopPath + "/$body/attempt";
+// R27: repeat loops can only seed from workflow input, so a topology
+// retry loop cannot consume the domain artifact; topology runs as a
+// strict single attempt while domain (input-seeded) gets the retry loop.
 var topologyPath = StructuralNodeIdentity.Create("livePlanning", "topology");
 var bundlePath = StructuralNodeIdentity.Create("livePlanning", "bundles");
 var fanOutPath = StructuralNodeIdentity.Create("livePlanning", "design");
@@ -98,21 +119,61 @@ var contractPath = fanOutPath + "/$body/contracts";
 var manifestPath = fanOutPath + "/$body/manifest";
 var returnPath = StructuralNodeIdentity.Create("livePlanning", "return_result");
 
-var plan = new WorkflowPlanBuilder("livePlanning", "1", str, list8, "routing/1")
+using var initialEnvelope = JsonDocument.Parse("""{"ok":false,"artifact":null,"error":""}""");
+using var breakLiteral = JsonDocument.Parse("true");
+var ctxArguments = new List<ArgumentBinding>
+{
+    new("request", new InputBinding([])),
+    new("includeRepositoryContext", new LiteralBinding(
+        JsonDocument.Parse(options.IncludeRepositoryContextInPrompts || repositoryContent is not null ? "true" : "false").RootElement.Clone())),
+    new("maxCharacters", new LiteralBinding(
+        JsonDocument.Parse(options.RepositoryContextMaximumPromptCharacters.ToString()).RootElement.Clone())),
+};
+if (repositoryContent is not null)
+    ctxArguments.Add(new ArgumentBinding("repositoryContext",
+        new LiteralBinding(JsonDocument.Parse(JsonSerializer.Serialize(repositoryContent)).RootElement.Clone())));
+
+WorkflowPlanBuilder RepeatStage(
+    WorkflowPlanBuilder current,
+    string name,
+    string loopPath,
+    DescriptorReference profile,
+    DescriptorReference template,
+    List<ArgumentBinding> extraArguments)
+{
+    var bodyPath = loopPath + "/$body/attempt";
+    var arguments = new List<ArgumentBinding>(extraArguments)
+    {
+        new("previousFailure", new LoopStateBinding(["error"])),
+    };
+    return current.AddNode(new RepeatNode(
+        name, loopPath, 3, attemptType,
+        new LiteralBinding(initialEnvelope.RootElement.Clone()),
+        [new InferenceNode("attempt", bodyPath, profile, template, arguments, [], attemptType, [])],
+        new NodeOutputBinding(bodyPath, []),
+        new ConditionExpression(ConditionOperator.Equal,
+            new NodeOutputBinding(bodyPath, ["ok"]),
+            new LiteralBinding(breakLiteral.RootElement.Clone())),
+        attemptType));
+}
+
+var planBuilder = new WorkflowPlanBuilder("livePlanning", "1", str, list8, "routing/1")
+    .AddSchema(attemptSchema)
     .AddSchema(bundleSchema)
-    .AddNode(new ContextNode("ctx", ctxPath, contextDescriptor,
-        [new ArgumentBinding("request", new InputBinding([]))], str))
-    .AddNode(new InferenceNode("domain", domainPath, domainProfile, domainTemplate,
-        [new ArgumentBinding("request", new NodeOutputBinding(ctxPath, []))], [], json, []))
-    .AddNode(new InferenceNode("topology", topologyPath, topologyProfile, topologyTemplate,
-        [
-            new ArgumentBinding("request", new NodeOutputBinding(ctxPath, [])),
-            new ArgumentBinding("domain", new NodeOutputBinding(domainPath, [])),
-        ], [], json, []))
+    .AddNode(new ContextNode("ctx", ctxPath, contextDescriptor, ctxArguments, str));
+planBuilder = RepeatStage(planBuilder, "domainLoop", domainLoopPath,
+    domainProfile, domainTemplate,
+    [new ArgumentBinding("request", new InputBinding([]))]);
+planBuilder = planBuilder.AddNode(new InferenceNode("topology", topologyPath, topologyProfile, topologyTemplate,
+    [
+        new ArgumentBinding("request", new NodeOutputBinding(ctxPath, [])),
+        new ArgumentBinding("domain", new NodeOutputBinding(domainLoopPath, ["artifact"])),
+    ], [], json, []));
+var plan = planBuilder
     .AddNode(new ActivityNode("bundles", bundlePath, bundleActivity,
         [
             new ArgumentBinding("topology", new NodeOutputBinding(topologyPath, [])),
-            new ArgumentBinding("domain", new NodeOutputBinding(domainPath, [])),
+            new ArgumentBinding("domain", new NodeOutputBinding(domainLoopPath, ["artifact"])),
         ], bundleList))
     .AddFanOut(new FanOutNode(
         "design", fanOutPath,
@@ -135,30 +196,43 @@ var plan = new WorkflowPlanBuilder("livePlanning", "1", str, list8, "routing/1")
     .SetExecutionOrder(new WorkflowExecutionOrder([
         new WorkflowExecutionRegion("livePlanning", [
             new WorkflowExecutionPhase([ctxPath]),
-            new WorkflowExecutionPhase([domainPath]),
+            new WorkflowExecutionPhase([domainLoopPath]),
             new WorkflowExecutionPhase([topologyPath]),
             new WorkflowExecutionPhase([bundlePath]),
             new WorkflowExecutionPhase([fanOutPath]),
             new WorkflowExecutionPhase([returnPath]),
+        ]),
+        new WorkflowExecutionRegion("livePlanning/domainLoop/$body", [
+            new WorkflowExecutionPhase([domainPath]),
         ]),
         new WorkflowExecutionRegion("livePlanning/design/$body", [
             new WorkflowExecutionPhase([contractPath]),
             new WorkflowExecutionPhase([manifestPath]),
         ]),
     ]))
-    .BuildV4();
+    .BuildV6();
 
-static CallableContract StageContract(params (string Name, FuwenType Type)[] parameters) => new(
-    new CallableSignature([.. parameters.Select(p => new CallableParameter(p.Name, p.Type))], new PrimitiveType(FuwenPrimitiveKind.Json)),
+static CallableContract StageContract(FuwenType output, params (string Name, FuwenType Type)[] parameters) => new(
+    new CallableSignature([.. parameters.Select(p => new CallableParameter(p.Name, p.Type))], output),
     CallableEffect.Read, CallableIdempotency.Idempotent, CallableRetrySafety.Safe);
 var catalogue = new InMemoryTrustedCatalogue([
     new TrustedCatalogueDescriptor(contextDescriptor, callableContract: new CallableContract(
-        new CallableSignature([new CallableParameter("request", str)], str),
+        new CallableSignature(
+            [
+                new CallableParameter("request", str),
+                new CallableParameter("repositoryContext", optionalStr),
+                new CallableParameter("includeRepositoryContext", boolean),
+                new CallableParameter("maxCharacters", integer),
+            ], str),
         CallableEffect.Read, CallableIdempotency.Idempotent, CallableRetrySafety.Safe)),
-    new TrustedCatalogueDescriptor(domainProfile, callableContract: StageContract(("request", str))),
-    new TrustedCatalogueDescriptor(topologyProfile, callableContract: StageContract(("request", str), ("domain", json))),
-    new TrustedCatalogueDescriptor(contractProfile, callableContract: StageContract(("bundle", json))),
-    new TrustedCatalogueDescriptor(componentProfile, callableContract: StageContract(("bundle", json), ("catalog", json))),
+    new TrustedCatalogueDescriptor(domainProfile, callableContract:
+        StageContract(attemptType, ("request", str), ("previousFailure", optionalStr))),
+    new TrustedCatalogueDescriptor(topologyProfile, callableContract:
+        StageContract(json, ("request", str), ("domain", json))),
+    new TrustedCatalogueDescriptor(contractProfile, callableContract:
+        StageContract(json, ("bundle", json))),
+    new TrustedCatalogueDescriptor(componentProfile, callableContract:
+        StageContract(json, ("bundle", json), ("catalog", json))),
     new TrustedCatalogueDescriptor(domainTemplate),
     new TrustedCatalogueDescriptor(topologyTemplate),
     new TrustedCatalogueDescriptor(contractTemplate),
@@ -167,6 +241,7 @@ var catalogue = new InMemoryTrustedCatalogue([
         new CallableSignature(
             [new CallableParameter("topology", json), new CallableParameter("domain", json)], bundleList),
         CallableEffect.Read, CallableIdempotency.Idempotent, CallableRetrySafety.Safe)),
+    new TrustedCatalogueDescriptor(attemptSchemaDescriptor, schemaDefinition: attemptSchema),
     new TrustedCatalogueDescriptor(bundleSchemaDescriptor, schemaDefinition: bundleSchema),
 ]);
 var admission = await new WorkflowAdmissionService(
@@ -176,18 +251,28 @@ if (!admission.Succeeded)
 {
     Console.Error.WriteLine("Admission failed:");
     foreach (var diagnostic in admission.Diagnostics)
-        Console.Error.WriteLine($"  {diagnostic.Code}: {diagnostic.Message} path={diagnostic.Path}");
+        Console.Error.WriteLine($"  {diagnostic.Code}: {diagnostic.Message} path={diagnostic.Path} expected={diagnostic.Expected} actual={diagnostic.Actual}");
     return 1;
 }
 
-var domainExecutor = services.GetRequiredService<PlanningDomainDiscoveryExecutor>();
-var topologyExecutor = services.GetRequiredService<PlanningTopologyExecutor>();
-var contractExecutor = services.GetRequiredService<PlanningContractExecutor>();
-var componentExecutor = services.GetRequiredService<PlanningComponentExecutor>();
+var router = services.GetRequiredService<ILlmRouter>();
+var repairer = services.GetRequiredService<ILlmStructuredOutputRepairer>();
+var domainExecutor = new PlanningDomainDiscoveryExecutor(
+    router,
+    services.GetRequiredService<IPromptBuilder<DomainDiscoveryPromptContext>>(),
+    repairer, options.PlannerModel, options.DomainMaxTokens, outputEnvelope: true);
+var topologyExecutor = new PlanningTopologyExecutor(
+    router,
+    services.GetRequiredService<IPromptBuilder<SolutionTopologyPromptContext>>(),
+    repairer, options.PlannerModel, options.TopologyMaxTokens, outputEnvelope: true);
 var ports = new FuwenZhinuExecutionPorts(
     services.GetRequiredService<BundleContractInputsActivity>(),
-    new EchoRequestContext(),
-    new LiveStageRouter(domainExecutor, topologyExecutor, contractExecutor, componentExecutor));
+    services.GetRequiredService<PlanningRequestContextProvider>(),
+    new LiveStageRouter(
+        domainExecutor,
+        topologyExecutor,
+        services.GetRequiredService<PlanningContractExecutor>(),
+        services.GetRequiredService<PlanningComponentExecutor>()));
 var registration = await new FuwenZhinuWorkflowFactory(
         new InMemoryWorkflowDefinitionStore(),
         new FuwenZhinuProviderRuntimeIdentity(
@@ -212,21 +297,6 @@ var output = await engine.WaitForCompletionAsync<JsonElement>(runId, cancellatio
 Console.WriteLine(JsonSerializer.Serialize(output, new JsonSerializerOptions { WriteIndented = true }));
 Console.Error.WriteLine($"Completed run {runId:D} in {workdir}.");
 return 0;
-
-sealed class EchoRequestContext : IContextProvider
-{
-    public ValueTask<ContextExecutionResult> ExecuteAsync(ContextExecutionRequest request, CancellationToken ct = default)
-    {
-        // Repo-context assembly (BuildPlanningRequest concatenation) is not
-        // yet ported; the raw request flows through unchanged.
-        var input = ((JsonRuntimeValue)request.Arguments.Single().Value).Value.Clone();
-        var snap = new ContextSnapshotReference(request.Provider, "snap-live",
-            new ContentDigest("sha256", "request/v1", new string('c', 64)),
-            new ContentDigest("sha256", "content/v1", new string('d', 64)), [],
-            "policy/1", new ContextSnapshotBudgetEvidence(false, null, null, null, null), DateTimeOffset.UtcNow);
-        return ValueTask.FromResult(ContextExecutionResult.Succeeded(RuntimeValue.FromJson(input), snap));
-    }
-}
 
 sealed class LiveStageRouter(
     PlanningDomainDiscoveryExecutor domain,

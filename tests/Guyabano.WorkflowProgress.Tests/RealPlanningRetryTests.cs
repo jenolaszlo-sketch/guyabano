@@ -90,7 +90,7 @@ public sealed class RealPlanningRetryTests
 
             var envelope = harness.Envelope;
             envelope.GetProperty("ok").GetBoolean().Should().BeTrue();
-            envelope.GetProperty("domain").GetProperty("title").GetString()
+            envelope.GetProperty("artifact").GetProperty("title").GetString()
                 .Should().Be("Todo planner");
 
             var callsAfterFirst = harness.Router.RequestCalls;
@@ -165,7 +165,7 @@ public sealed class RealPlanningRetryTests
             var contextDescriptor = PlanningFuwenDescriptors.Context();
             var profile = PlanningFuwenDescriptors.Profile(Model, MaxTokens);
             var template = PlanningFuwenDescriptors.Template("domain-discovery", "Guyabano.CodeGeneration.Planning.DomainDiscovery", systemBytes, userBytes);
-            var (schemaDescriptor, attemptSchema) = PlanningFuwenDescriptors.AttemptSchema();
+            var (schemaDescriptor, attemptSchema) = PlanningFuwenDescriptors.StageAttemptSchema();
             var attemptType = new NamedTypeReference(schemaDescriptor);
             var str = new PrimitiveType(FuwenPrimitiveKind.String);
             var optionalStr = new OptionalType(str);
@@ -175,7 +175,7 @@ public sealed class RealPlanningRetryTests
             var returnPath = StructuralNodeIdentity.Create("realRetry", "return_result");
             // R24: the envelope seed is a plain object literal against the
             // named attempt schema (previously required field-wise ObjectBinding).
-            using var initial = JsonDocument.Parse("""{"ok":false,"domain":null,"error":""}""");
+            using var initial = JsonDocument.Parse("""{"ok":false,"artifact":null,"error":""}""");
             using var breakLiteral = JsonDocument.Parse("true");
             var plan = new WorkflowPlanBuilder("realRetry", "1", str, attemptType, "routing/1")
                 .AddSchema(attemptSchema)

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.*" />
+    <PackageReference Include="Penghou.Baize.Claude" Version="0.3.0-preview.5" />
+    <PackageReference Include="Penghou.Baize.Gemini" Version="0.3.0-preview.5" />
+    <PackageReference Include="Penghou.Baize.Ollama" Version="0.3.0-preview.5" />
+    <PackageReference Include="Penghou.Baize.OpenAi" Version="0.3.0-preview.5" />
+    <PackageReference Include="Penghou.Baize.Router" Version="0.3.0-preview.5" />
+    <PackageReference Include="Penghou.Baize.Tools" Version="0.3.0-preview.5" />
+    <PackageReference Include="Penghou.Fuwen" Version="0.1.0-preview.5" />
+    <PackageReference Include="Penghou.Fuwen.Compiler" Version="0.1.0-preview.5" />
+    <PackageReference Include="Penghou.Fuwen.Zhinu" Version="0.1.0-preview.5" />
+    <PackageReference Include="Penghou.Zhinu" Version="0.1.0-preview.12" />
+    <PackageReference Include="Penghou.Zhinu.Sqlite" Version="0.1.0-preview.12" />
+    <ProjectReference Include="..\Guyabano.CodeGeneration.Planning\Guyabano.CodeGeneration.Planning.csproj" />
+    <ProjectReference Include="..\Guyabano.Llm.Prompting\Guyabano.Llm.Prompting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\prompts\**\*.txt;..\..\prompts\**\*.sbn">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>prompts\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

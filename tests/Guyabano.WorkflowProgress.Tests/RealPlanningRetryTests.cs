@@ -164,7 +164,7 @@ public sealed class RealPlanningRetryTests
 
             var contextDescriptor = PlanningFuwenDescriptors.Context();
             var profile = PlanningFuwenDescriptors.Profile(Model, MaxTokens);
-            var template = PlanningFuwenDescriptors.Template(systemBytes, userBytes);
+            var template = PlanningFuwenDescriptors.Template("domain-discovery", "Guyabano.CodeGeneration.Planning.DomainDiscovery", systemBytes, userBytes);
             var (schemaDescriptor, attemptSchema) = PlanningFuwenDescriptors.AttemptSchema();
             var attemptType = new NamedTypeReference(schemaDescriptor);
             var str = new PrimitiveType(FuwenPrimitiveKind.String);

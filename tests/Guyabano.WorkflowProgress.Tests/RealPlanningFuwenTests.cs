@@ -98,7 +98,7 @@ public sealed class RealPlanningFuwenTests
         // Path B: same attempt through Fuwen/Zhinu with real descriptors.
         var contextDescriptor = PlanningFuwenDescriptors.Context();
         var profile = PlanningFuwenDescriptors.Profile(Model, MaxTokens);
-        var template = PlanningFuwenDescriptors.Template(systemBytes, userBytes);
+        var template = PlanningFuwenDescriptors.Template("domain-discovery", "Guyabano.CodeGeneration.Planning.DomainDiscovery", systemBytes, userBytes);
         var str = new PrimitiveType(FuwenPrimitiveKind.String);
         var ctxPath = StructuralNodeIdentity.Create("realPlanning", "ctx");
         var inferPath = StructuralNodeIdentity.Create("realPlanning", "domain");

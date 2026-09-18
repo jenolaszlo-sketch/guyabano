@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject ICodeGenerationWorkflowClient WorkflowClient
 @inject IWorkflowProgressSubscriber ProgressSubscriber
+@inject Guyabano.WebTerminal.Services.IPlanCommandService PlanCommands
 
 <PageTitle>Guyabano Web Terminal</PageTitle>
 
@@ -243,6 +244,18 @@
                     </div>
                 }
 
+                @if (run.PlanDsl is not null)
+                {
+                    <div class="result-card">
+                        <div class="result-heading">Authored workflow</div>
+                        <pre>@run.PlanDsl</pre>
+                        @if (run.PlanAdmission is not null)
+                        {
+                            <p>@run.PlanAdmission</p>
+                        }
+                    </div>
+                }
+
                 @if (run.Error is not null)
                 {
                     <div class="result-card failure">
@@ -389,6 +402,19 @@
             _lifetime.Token);
         _runs.Add(run);
 
+        if (Guyabano.WebTerminal.Services.PlanCommandService.IsPlanCommand(prompt))
+        {
+            try
+            {
+                await SubmitPlanCommandAsync(run, prompt);
+            }
+            finally
+            {
+                _isSubmitting = false;
+            }
+            return;
+        }
+
         try
         {
             run.WorkflowId = await WorkflowClient.StartAsync(
@@ -409,6 +435,37 @@
         finally
         {
             _isSubmitting = false;
+        }
+    }
+
+    private async Task SubmitPlanCommandAsync(ChatRunState run, string prompt)
+    {
+        run.Status = "Authoring workflow";
+        try
+        {
+            var result = await PlanCommands.AuthorPlanAsync(
+                prompt,
+                run.CancellationToken);
+            if (result is null)
+            {
+                run.Status = "Failed";
+                run.Error = "Not a plan command.";
+                return;
+            }
+            run.PlanDsl = result.Dsl;
+            run.PlanAdmission = result.Admitted
+                ? $"Admitted after {result.Attempts} attempt(s)."
+                : $"Not admitted: {string.Join("; ", result.Diagnostics)}";
+            run.Status = result.Admitted ? "Planned" : "Plan rejected";
+        }
+        catch (Exception exception)
+        {
+            run.Status = "Failed";
+            run.Error = exception.Message;
+        }
+        finally
+        {
+            run.IsRunning = false;
         }
     }
 

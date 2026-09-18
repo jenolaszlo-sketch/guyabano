@@ -20,7 +20,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Guyabano.CodeGeneration.Workflows\Guyabano.CodeGeneration.Workflows.csproj" />
+    <ProjectReference
+      Include="..\Guyabano.CodeGeneration.Planning\Guyabano.CodeGeneration.Planning.csproj" />
+    <ProjectReference
+      Include="..\Guyabano.CodeGeneration.Workflows\Guyabano.CodeGeneration.Workflows.csproj" />
     <ProjectReference Include="..\Guyabano.Messaging\Guyabano.Messaging.csproj" />
     <ProjectReference Include="..\Guyabano.Session\Guyabano.Session.csproj" />
     <ProjectReference Include="..\Guyabano.WorkflowWorker\Guyabano.WorkflowWorker.csproj" />

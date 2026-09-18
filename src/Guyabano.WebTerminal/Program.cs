@@ -2,6 +2,7 @@ using Guyabano.WebTerminal.Components;
 using Guyabano.WebTerminal.Services;
 using Guyabano.WorkflowWorker;
 using Guyabano.WorkflowWorker.Extensions;
+using Microsoft.Extensions.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 CodeGenerationConfiguration.AddDefaults(
@@ -22,6 +23,17 @@ builder.Services.AddSingleton<
 builder.Services.AddScoped<
     ICodeGenerationWorkflowClient,
     CodeGenerationWorkflowClient>();
+builder.Services.AddSingleton<PlanCommandCatalogue>(provider =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var section = configuration.GetSection(
+        CodeGenerationWorkerOptions.SectionName);
+    return PlanCommandCatalogueFactory.Create(
+        Path.Combine(AppContext.BaseDirectory, "prompts"),
+        section["PlannerModel"] ?? "deepseek-v4-flash",
+        int.TryParse(section["PlannerMaxTokens"], out var maxTokens) ? maxTokens : 24000);
+});
+builder.Services.AddScoped<IPlanCommandService, PlanCommandService>();
 
 var app = builder.Build();
 

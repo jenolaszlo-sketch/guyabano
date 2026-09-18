@@ -6,7 +6,7 @@ namespace Guyabano.CodeGeneration.Planning.Fuwen;
 /// <summary>
 /// Shared argument readers for planning stage executors. All readers
 /// accept any runtime value representation via
-/// <see cref="PlanningStageValues"/> because the runtime may normalize
+/// <see cref="RuntimeValueJson"/> because the runtime may normalize
 /// provider outputs (e.g. JSON to nominal composites for named types).
 /// </summary>
 internal static class PlanningStageArguments
@@ -19,7 +19,7 @@ internal static class PlanningStageArguments
             if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
                 argument.Value is not null)
             {
-                var json = PlanningStageValues.ToJsonElement(argument.Value);
+                var json = RuntimeValueJson.ToJsonElement(argument.Value);
                 if (json.ValueKind == JsonValueKind.String)
                     return json.GetString();
             }
@@ -38,7 +38,7 @@ internal static class PlanningStageArguments
             if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
                 argument.Value is not null)
             {
-                return PlanningStageValues.ToJsonElement(argument.Value);
+                return RuntimeValueJson.ToJsonElement(argument.Value);
             }
         }
         if (required)
@@ -55,7 +55,7 @@ internal static class PlanningStageArguments
             if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
                 argument.Value is not null)
             {
-                var json = PlanningStageValues.ToJsonElement(argument.Value);
+                var json = RuntimeValueJson.ToJsonElement(argument.Value);
                 if (json.ValueKind == JsonValueKind.String)
                     return json.GetString()!;
             }
@@ -72,7 +72,7 @@ internal static class PlanningStageArguments
             if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
                 argument.Value is not null)
             {
-                return PlanningStageValues.ToJsonElement(argument.Value);
+                return RuntimeValueJson.ToJsonElement(argument.Value);
             }
         }
         throw new InvalidOperationException(

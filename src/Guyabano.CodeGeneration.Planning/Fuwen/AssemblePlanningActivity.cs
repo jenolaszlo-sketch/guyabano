@@ -8,6 +8,8 @@ namespace Guyabano.CodeGeneration.Planning.Fuwen;
 /// from admitted stage artifacts via
 /// <c>StagedCodeGenerationPlanAssembler.Assemble</c>, which re-validates
 /// the full cross-artifact contract (global uniqueness, coverage, cycles).
+/// Accepts either separate <c>catalogs</c>/<c>manifests</c> lists or a
+/// <c>pairs</c> list of <c>{catalog, manifest}</c> objects.
 /// </summary>
 public sealed class AssemblePlanningActivity : IActivityExecutor
 {
@@ -22,18 +24,49 @@ public sealed class AssemblePlanningActivity : IActivityExecutor
         var topology = JsonSerializer.Deserialize<SolutionTopology>(
             PlanningStageArguments.ReadActivityJson(request, "topology").GetRawText())
             ?? throw new InvalidOperationException("Assemble activity received an unreadable topology artifact.");
-        var catalogs = PlanningStageArguments.ReadActivityJson(request, "catalogs").EnumerateArray()
-            .Select(element => JsonSerializer.Deserialize<BoundedContextContractCatalog>(element.GetRawText())
-                ?? throw new InvalidOperationException("Assemble activity received an unreadable contract catalog."))
-            .ToArray();
-        var manifests = PlanningStageArguments.ReadActivityJson(request, "manifests").EnumerateArray()
-            .Select(element => JsonSerializer.Deserialize<BoundedContextComponentManifest>(element.GetRawText())
-                ?? throw new InvalidOperationException("Assemble activity received an unreadable component manifest."))
-            .ToArray();
+        var catalogs = ReadArtifacts<BoundedContextContractCatalog>(request, "catalogs", "catalog");
+        var manifests = ReadArtifacts<BoundedContextComponentManifest>(request, "manifests", "manifest");
         var plan = StagedCodeGenerationPlanAssembler.Assemble(
             new StagedPlanningArtifacts(domain, topology, catalogs, manifests));
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(plan));
         return ValueTask.FromResult(ActivityExecutionResult.Succeeded(
             RuntimeValue.FromJson(document.RootElement)));
+    }
+
+    private static IReadOnlyList<T> ReadArtifacts<T>(
+        ActivityExecutionRequest request, string listName, string pairField)
+    {
+        foreach (var argument in request.Arguments)
+        {
+            if (!string.Equals(argument.Name, listName, StringComparison.Ordinal) ||
+                argument.Value is null)
+            {
+                continue;
+            }
+            var json = Penghou.Fuwen.RuntimeValueJson.ToJsonElement(argument.Value);
+            if (json.ValueKind != JsonValueKind.Array)
+                continue;
+            return json.EnumerateArray()
+                .Select(element => JsonSerializer.Deserialize<T>(element.GetRawText())
+                    ?? throw new InvalidOperationException($"Assemble activity received an unreadable {typeof(T).Name}."))
+                .ToArray();
+        }
+        foreach (var argument in request.Arguments)
+        {
+            if (!string.Equals(argument.Name, "pairs", StringComparison.Ordinal) ||
+                argument.Value is null)
+            {
+                continue;
+            }
+            var json = Penghou.Fuwen.RuntimeValueJson.ToJsonElement(argument.Value);
+            if (json.ValueKind != JsonValueKind.Array)
+                continue;
+            return json.EnumerateArray()
+                .Select(element => JsonSerializer.Deserialize<T>(element.GetProperty(pairField).GetRawText())
+                    ?? throw new InvalidOperationException($"Assemble activity received an unreadable {typeof(T).Name}."))
+                .ToArray();
+        }
+        throw new InvalidOperationException(
+            $"Assemble activity requires '{listName}' or 'pairs' arguments.");
     }
 }

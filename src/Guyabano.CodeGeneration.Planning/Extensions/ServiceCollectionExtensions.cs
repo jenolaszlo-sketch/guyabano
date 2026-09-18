@@ -138,6 +138,7 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<IOptions<FuwenPlanningOptions>>().Value.PlannerModel,
                 provider.GetRequiredService<IOptions<FuwenPlanningOptions>>().Value.ComponentMaxTokens));
         services.AddSingleton<BundleContractInputsActivity>();
+        services.AddSingleton<AssemblePlanningActivity>();
 
         return services;
     }

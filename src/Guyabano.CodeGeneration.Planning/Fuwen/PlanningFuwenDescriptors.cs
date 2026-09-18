@@ -99,6 +99,14 @@ public static class PlanningFuwenDescriptors
         Digest("descriptor/v1", Encoding.UTF8.GetBytes(
             $"guyabano.apply-guidance@{Version}|(attempt:Json,guidance:String)->Json")));
 
+    /// <summary>Catalog/manifest pair activity pinning its exact contract shape.</summary>
+    public static DescriptorReference PairActivity() => new(
+        DescriptorKind.Activity,
+        "guyabano.pair-artifacts",
+        Version,
+        Digest("descriptor/v1", Encoding.UTF8.GetBytes(
+            $"guyabano.pair-artifacts@{Version}|(catalog:Json,manifest:Json)->Json")));
+
     /// <summary>Plan-assembly activity pinning its exact contract shape.</summary>
     public static DescriptorReference AssembleActivity() => new(
         DescriptorKind.Activity,

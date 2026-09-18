@@ -10,6 +10,9 @@ using Penghou.Baize;
 using Penghou.Baize.Router;
 using Penghou.Fuwen;
 using Penghou.Fuwen.Compiler;
+using Penghou.Fuwen.Zhinu;
+using Penghou.Zhinu;
+using Penghou.Zhinu.Sqlite;
 
 namespace Guyabano.WorkflowProgressTests;
 
@@ -73,6 +76,46 @@ public sealed class PlanCommandServiceTests
     }
 
     [Fact]
+    public async Task Run_without_plan_reports_usage()
+    {
+        var service = CreateService(new QueueRouter([]));
+
+        var result = await service.ExecutePlanAsync(TestContext.Current.CancellationToken);
+
+        result.Output.Should().BeNull();
+        result.Error.Should().Contain("/plan");
+    }
+
+    [Fact]
+    public async Task Run_executes_the_last_admitted_plan_with_the_original_request()
+    {
+        var service = CreateService(new QueueRouter([AuthoredDsl()]));
+        var authored = await service.AuthorPlanAsync(
+            "/plan Echo hi.", TestContext.Current.CancellationToken);
+        authored!.Admitted.Should().BeTrue();
+
+        var result = await service.ExecutePlanAsync(TestContext.Current.CancellationToken);
+
+        result.Error.Should().BeNull();
+        result.Output.Should().Contain("Echo hi.");
+    }
+
+    [Fact]
+    public async Task Run_after_rejected_plan_reports_usage()
+    {
+        var bad = AuthoredDsl().Replace(Digest('b'), new string('9', 64));
+        var service = CreateService(new QueueRouter([bad, bad, bad, bad]));
+        var authored = await service.AuthorPlanAsync(
+            "/plan Echo hi.", TestContext.Current.CancellationToken);
+        authored!.Admitted.Should().BeFalse();
+
+        var result = await service.ExecutePlanAsync(TestContext.Current.CancellationToken);
+
+        result.Output.Should().BeNull();
+        result.Error.Should().Contain("/plan");
+    }
+
+    [Fact]
     public async Task Rejected_command_reports_diagnostics_without_executing()
     {
         var bad = AuthoredDsl().Replace(Digest('b'), new string('9', 64));
@@ -109,7 +152,43 @@ public sealed class PlanCommandServiceTests
             new WorkflowAuthor(
                 router, new WorkflowAuthoringPromptBuilder(templateEngine), maxAttempts: 3),
             new PlanCommandCatalogue(catalogue, CatalogueSummaryBuilder.Render(entries)),
+            new FuwenZhinuExecutionPorts(
+                new EchoActivity(), new EchoContext(), new EchoInference()),
             Options.Create(new CodeGenerationWorkerOptions()));
+    }
+
+    private sealed class EchoActivity : IActivityExecutor
+    {
+        public ValueTask<ActivityExecutionResult> ExecuteAsync(ActivityExecutionRequest request, CancellationToken ct = default)
+        {
+            var input = ((JsonRuntimeValue)request.Arguments.Single().Value).Value.GetString()!;
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(input));
+            return ValueTask.FromResult(ActivityExecutionResult.Succeeded(RuntimeValue.FromJson(doc.RootElement)));
+        }
+    }
+
+    private sealed class EchoContext : IContextProvider
+    {
+        public ValueTask<ContextExecutionResult> ExecuteAsync(ContextExecutionRequest request, CancellationToken ct = default)
+        {
+            var input = ((JsonRuntimeValue)request.Arguments.Single().Value).Value.GetString()!;
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(input));
+            var snap = new ContextSnapshotReference(request.Provider, "snap-test",
+                new ContentDigest("sha256", "request/v1", new string('c', 64)),
+                new ContentDigest("sha256", "content/v1", new string('d', 64)), [],
+                "policy/1", new ContextSnapshotBudgetEvidence(false, null, null, null, null), DateTimeOffset.UtcNow);
+            return ValueTask.FromResult(ContextExecutionResult.Succeeded(RuntimeValue.FromJson(doc.RootElement), snap));
+        }
+    }
+
+    private sealed class EchoInference : IInferenceExecutor
+    {
+        public ValueTask<InferenceExecutionResult> ExecuteAsync(InferenceExecutionRequest request, CancellationToken ct = default)
+        {
+            var input = ((JsonRuntimeValue)request.Arguments.Single().Value).Value.GetString()!;
+            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(input));
+            return ValueTask.FromResult(InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(doc.RootElement)));
+        }
     }
 
     private static string AuthoredDsl() => $$"""

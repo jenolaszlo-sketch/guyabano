@@ -256,6 +256,14 @@
                     </div>
                 }
 
+                @if (run.PlanResult is not null)
+                {
+                    <div class="result-card">
+                        <div class="result-heading">Plan result</div>
+                        <pre>@run.PlanResult</pre>
+                    </div>
+                }
+
                 @if (run.Error is not null)
                 {
                     <div class="result-card failure">
@@ -415,6 +423,19 @@
             return;
         }
 
+        if (Guyabano.WebTerminal.Services.PlanCommandService.IsRunCommand(prompt))
+        {
+            try
+            {
+                await SubmitRunCommandAsync(run);
+            }
+            finally
+            {
+                _isSubmitting = false;
+            }
+            return;
+        }
+
         try
         {
             run.WorkflowId = await WorkflowClient.StartAsync(
@@ -457,6 +478,35 @@
                 ? $"Admitted after {result.Attempts} attempt(s)."
                 : $"Not admitted: {string.Join("; ", result.Diagnostics)}";
             run.Status = result.Admitted ? "Planned" : "Plan rejected";
+        }
+        catch (Exception exception)
+        {
+            run.Status = "Failed";
+            run.Error = exception.Message;
+        }
+        finally
+        {
+            run.IsRunning = false;
+        }
+    }
+
+    private async Task SubmitRunCommandAsync(ChatRunState run)
+    {
+        run.Status = "Running admitted plan";
+        try
+        {
+            var result = await PlanCommands.ExecutePlanAsync(
+                run.CancellationToken);
+            if (result.Output is not null)
+            {
+                run.PlanResult = result.Output;
+                run.Status = "Plan executed";
+            }
+            else
+            {
+                run.Status = "Failed";
+                run.Error = result.Error;
+            }
         }
         catch (Exception exception)
         {

@@ -33,6 +33,23 @@ builder.Services.AddSingleton<PlanCommandCatalogue>(provider =>
         section["PlannerModel"] ?? "deepseek-v4-flash",
         int.TryParse(section["PlannerMaxTokens"], out var maxTokens) ? maxTokens : 24000);
 });
+Guyabano.CodeGeneration.Planning.Extensions.ServiceCollectionExtensions
+    .AddFuwenPlanning(builder.Services, builder.Configuration);
+builder.Services.AddSingleton<Penghou.Fuwen.Zhinu.FuwenZhinuExecutionPorts>(provider =>
+{
+    var model = provider.GetRequiredService<
+        Microsoft.Extensions.Options.IOptions<Guyabano.CodeGeneration.Planning.Fuwen.FuwenPlanningOptions>>().Value;
+    return new Penghou.Fuwen.Zhinu.FuwenZhinuExecutionPorts(
+        new RejectingPlanActivity(),
+        provider.GetRequiredService<
+            Guyabano.CodeGeneration.Planning.Fuwen.PlanningRequestContextProvider>(),
+        new Guyabano.CodeGeneration.Planning.Fuwen.PlanningDomainDiscoveryExecutor(
+            provider.GetRequiredService<Penghou.Baize.Router.ILlmRouter>(),
+            provider.GetRequiredService<Guyabano.Llm.Prompting.IPromptBuilder<Guyabano.CodeGeneration.Planning.DomainDiscoveryPromptContext>>(),
+            provider.GetRequiredService<Penghou.Baize.Tools.ILlmStructuredOutputRepairer>(),
+            model.PlannerModel,
+            model.DomainMaxTokens));
+});
 builder.Services.AddScoped<IPlanCommandService, PlanCommandService>();
 
 var app = builder.Build();
@@ -53,3 +70,12 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+sealed class RejectingPlanActivity : Penghou.Fuwen.IActivityExecutor
+{
+    public ValueTask<Penghou.Fuwen.ActivityExecutionResult> ExecuteAsync(
+        Penghou.Fuwen.ActivityExecutionRequest request,
+        CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException(
+            $"No activity executor is bound for '{request.Activity.Name}'.");
+}

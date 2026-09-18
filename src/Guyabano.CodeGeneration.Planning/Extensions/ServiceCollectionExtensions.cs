@@ -71,6 +71,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<
             IPromptBuilder<PlanningGapResolutionPromptContext>,
             PlanningGapResolutionPromptBuilder>();
+        services.AddSingleton<
+            IPromptBuilder<WorkflowAuthoringPromptContext>,
+            WorkflowAuthoringPromptBuilder>();
 
         return services;
     }

@@ -1,0 +1,10 @@
+Write a Fuwen workflow for the following request. Use only the catalogue from the system prompt.
+
+{{ request }}
+{{ if previous_failure }}
+
+The preceding authoring attempt was rejected by the compiler for this reason. Fix only that defect while preserving the requested behavior:
+{{ previous_failure }}
+{{ end }}
+
+Return exactly one workflow and nothing else.

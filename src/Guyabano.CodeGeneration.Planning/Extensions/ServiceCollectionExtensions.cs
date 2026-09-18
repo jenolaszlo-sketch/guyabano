@@ -74,6 +74,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<
             IPromptBuilder<WorkflowAuthoringPromptContext>,
             WorkflowAuthoringPromptBuilder>();
+        services.AddSingleton<WorkflowAuthor>();
 
         return services;
     }

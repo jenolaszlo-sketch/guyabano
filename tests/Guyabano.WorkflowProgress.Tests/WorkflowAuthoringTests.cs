@@ -106,15 +106,84 @@ public sealed class WorkflowAuthoringTests
         throw new DirectoryNotFoundException("Could not locate the Guyabano prompts root.");
     }
 
-    private sealed class CannedAuthorRouter(string dsl) : ILlmRouter
+    [Fact]
+    public async Task Repair_loop_recovers_after_compiler_rejection()
     {
+        var ct = TestContext.Current.CancellationToken;
+        var promptsRoot = FindPromptsRoot();
+        var templateEngine = new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot));
+        var router = new CannedAuthorRouter(
+        [
+            AuthoredDsl().Replace(Digest('b'), new string('9', 64)),
+            AuthoredDsl(),
+        ]);
+        var author = new WorkflowAuthor(
+            router, new WorkflowAuthoringPromptBuilder(templateEngine), maxAttempts: 3);
+
+        var result = await author.AuthorAsync(
+            "Echo my request.", CatalogueSummary(), TestCatalogue(), "stub-author", 4000, ct);
+
+        result.Succeeded.Should().BeTrue(string.Join("; ", result.Diagnostics));
+        result.Attempts.Should().HaveCount(2);
+        result.Attempts[0].Admitted.Should().BeFalse();
+        result.Attempts[1].Admitted.Should().BeTrue();
+        result.Admission.Should().NotBeNull();
+        result.Admission!.Receipt.Should().NotBeNull();
+        // The compiler rejection was fed back into the retry prompt.
+        var retryText = TextOf(router.Requests[1], "user");
+        retryText.Should().Contain("FWN-");
+        router.RequestCalls.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Repair_loop_gives_up_after_max_attempts()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var promptsRoot = FindPromptsRoot();
+        var templateEngine = new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot));
+        var bad = AuthoredDsl().Replace(Digest('b'), new string('9', 64));
+        var router = new CannedAuthorRouter([bad, bad, bad, bad]);
+        var author = new WorkflowAuthor(
+            router, new WorkflowAuthoringPromptBuilder(templateEngine), maxAttempts: 3);
+
+        var result = await author.AuthorAsync(
+            "Echo my request.", CatalogueSummary(), TestCatalogue(), "stub-author", 4000, ct);
+
+        result.Succeeded.Should().BeFalse();
+        result.Attempts.Should().HaveCount(3);
+        result.Admission.Should().BeNull();
+        result.Diagnostics.Should().NotBeEmpty();
+        router.RequestCalls.Should().Be(3);
+    }
+
+    [Theory]
+    [InlineData("```fuwen\nworkflow demo(input: string) -> string {\n  return input;\n}\n```", "workflow demo")]
+    [InlineData("workflow demo(input: string) -> string {\n  return input;\n}", "workflow demo")]
+    public void ExtractDsl_unwraps_optional_fences(string content, string expectedStart)
+    {
+        WorkflowAuthor.ExtractDsl(content).Should().StartWith(expectedStart);
+        WorkflowAuthor.ExtractDsl(content).Should().NotContain("```");
+    }
+
+    private sealed class CannedAuthorRouter(IReadOnlyList<string> script) : ILlmRouter
+    {
+        private int next;
+        public List<LlmRequest> Requests { get; } = [];
         public int RequestCalls { get; private set; }
+
+        public CannedAuthorRouter(string dsl)
+            : this([dsl])
+        {
+        }
 
         public IAsyncEnumerable<LlmStreamEvent> StreamAsync(
             string model, LlmRequest request, CancellationToken cancellationToken)
         {
             RequestCalls++;
-            return StreamSingle(dsl);
+            Requests.Add(request);
+            var index = Math.Min(next, script.Count - 1);
+            next++;
+            return StreamSingle(script[index]);
         }
 
         public IAsyncEnumerable<LlmStreamEvent> StreamAsync(

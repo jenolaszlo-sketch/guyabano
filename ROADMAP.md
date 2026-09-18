@@ -1038,3 +1038,12 @@ Cross-repository ownership for rejection and recovery behavior is defined in
 Guyabano is the first vertical proving the compiled-workflow direction. Zhinu should
 generalize only the runtime, capability, policy, and evidence concepts that Guyabano
 demonstrates through real execution.
+
+## Workflow planning and mutation
+
+The long-term planning/mutation architecture — durable planning artifacts,
+Fuwen generation by compilation from those artifacts, and Zhinu workflow
+mutation with preservation — is specified in
+[`docs/workflow-planning-mutation.md`](docs/workflow-planning-mutation.md).
+Current status and open risks (including the unproven Zhinu mutation
+spike) are tracked in that document's appendix.

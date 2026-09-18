@@ -43,6 +43,70 @@ public static class PlanningFuwenDescriptors
         return (descriptor, schema);
     }
 
+    /// <summary>
+    /// Schema descriptor for a joint context-design attempt envelope
+    /// (<c>{ok, catalog, manifest, error, retryStage, retryArtifact}</c>)
+    /// carried as per-context retry-loop state.
+    /// </summary>
+    public static (DescriptorReference Descriptor, ObjectSchemaDefinition Schema) JointAttemptSchema()
+    {
+        const string name = "guyabano.context-design-attempt";
+        var descriptor = new DescriptorReference(
+            DescriptorKind.Schema,
+            name,
+            Version,
+            Digest("descriptor/v1", Encoding.UTF8.GetBytes(
+                $"{name}@{Version}|{{ok:Boolean,catalog:Optional(Json),manifest:Optional(Json),error:Optional(String),retryStage:Optional(String),retryArtifact:Optional(Json)}}")));
+        var schema = new ObjectSchemaDefinition(
+            descriptor,
+            [
+                new SchemaField("ok", new PrimitiveType(FuwenPrimitiveKind.Boolean)),
+                new SchemaField("catalog", new OptionalType(new PrimitiveType(FuwenPrimitiveKind.Json))),
+                new SchemaField("manifest", new OptionalType(new PrimitiveType(FuwenPrimitiveKind.Json))),
+                new SchemaField("error", new OptionalType(new PrimitiveType(FuwenPrimitiveKind.String))),
+                new SchemaField("retryStage", new OptionalType(new PrimitiveType(FuwenPrimitiveKind.String))),
+                new SchemaField("retryArtifact", new OptionalType(new PrimitiveType(FuwenPrimitiveKind.Json))),
+            ]);
+        return (descriptor, schema);
+    }
+
+    /// <summary>Attempt-assessment activity pinning its exact contract shape.</summary>
+    public static DescriptorReference AssessActivity() => new(
+        DescriptorKind.Activity,
+        "guyabano.assess-context-design",
+        Version,
+        Digest("descriptor/v1", Encoding.UTF8.GetBytes(
+            $"guyabano.assess-context-design@{Version}|(bundle:Json,contract:Json,manifest:Json)->Json")));
+
+    /// <summary>Gap-resolution activity pinning the resolver pack bytes.</summary>
+    public static DescriptorReference GapActivity(byte[] systemPrompt, byte[] userPrompt)
+    {
+        const string name = "guyabano.resolve-stage-guidance";
+        var identity = Encoding.UTF8.GetBytes($"{name}@{Version}|pack=planning-gap-resolution|");
+        var pinned = new byte[identity.Length + systemPrompt.Length + 1 + userPrompt.Length];
+        Buffer.BlockCopy(identity, 0, pinned, 0, identity.Length);
+        Buffer.BlockCopy(systemPrompt, 0, pinned, identity.Length, systemPrompt.Length);
+        pinned[identity.Length + systemPrompt.Length] = 0;
+        Buffer.BlockCopy(userPrompt, 0, pinned, identity.Length + systemPrompt.Length + 1, userPrompt.Length);
+        return new DescriptorReference(DescriptorKind.Activity, name, Version, Digest("descriptor/v1", pinned));
+    }
+
+    /// <summary>Guidance-folding activity pinning its exact contract shape.</summary>
+    public static DescriptorReference ApplyGuidanceActivity() => new(
+        DescriptorKind.Activity,
+        "guyabano.apply-guidance",
+        Version,
+        Digest("descriptor/v1", Encoding.UTF8.GetBytes(
+            $"guyabano.apply-guidance@{Version}|(attempt:Json,guidance:String)->Json")));
+
+    /// <summary>Plan-assembly activity pinning its exact contract shape.</summary>
+    public static DescriptorReference AssembleActivity() => new(
+        DescriptorKind.Activity,
+        "guyabano.assemble-plan",
+        Version,
+        Digest("descriptor/v1", Encoding.UTF8.GetBytes(
+            $"guyabano.assemble-plan@{Version}|(domain:Json,topology:Json,catalogs:List,manifests:List)->Json")));
+
     /// <summary>Bundle activity pinning its exact contract shape.</summary>
     public static DescriptorReference BundleActivity() => new(
         DescriptorKind.Activity,

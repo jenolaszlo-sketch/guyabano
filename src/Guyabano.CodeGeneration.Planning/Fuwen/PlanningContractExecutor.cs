@@ -93,20 +93,33 @@ public sealed class PlanningContractExecutor(
     private static IReadOnlyList<BoundedContextContractCatalog> ReadCatalogs(
         InferenceExecutionRequest request)
     {
-        // Optional "upstreamCatalogs" list argument (R25-omittable); absent
-        // means an independent context with no upstream contracts.
+        // Optional "upstreamCatalogs" list argument (R25-omittable), falling
+        // back to the bundle's embedded upstream list: phased execution
+        // embeds prior-phase artifacts in bundle literals because closed
+        // regions forbid runtime upstream references inside retry bodies.
         foreach (var argument in request.Arguments)
         {
+            if (argument.Value is not JsonRuntimeValue json)
+                continue;
             if (string.Equals(argument.Name, "upstreamCatalogs", StringComparison.Ordinal) &&
-                argument.Value is JsonRuntimeValue json &&
                 json.Value.ValueKind == JsonValueKind.Array)
             {
-                return json.Value.EnumerateArray()
-                    .Select(element => JsonSerializer.Deserialize<BoundedContextContractCatalog>(element.GetRawText())
-                        ?? throw new InvalidOperationException("Contract inference received an unreadable upstream catalog."))
-                    .ToArray();
+                return ReadCatalogArray(json.Value);
+            }
+            if (string.Equals(argument.Name, "bundle", StringComparison.Ordinal) &&
+                json.Value.ValueKind == JsonValueKind.Object &&
+                json.Value.TryGetProperty("upstreamCatalogs", out var embedded) &&
+                embedded.ValueKind == JsonValueKind.Array)
+            {
+                return ReadCatalogArray(embedded);
             }
         }
         return [];
     }
+
+    private static IReadOnlyList<BoundedContextContractCatalog> ReadCatalogArray(JsonElement array) =>
+        array.EnumerateArray()
+            .Select(element => JsonSerializer.Deserialize<BoundedContextContractCatalog>(element.GetRawText())
+                ?? throw new InvalidOperationException("Contract inference received an unreadable upstream catalog."))
+            .ToArray();
 }

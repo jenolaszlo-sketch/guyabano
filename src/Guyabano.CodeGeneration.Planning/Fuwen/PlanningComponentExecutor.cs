@@ -29,9 +29,17 @@ public sealed class PlanningComponentExecutor(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        JsonElement catalogJson;
+        try
+        {
+            catalogJson = ReadCatalogArgument(request);
+        }
+        catch (SkippedComponentException exception)
+        {
+            return Failed(exception.Message);
+        }
         var previousFailure = PlanningStageArguments.ReadString(request, "previousFailure", required: false);
         var bundle = PlanningStageArguments.ReadJson(request, "bundle", required: true)!.Value;
-        var catalogJson = PlanningStageArguments.ReadJson(request, "catalog", required: true)!.Value;
         var context = JsonSerializer.Deserialize<BoundedContextPlan>(
             bundle.GetProperty("context").GetRawText())
             ?? throw new InvalidOperationException("Component inference received an unreadable bounded context.");
@@ -53,20 +61,20 @@ public sealed class PlanningComponentExecutor(
         var response = await llmRouter.CompleteStreamingAsync(
             model, llmRequest, cancellationToken: cancellationToken).ConfigureAwait(false);
         if (response is null)
-            return Failed(context.Name,
+            return Failed(
                 $"Component design for '{context.Name}' returned no response.");
         var repaired = await repairer.RepairAsync(
             response, format, cancellationToken).ConfigureAwait(false);
         var parsed = StructuredPlanningStageParser<BoundedContextComponentManifest>.Parse(repaired);
         if (!parsed.Succeeded || parsed.Value is null)
-            return Failed(context.Name,
+            return Failed(
                 $"Component design for '{context.Name}' returned invalid structured output: {parsed.Error ?? "Parsing failed."}");
         if (!parsed.Value.BoundedContextName.Equals(context.Name, StringComparison.Ordinal))
-            return Failed(context.Name,
+            return Failed(
                 $"Component manifest must target bounded context '{context.Name}', not '{parsed.Value.BoundedContextName}'.");
         var errors = StagedPlanningValidator.ValidateComponents(domain, topology, [catalog, .. upstreamCatalogs], [parsed.Value, .. upstreamManifests]);
         if (errors.Count > 0)
-            return Failed(context.Name,
+            return Failed(
                 $"Component design for '{context.Name}' failed validation: {string.Join(" ", errors)}");
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(parsed.Value));
         if (outputEnvelope)
@@ -82,7 +90,7 @@ public sealed class PlanningComponentExecutor(
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(document.RootElement));
     }
 
-    private InferenceExecutionResult Failed(string contextName, string error)
+    private InferenceExecutionResult Failed(string error)
     {
         if (!outputEnvelope)
             throw new InvalidOperationException(error);
@@ -95,39 +103,91 @@ public sealed class PlanningComponentExecutor(
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
     }
 
+    /// <summary>
+    /// Reads the sibling catalog, unwrapping a stage envelope when the
+    /// caller chains attempts inside one retry loop. A failed contract
+    /// envelope short-circuits to a skipped marker instead of wasting an
+    /// LLM call on an unreadable catalog.
+    /// </summary>
+    private JsonElement ReadCatalogArgument(InferenceExecutionRequest request)
+    {
+        var raw = PlanningStageArguments.ReadJson(request, "catalog", required: true)!.Value;
+        if (raw.ValueKind == JsonValueKind.Object &&
+            raw.TryGetProperty("ok", out var ok) &&
+            ok.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            if (!ok.GetBoolean())
+            {
+                var error = raw.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String
+                    ? err.GetString()
+                    : "Contract attempt failed.";
+                throw new SkippedComponentException(
+                    $"Component design skipped: contract attempt failed: {error}");
+            }
+            return raw.GetProperty("artifact").Clone();
+        }
+        return raw.Clone();
+    }
+
+    private sealed class SkippedComponentException(string message) : InvalidOperationException(message)
+    {
+    }
+
     private static IReadOnlyList<BoundedContextContractCatalog> ReadCatalogs(
         InferenceExecutionRequest request)
     {
         foreach (var argument in request.Arguments)
         {
+            if (argument.Value is not JsonRuntimeValue json)
+                continue;
             if (string.Equals(argument.Name, "upstreamCatalogs", StringComparison.Ordinal) &&
-                argument.Value is JsonRuntimeValue json &&
                 json.Value.ValueKind == JsonValueKind.Array)
             {
-                return json.Value.EnumerateArray()
-                    .Select(element => JsonSerializer.Deserialize<BoundedContextContractCatalog>(element.GetRawText())
-                        ?? throw new InvalidOperationException("Component inference received an unreadable upstream catalog."))
-                    .ToArray();
+                return ReadCatalogArray(json.Value);
+            }
+            if (string.Equals(argument.Name, "bundle", StringComparison.Ordinal) &&
+                json.Value.ValueKind == JsonValueKind.Object &&
+                json.Value.TryGetProperty("upstreamCatalogs", out var embedded) &&
+                embedded.ValueKind == JsonValueKind.Array)
+            {
+                return ReadCatalogArray(embedded);
             }
         }
         return [];
     }
+
+    private static IReadOnlyList<BoundedContextContractCatalog> ReadCatalogArray(JsonElement array) =>
+        array.EnumerateArray()
+            .Select(element => JsonSerializer.Deserialize<BoundedContextContractCatalog>(element.GetRawText())
+                ?? throw new InvalidOperationException("Component inference received an unreadable upstream catalog."))
+            .ToArray();
 
     private static IReadOnlyList<BoundedContextComponentManifest> ReadManifests(
         InferenceExecutionRequest request)
     {
         foreach (var argument in request.Arguments)
         {
+            if (argument.Value is not JsonRuntimeValue json)
+                continue;
             if (string.Equals(argument.Name, "upstreamManifests", StringComparison.Ordinal) &&
-                argument.Value is JsonRuntimeValue json &&
                 json.Value.ValueKind == JsonValueKind.Array)
             {
-                return json.Value.EnumerateArray()
-                    .Select(element => JsonSerializer.Deserialize<BoundedContextComponentManifest>(element.GetRawText())
-                        ?? throw new InvalidOperationException("Component inference received an unreadable upstream manifest."))
-                    .ToArray();
+                return ReadManifestArray(json.Value);
+            }
+            if (string.Equals(argument.Name, "bundle", StringComparison.Ordinal) &&
+                json.Value.ValueKind == JsonValueKind.Object &&
+                json.Value.TryGetProperty("upstreamManifests", out var embedded) &&
+                embedded.ValueKind == JsonValueKind.Array)
+            {
+                return ReadManifestArray(embedded);
             }
         }
         return [];
     }
+
+    private static IReadOnlyList<BoundedContextComponentManifest> ReadManifestArray(JsonElement array) =>
+        array.EnumerateArray()
+            .Select(element => JsonSerializer.Deserialize<BoundedContextComponentManifest>(element.GetRawText())
+                ?? throw new InvalidOperationException("Component inference received an unreadable upstream manifest."))
+            .ToArray();
 }

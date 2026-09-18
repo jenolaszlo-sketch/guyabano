@@ -440,11 +440,9 @@ public sealed class RealPlanningFanOutTests
     private static string ContextAfter(string text, string marker)
     {
         var tail = text[(text.IndexOf(marker, StringComparison.Ordinal) + marker.Length)..];
-        if (tail.Contains("\"Todos\"", StringComparison.Ordinal))
-            return "Todos";
-        if (tail.Contains("\"Notes\"", StringComparison.Ordinal))
-            return "Notes";
-        return "unknown";
+        var match = System.Text.RegularExpressions.Regex.Match(
+            tail, "\"name\"\\s*:\\s*\"([^\"]+)\"");
+        return match.Success ? match.Groups[1].Value : "unknown";
     }
 
     private static string FindPromptsRoot()

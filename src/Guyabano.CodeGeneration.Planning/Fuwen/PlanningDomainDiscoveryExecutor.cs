@@ -38,8 +38,8 @@ public sealed class PlanningDomainDiscoveryExecutor(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var requestText = ReadArgument(request, "request", required: true)!;
-        var previousFailure = ReadArgument(request, "previousFailure", required: false);
+        var requestText = PlanningStageArguments.ReadString(request, "request", required: true)!;
+        var previousFailure = PlanningStageArguments.ReadString(request, "previousFailure", required: false);
         var format = LlmResponseFormat.JsonSchema(
             JsonSchemaGenerator.GenerateSchemaJson<DomainDiscovery>());
         var llmRequest = await promptBuilder.BuildAsync(
@@ -86,21 +86,4 @@ public sealed class PlanningDomainDiscoveryExecutor(
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
     }
 
-    private static string? ReadArgument(
-        InferenceExecutionRequest request, string name, bool required)
-    {
-        foreach (var argument in request.Arguments)
-        {
-            if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
-                argument.Value is JsonRuntimeValue json &&
-                json.Value.ValueKind == JsonValueKind.String)
-            {
-                return json.Value.GetString();
-            }
-        }
-        if (required)
-            throw new InvalidOperationException(
-                $"Domain discovery inference requires a string '{name}' argument.");
-        return null;
-    }
 }

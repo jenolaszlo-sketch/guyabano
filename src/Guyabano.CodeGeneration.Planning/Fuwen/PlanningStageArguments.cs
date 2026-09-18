@@ -3,7 +3,12 @@ using Penghou.Fuwen;
 
 namespace Guyabano.CodeGeneration.Planning.Fuwen;
 
-/// <summary>Shared argument readers for planning stage executors.</summary>
+/// <summary>
+/// Shared argument readers for planning stage executors. All readers
+/// accept any runtime value representation via
+/// <see cref="PlanningStageValues"/> because the runtime may normalize
+/// provider outputs (e.g. JSON to nominal composites for named types).
+/// </summary>
 internal static class PlanningStageArguments
 {
     public static string? ReadString(
@@ -12,10 +17,11 @@ internal static class PlanningStageArguments
         foreach (var argument in request.Arguments)
         {
             if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
-                argument.Value is JsonRuntimeValue json &&
-                json.Value.ValueKind == JsonValueKind.String)
+                argument.Value is not null)
             {
-                return json.Value.GetString();
+                var json = PlanningStageValues.ToJsonElement(argument.Value);
+                if (json.ValueKind == JsonValueKind.String)
+                    return json.GetString();
             }
         }
         if (required)
@@ -30,9 +36,9 @@ internal static class PlanningStageArguments
         foreach (var argument in request.Arguments)
         {
             if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
-                argument.Value is JsonRuntimeValue json)
+                argument.Value is not null)
             {
-                return json.Value.Clone();
+                return PlanningStageValues.ToJsonElement(argument.Value);
             }
         }
         if (required)
@@ -47,10 +53,11 @@ internal static class PlanningStageArguments
         foreach (var argument in request.Arguments)
         {
             if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
-                argument.Value is JsonRuntimeValue json &&
-                json.Value.ValueKind == JsonValueKind.String)
+                argument.Value is not null)
             {
-                return json.Value.GetString()!;
+                var json = PlanningStageValues.ToJsonElement(argument.Value);
+                if (json.ValueKind == JsonValueKind.String)
+                    return json.GetString()!;
             }
         }
         throw new InvalidOperationException(
@@ -63,9 +70,9 @@ internal static class PlanningStageArguments
         foreach (var argument in request.Arguments)
         {
             if (string.Equals(argument.Name, name, StringComparison.Ordinal) &&
-                argument.Value is JsonRuntimeValue json)
+                argument.Value is not null)
             {
-                return json.Value.Clone();
+                return PlanningStageValues.ToJsonElement(argument.Value);
             }
         }
         throw new InvalidOperationException(

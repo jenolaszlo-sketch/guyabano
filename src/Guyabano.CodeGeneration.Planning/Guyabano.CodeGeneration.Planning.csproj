@@ -14,6 +14,7 @@
     <PackageReference Include="Penghou.Fuwen.Zhinu" Version="0.1.0-preview.8" />
     <PackageReference Include="Penghou.Zhinu" Version="0.1.0-preview.14" />
     <PackageReference Include="Penghou.Zhinu.Sqlite" Version="0.1.0-preview.14" />
+    <ProjectReference Include="..\Guyabano.Artifacts\Guyabano.Artifacts.csproj" />
     <ProjectReference Include="..\Guyabano.Llm.Prompting\Guyabano.Llm.Prompting.csproj" />
   </ItemGroup>
 

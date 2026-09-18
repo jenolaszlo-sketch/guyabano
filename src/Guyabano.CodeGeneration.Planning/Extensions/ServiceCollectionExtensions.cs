@@ -1,3 +1,4 @@
+using Guyabano.Artifacts;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -144,6 +145,28 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<BundleContractInputsActivity>();
         services.AddSingleton<FuwenStagedPlanningService>();
         services.AddSingleton<AssemblePlanningActivity>();
+        services.AddSingleton<StagedPlanningArtifactPublisher>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers a file-system-backed planning artifact catalog rooted at
+    /// <paramref name="rootPath"/>. Planning runs then publish revisioned
+    /// artifacts through <see cref="StagedPlanningArtifactPublisher"/>.
+    /// </summary>
+    public static IServiceCollection AddPlanningArtifactCatalog(
+        this IServiceCollection services,
+        string rootPath)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
+
+        services.AddSingleton<IArtifactRepository>(
+            _ => new FileSystemArtifactRepository(rootPath));
+        services.AddSingleton<IPlanningArtifactCatalog>(provider =>
+            new PlanningArtifactCatalog(
+                provider.GetRequiredService<IArtifactRepository>()));
 
         return services;
     }

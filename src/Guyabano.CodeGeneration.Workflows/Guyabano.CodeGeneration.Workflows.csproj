@@ -8,13 +8,13 @@
 
   <ItemGroup>
     <PackageReference Include="Penghou.Baize" Version="0.3.0-preview.5" />
-    <PackageReference Include="Penghou.Zhinu" Version="0.1.0-preview.12" />
+    <PackageReference Include="Penghou.Zhinu" Version="0.1.0-preview.14" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Penghou.Fuwen" Version="0.1.0-preview.6" />
-    <PackageReference Include="Penghou.Fuwen.Compiler" Version="0.1.0-preview.6" />
-    <PackageReference Include="Penghou.Fuwen.Zhinu" Version="0.1.0-preview.6" />
+    <PackageReference Include="Penghou.Fuwen" Version="0.1.0-preview.8" />
+    <PackageReference Include="Penghou.Fuwen.Compiler" Version="0.1.0-preview.8" />
+    <PackageReference Include="Penghou.Fuwen.Zhinu" Version="0.1.0-preview.8" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,3 +30,5 @@
   </ItemGroup>
 
 </Project>
+
+

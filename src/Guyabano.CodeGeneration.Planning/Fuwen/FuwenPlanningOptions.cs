@@ -24,4 +24,10 @@ public sealed class FuwenPlanningOptions
     public bool IncludeRepositoryContextInPrompts { get; set; } = false;
 
     public int RepositoryContextMaximumPromptCharacters { get; set; } = 40000;
+
+    /// <summary>
+    /// Root directory for the file-system planning artifact catalog. Relative
+    /// paths resolve against the application base directory.
+    /// </summary>
+    public string ArtifactRoot { get; set; } = "artifacts";
 }

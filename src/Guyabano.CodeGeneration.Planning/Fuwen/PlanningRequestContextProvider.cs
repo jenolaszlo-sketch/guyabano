@@ -11,9 +11,9 @@ namespace Guyabano.CodeGeneration.Planning.Fuwen;
 /// <c>SessionContextAssembler.Assemble</c>): the raw request plus, when the
 /// disclosure opt-in carries content, the bounded untrusted-context block
 /// with the same truncation marker. Arguments:
-/// <c>request</c> (string, required), <c>repositoryContext</c> (string,
-/// R25-omittable), <c>includeRepositoryContext</c> (boolean),
-/// <c>maxCharacters</c> (integer).
+/// <c>request</c> (string, required); <c>repositoryContext</c>,
+/// <c>includeRepositoryContext</c>, and <c>maxCharacters</c> are omittable
+/// and default to no repository context with a 40000-character ceiling.
 /// </summary>
 /// <remarks>
 /// Boundary: Cangjie snapshot identity (snapshot IDs, Hetu index revisions)
@@ -33,8 +33,8 @@ public sealed class PlanningRequestContextProvider : IContextProvider
         ArgumentNullException.ThrowIfNull(request);
         var requestText = ReadString(request, "request", required: true)!;
         var repositoryContent = ReadString(request, "repositoryContext", required: false);
-        var include = ReadBoolean(request, "includeRepositoryContext");
-        var maxCharacters = ReadInteger(request, "maxCharacters");
+        var include = ReadBoolean(request, "includeRepositoryContext", defaultValue: false);
+        var maxCharacters = ReadInteger(request, "maxCharacters", defaultValue: 40000);
         var assembled = Assemble(requestText, repositoryContent, include, maxCharacters);
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(assembled));
         var output = RuntimeValue.FromJson(document.RootElement);
@@ -96,7 +96,8 @@ public sealed class PlanningRequestContextProvider : IContextProvider
         return null;
     }
 
-    private static bool ReadBoolean(ContextExecutionRequest request, string name)
+    private static bool ReadBoolean(
+        ContextExecutionRequest request, string name, bool defaultValue)
     {
         foreach (var argument in request.Arguments)
         {
@@ -107,11 +108,11 @@ public sealed class PlanningRequestContextProvider : IContextProvider
                 return json.Value.GetBoolean();
             }
         }
-        throw new InvalidOperationException(
-            $"Planning request context requires a boolean '{name}' argument.");
+        return defaultValue;
     }
 
-    private static int ReadInteger(ContextExecutionRequest request, string name)
+    private static int ReadInteger(
+        ContextExecutionRequest request, string name, int defaultValue)
     {
         foreach (var argument in request.Arguments)
         {
@@ -123,7 +124,6 @@ public sealed class PlanningRequestContextProvider : IContextProvider
                 return value;
             }
         }
-        throw new InvalidOperationException(
-            $"Planning request context requires an integer '{name}' argument.");
+        return defaultValue;
     }
 }

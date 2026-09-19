@@ -28,10 +28,20 @@ internal static class PlanCommandCatalogueFactory
         static CallableContract Contract(FuwenType output, params (string Name, FuwenType Type)[] parameters) => new(
             new CallableSignature([.. parameters.Select(p => new CallableParameter(p.Name, p.Type))], output),
             CallableEffect.Read, CallableIdempotency.Idempotent, CallableRetrySafety.Safe);
+        var optionalBoolean = new OptionalType(new PrimitiveType(FuwenPrimitiveKind.Boolean));
+        var optionalInteger = new OptionalType(new PrimitiveType(FuwenPrimitiveKind.Integer));
+        var optionalStr = new OptionalType(str);
         var entries = new[]
         {
             new TrustedCatalogueDescriptor(context, callableContract: new CallableContract(
-                new CallableSignature([new CallableParameter("request", str)], str),
+                new CallableSignature(
+                    [
+                        new CallableParameter("request", str),
+                        new CallableParameter("repositoryContext", optionalStr),
+                        new CallableParameter("includeRepositoryContext", optionalBoolean),
+                        new CallableParameter("maxCharacters", optionalInteger),
+                    ],
+                    str),
                 CallableEffect.Read, CallableIdempotency.Idempotent, CallableRetrySafety.Safe)),
             new TrustedCatalogueDescriptor(profile, callableContract:
                 Contract(str, ("request", str))),

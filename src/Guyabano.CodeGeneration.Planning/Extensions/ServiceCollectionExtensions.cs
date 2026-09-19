@@ -1,6 +1,7 @@
 using Guyabano.Artifacts;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Penghou.Baize.Router;
 using Penghou.Baize.Tools;
@@ -145,6 +146,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<BundleContractInputsActivity>();
         services.AddSingleton<FuwenStagedPlanningService>();
         services.AddSingleton<AssemblePlanningActivity>();
+        services.AddDefaultPlanningArtifactCatalog();
         services.AddSingleton<StagedPlanningArtifactPublisher>();
 
         return services;
@@ -152,8 +154,11 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Registers a file-system-backed planning artifact catalog rooted at
-    /// <paramref name="rootPath"/>. Planning runs then publish revisioned
-    /// artifacts through <see cref="StagedPlanningArtifactPublisher"/>.
+    /// <paramref name="rootPath"/>. The catalog owns its content store and
+    /// never touches the ambient <see cref="IArtifactRepository"/>, which in
+    /// code-generation hosts publishes through workflow sessions. Planning
+    /// runs then publish revisioned artifacts through
+    /// <see cref="StagedPlanningArtifactPublisher"/>.
     /// </summary>
     public static IServiceCollection AddPlanningArtifactCatalog(
         this IServiceCollection services,
@@ -162,11 +167,25 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
 
-        services.AddSingleton<IArtifactRepository>(
-            _ => new FileSystemArtifactRepository(rootPath));
-        services.AddSingleton<IPlanningArtifactCatalog>(provider =>
-            new PlanningArtifactCatalog(
-                provider.GetRequiredService<IArtifactRepository>()));
+        services.AddSingleton<IPlanningArtifactCatalog>(_ =>
+            new PlanningArtifactCatalog(new FileSystemArtifactRepository(rootPath)));
+
+        return services;
+    }
+
+    private static IServiceCollection AddDefaultPlanningArtifactCatalog(
+        this IServiceCollection services)
+    {
+        services.TryAddSingleton<IPlanningArtifactCatalog>(provider =>
+        {
+            var root = provider
+                .GetRequiredService<IOptions<FuwenPlanningOptions>>().Value.ArtifactRoot;
+            if (string.IsNullOrWhiteSpace(root))
+                root = "artifacts";
+            if (!Path.IsPathRooted(root))
+                root = Path.Combine(AppContext.BaseDirectory, root);
+            return new PlanningArtifactCatalog(new FileSystemArtifactRepository(root));
+        });
 
         return services;
     }

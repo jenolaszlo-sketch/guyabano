@@ -412,9 +412,9 @@ public sealed class ArchitectureChangeMutationTests : IDisposable
         if (withCache)
         {
             contracts.Add(new BoundedContextContractCatalog
-                { BoundedContextName = "Cache", Contracts = [], Decisions = [], InferredDefaults = [] });
+            { BoundedContextName = "Cache", Contracts = [], Decisions = [], InferredDefaults = [] });
             components.Add(new BoundedContextComponentManifest
-                { BoundedContextName = "Cache", Components = [], Decisions = [], InferredDefaults = [] });
+            { BoundedContextName = "Cache", Components = [], Decisions = [], InferredDefaults = [] });
         }
 
         return (

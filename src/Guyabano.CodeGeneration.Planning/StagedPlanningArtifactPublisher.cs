@@ -123,6 +123,54 @@ public sealed class StagedPlanningArtifactPublisher(IPlanningArtifactCatalog cat
             components);
     }
 
+    /// <summary>
+    /// Publishes the execution design as the next two links in the planning
+    /// cascade: the semantic execution graph, then its bindings. The graph
+    /// declares the passed design inputs; the bindings declare the graph.
+    /// </summary>
+    public async Task<PlannedExecutionDesignVersions> PublishExecutionDesignAsync(
+        string workflowId,
+        PlannedExecutionDesign design,
+        IReadOnlyList<PlanningArtifactVersion> designInputs,
+        PlanningArtifactState state = PlanningArtifactState.Valid,
+        string? sessionId = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workflowId);
+        ArgumentNullException.ThrowIfNull(design);
+        ArgumentNullException.ThrowIfNull(designInputs);
+
+        var graph = await catalog.PublishAsync(
+            new PublishPlanningArtifactRequest<PlannedExecutionGraph>(
+                workflowId,
+                new PlanningArtifactKey("execution-graph", "main"),
+                SchemaVersion,
+                "build-execution-graph",
+                design.Graph,
+                Inputs: designInputs,
+                State: state)
+            {
+                SessionId = sessionId,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        var bindings = await catalog.PublishAsync(
+            new PublishPlanningArtifactRequest<PlannedExecutionBindings>(
+                workflowId,
+                new PlanningArtifactKey("bindings", "main"),
+                SchemaVersion,
+                "resolve-bindings",
+                design.Bindings,
+                Inputs: [graph.Version],
+                State: state)
+            {
+                SessionId = sessionId,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return new PlannedExecutionDesignVersions(graph.Version, bindings.Version);
+    }
+
     /// <summary>Builds the stable catalog key for one bounded-context artifact.</summary>
     public static PlanningArtifactKey ContextKey(string kind, string contextName) =>
         new(kind, Slug(contextName));

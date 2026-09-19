@@ -24,7 +24,8 @@ public sealed class WorkflowAuthoringPromptBuilder(
         {
             Request = context.Request.Trim(),
             CatalogueSummary = context.CatalogueSummary,
-            context.PreviousFailure
+            context.PreviousFailure,
+            ExecutionPlan = context.ExecutionPlan?.Trim()
         };
 
     protected override LlmResponseFormat? BuildResponseFormat(

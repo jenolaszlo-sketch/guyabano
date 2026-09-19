@@ -38,6 +38,19 @@ Types: `string`, `integer`, `number`, `boolean`, `Json`, `list<T>[max]`, `name: 
 6. Prefer the smallest plan that satisfies the request: linear chains first, then conditional, then repeat, then fan-out. Never use a feature the request does not need.
 7. The final `return` must produce the declared workflow output type.
 
+{{ if execution_plan }}
+## Resolved execution plan
+
+The execution graph below is the authoritative decomposition. Translate it into workflow nodes; do not rediscover architecture, do not add steps, do not remove steps, do not reorder dependencies.
+
+{{ execution_plan }}
+
+Translation rules:
+1. Emit one workflow node per execution step, named exactly by the step id.
+2. Each node uses the step's exact descriptor reference (`<kind> "<name>@<version>#<digest>"`): copy the quoted reference verbatim into the node.
+3. Order nodes so every `depends on` edge resolves. A node with no dependencies takes the workflow `input`; a node with dependencies takes the output of its first listed dependency.
+4. Pinned artifact versions under `requires artifacts` record the knowledge each binding was resolved against. They are satisfied by the descriptor call itself and need no separate node.
+{{ end }}
 ## Catalogue
 
 {{ catalogue_summary }}

@@ -1,5 +1,8 @@
 Write a Fuwen workflow for the following request. Use only the catalogue from the system prompt.
+{{ if execution_plan }}
 
+Translate the resolved execution plan from the system prompt: preserve every step, every dependency, and every descriptor exactly. The request below states the goal the plan already decomposes.
+{{ end }}
 {{ request }}
 {{ if previous_failure }}
 

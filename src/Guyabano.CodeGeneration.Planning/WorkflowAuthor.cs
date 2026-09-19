@@ -33,8 +33,52 @@ public sealed class WorkflowAuthor(
     int maxAttempts = 3,
     int maxFailureCharacters = 4000)
 {
-    public async Task<WorkflowAuthorResult> AuthorAsync(
+    public Task<WorkflowAuthorResult> AuthorAsync(
         string request,
+        string catalogueSummary,
+        ITrustedCatalogue catalogue,
+        string model,
+        int maxTokens = 4000,
+        CancellationToken cancellationToken = default) =>
+        AuthorCoreAsync(
+            request,
+            executionPlan: null,
+            catalogueSummary,
+            catalogue,
+            model,
+            maxTokens,
+            cancellationToken);
+
+    /// <summary>
+    /// Authors an executable workflow by translating a resolved execution
+    /// design: the plan section tells the model exactly which steps, edges,
+    /// and descriptors to emit, and the same compile–repair loop admits the
+    /// result. The goal states what the plan decomposes; the plan itself is
+    /// authoritative.
+    /// </summary>
+    public Task<WorkflowAuthorResult> AuthorFromPlanAsync(
+        string goal,
+        string executionPlan,
+        string catalogueSummary,
+        ITrustedCatalogue catalogue,
+        string model,
+        int maxTokens = 4000,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(executionPlan);
+        return AuthorCoreAsync(
+            goal,
+            executionPlan,
+            catalogueSummary,
+            catalogue,
+            model,
+            maxTokens,
+            cancellationToken);
+    }
+
+    private async Task<WorkflowAuthorResult> AuthorCoreAsync(
+        string request,
+        string? executionPlan,
         string catalogueSummary,
         ITrustedCatalogue catalogue,
         string model,
@@ -53,7 +97,7 @@ public sealed class WorkflowAuthor(
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             var llmRequest = await promptBuilder.BuildAsync(
-                new WorkflowAuthoringPromptContext(request, catalogueSummary, maxTokens, previousFailure),
+                new WorkflowAuthoringPromptContext(request, catalogueSummary, maxTokens, previousFailure, executionPlan),
                 cancellationToken).ConfigureAwait(false);
             var response = await llmRouter.CompleteStreamingAsync(
                 model, llmRequest, cancellationToken: cancellationToken).ConfigureAwait(false);

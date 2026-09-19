@@ -16,7 +16,8 @@ public sealed record PlanCommandResult(
     string Dsl,
     bool Admitted,
     IReadOnlyList<string> Diagnostics,
-    int Attempts);
+    int Attempts,
+    string Model);
 
 /// <summary>Executed plan output for UI display.</summary>
 public sealed record PlanExecutionResult(
@@ -57,9 +58,10 @@ public sealed class PlanCommandService(
         if (!IsPlanCommand(prompt))
             return null;
         var request = StripPrefix(prompt);
-        if (string.IsNullOrWhiteSpace(request))
-            return new PlanCommandResult(string.Empty, false, ["Usage: /plan <request>"], 0);
         var settings = options.Value;
+        if (string.IsNullOrWhiteSpace(request))
+            return new PlanCommandResult(
+                string.Empty, false, ["Usage: /plan <request>"], 0, settings.PlannerModel);
         var result = await author.AuthorAsync(
             request,
             catalogueSource.Summary,
@@ -85,7 +87,8 @@ public sealed class PlanCommandService(
                 : result.Diagnostics.Count > 0
                     ? result.Diagnostics
                     : ["The model did not produce an admittable workflow within the attempt budget."],
-            result.Attempts.Count);
+            result.Attempts.Count,
+            settings.PlannerModel);
     }
 
     public static bool IsRunCommand(string prompt) =>

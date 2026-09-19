@@ -28,6 +28,8 @@ internal sealed class ChatRunState(
 
     public string? PlanAdmission { get; set; }
 
+    public string? PlanModel { get; set; }
+
     public string? PlanResult { get; set; }
 
     public CodeGenerationWorkflowResult? Result { get; set; }

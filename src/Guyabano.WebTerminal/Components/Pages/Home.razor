@@ -248,6 +248,10 @@
                 {
                     <div class="result-card">
                         <div class="result-heading">Authored workflow</div>
+                        @if (run.PlanModel is not null)
+                        {
+                            <p><span>Model: @run.PlanModel</span></p>
+                        }
                         <pre>@run.PlanDsl</pre>
                         @if (run.PlanAdmission is not null)
                         {
@@ -474,6 +478,7 @@
                 return;
             }
             run.PlanDsl = result.Dsl;
+            run.PlanModel = result.Model;
             run.PlanAdmission = result.Admitted
                 ? $"Admitted after {result.Attempts} attempt(s)."
                 : $"Not admitted: {string.Join("; ", result.Diagnostics)}";

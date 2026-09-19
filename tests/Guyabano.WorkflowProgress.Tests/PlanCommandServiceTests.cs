@@ -73,6 +73,7 @@ public sealed class PlanCommandServiceTests
         result!.Dsl.Should().Contain("workflow demo");
         result.Admitted.Should().BeTrue();
         result.Diagnostics.Should().BeEmpty();
+        result.Model.Should().Be("deepseek-v4-flash");
     }
 
     [Fact]

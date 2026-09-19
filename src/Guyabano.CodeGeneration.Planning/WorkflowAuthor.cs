@@ -1,5 +1,6 @@
 using Penghou.Baize;
 using Penghou.Baize.Router;
+using Penghou.Fuwen;
 using Penghou.Fuwen.Compiler;
 using Guyabano.Llm.Prompting;
 
@@ -47,7 +48,7 @@ public sealed class WorkflowAuthor(
             catalogue,
             model,
             maxTokens,
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
     /// <summary>
     /// Authors an executable workflow by translating a resolved execution
@@ -73,6 +74,47 @@ public sealed class WorkflowAuthor(
             catalogue,
             model,
             maxTokens,
+            cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// Authors the next workflow revision from a merged execution design. The
+    /// model receives the prior admitted DSL with the patch's changed steps
+    /// and must reproduce every other node verbatim; after admission the
+    /// preservation check verifies that contract, and drift is fed back as
+    /// repair feedback until the candidate is clean or attempts run out.
+    /// </summary>
+    public Task<WorkflowAuthorResult> AuthorFromPatchAsync(
+        string goal,
+        string executionPlan,
+        string priorDsl,
+        WorkflowPlan priorPlan,
+        WorkflowPatch patch,
+        string catalogueSummary,
+        ITrustedCatalogue catalogue,
+        string model,
+        int maxTokens = 4000,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(executionPlan);
+        ArgumentException.ThrowIfNullOrWhiteSpace(priorDsl);
+        ArgumentNullException.ThrowIfNull(priorPlan);
+        ArgumentNullException.ThrowIfNull(patch);
+        if (patch.AffectedStepIds().Count == 0)
+        {
+            throw new ArgumentException("Patch affects no steps.", nameof(patch));
+        }
+
+        return AuthorCoreAsync(
+            goal,
+            executionPlan,
+            catalogueSummary,
+            catalogue,
+            model,
+            maxTokens,
+            patch,
+            priorDsl,
+            priorPlan,
             cancellationToken);
     }
 
@@ -83,6 +125,9 @@ public sealed class WorkflowAuthor(
         ITrustedCatalogue catalogue,
         string model,
         int maxTokens = 4000,
+        WorkflowPatch? patch = null,
+        string? priorDsl = null,
+        WorkflowPlan? priorPlan = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(request);
@@ -97,7 +142,15 @@ public sealed class WorkflowAuthor(
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             var llmRequest = await promptBuilder.BuildAsync(
-                new WorkflowAuthoringPromptContext(request, catalogueSummary, maxTokens, previousFailure, executionPlan),
+                new WorkflowAuthoringPromptContext(
+                    request,
+                    catalogueSummary,
+                    maxTokens,
+                    previousFailure,
+                    executionPlan,
+                    PriorDsl: patch is null ? null : priorDsl,
+                    ChangedSteps: patch?.AffectedStepIds()
+                        .OrderBy(id => id, StringComparer.Ordinal).ToArray()),
                 cancellationToken).ConfigureAwait(false);
             var response = await llmRouter.CompleteStreamingAsync(
                 model, llmRequest, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -129,6 +182,28 @@ public sealed class WorkflowAuthor(
                 attempts.Add(new WorkflowAuthorAttempt(attempt, dsl, false, [previousFailure]));
                 continue;
             }
+
+            if (patch is not null && priorPlan is not null)
+            {
+                var definition = admission.Compilation.Definition;
+                if (definition is null)
+                {
+                    previousFailure = Truncate("The admitted plan has no readable definition.");
+                    attempts.Add(new WorkflowAuthorAttempt(attempt, dsl, true, [previousFailure]));
+                    continue;
+                }
+
+                var drifts = PatchPreservationValidator.Validate(
+                    priorPlan, definition.ReadPlan(), patch);
+                if (drifts.Count > 0)
+                {
+                    previousFailure = Truncate(
+                        "Preservation check failed: " + string.Join("; ", drifts));
+                    attempts.Add(new WorkflowAuthorAttempt(attempt, dsl, true, [previousFailure]));
+                    continue;
+                }
+            }
+
             attempts.Add(new WorkflowAuthorAttempt(attempt, dsl, true, []));
             return new WorkflowAuthorResult(true, dsl, admission, attempts, []);
         }

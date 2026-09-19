@@ -17,6 +17,14 @@ public sealed class WorkflowAuthoringPromptBuilder(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(context.Request);
         ArgumentException.ThrowIfNullOrWhiteSpace(context.CatalogueSummary);
+        var hasPrior = !string.IsNullOrWhiteSpace(context.PriorDsl);
+        var hasSteps = context.ChangedSteps is { Count: > 0 };
+        if (hasPrior != hasSteps)
+        {
+            throw new ArgumentException(
+                "PriorDsl and ChangedSteps must be supplied together.",
+                nameof(context));
+        }
     }
 
     protected override object BuildTemplateModel(
@@ -25,7 +33,11 @@ public sealed class WorkflowAuthoringPromptBuilder(
             Request = context.Request.Trim(),
             CatalogueSummary = context.CatalogueSummary,
             context.PreviousFailure,
-            ExecutionPlan = context.ExecutionPlan?.Trim()
+            ExecutionPlan = context.ExecutionPlan?.Trim(),
+            PriorDsl = context.PriorDsl?.Trim(),
+            ChangedSteps = context.ChangedSteps is { Count: > 0 }
+                ? string.Join(", ", context.ChangedSteps)
+                : null,
         };
 
     protected override LlmResponseFormat? BuildResponseFormat(

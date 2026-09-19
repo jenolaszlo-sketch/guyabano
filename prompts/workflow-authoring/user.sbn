@@ -4,6 +4,10 @@ Write a Fuwen workflow for the following request. Use only the catalogue from th
 Translate the resolved execution plan from the system prompt: preserve every step, every dependency, and every descriptor exactly. The request below states the goal the plan already decomposes.
 {{ end }}
 {{ request }}
+{{ if prior_dsl }}
+
+Reproduce the prior workflow from the system prompt with only the changed steps ({{ changed_steps }}) modified. Carry every other node over verbatim.
+{{ end }}
 {{ if previous_failure }}
 
 The preceding authoring attempt was rejected by the compiler for this reason. Fix only that defect while preserving the requested behavior:

@@ -64,6 +64,15 @@ Translation rules:
 4. Pinned artifact versions under `requires artifacts` record the knowledge each binding was resolved against. They are satisfied by the descriptor call itself and need no separate node.
 5. When a prior workflow and a changed-step list are supplied, reproduce every node for an unchanged step verbatim from the prior workflow: same name, same descriptor reference, same arguments, same bindings, same prompt text. Only nodes for changed steps may differ. A candidate that rewrites an unchanged node is rejected.
 {{ end }}
+{{ if prior_dsl }}
+## Prior workflow revision
+
+The admitted workflow below is the current revision. The changed steps in this revision are: {{ changed_steps }}.
+
+{{ prior_dsl }}
+
+Carryover rule 5 above applies: reproduce every unchanged node verbatim.
+{{ end }}
 ## Catalogue
 
 {{ catalogue_summary }}

@@ -1,0 +1,10 @@
+Propose a workflow patch for the following goal. Use the current design, base fingerprint, changed artifacts, and catalogue from the system prompt.
+
+{{ goal }}
+{{ if previous_failure }}
+
+The preceding proposal was rejected for this reason. Fix only that defect while preserving the intent:
+{{ previous_failure }}
+{{ end }}
+
+Return exactly one JSON object and nothing else.

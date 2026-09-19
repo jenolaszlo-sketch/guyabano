@@ -56,6 +56,27 @@ public sealed class AuthorFromPlanTests : IDisposable
         }
         """;
 
+    private static TrustedCatalogueDescriptor GenerateV2Descriptor()
+    {
+        var str = new PrimitiveType(FuwenPrimitiveKind.String);
+        return new TrustedCatalogueDescriptor(
+            new DescriptorReference(DescriptorKind.Activity, "guyabano.generate", "2",
+                new ContentDigest("sha256", "descriptor/v1", Digest('2'))),
+            callableContract: new CallableContract(
+                new CallableSignature([new CallableParameter("task", str)], str),
+                CallableEffect.Read, CallableIdempotency.Idempotent, CallableRetrySafety.Safe));
+    }
+
+    private static string BillingV2Ref() => $"guyabano.generate@2#{Digest('2')}";
+
+    private static string PatchedDsl() => TranslationDsl().Replace(
+        $"guyabano.generate@1#{Digest('f')}\" (task: implement_todos;)",
+        $"{BillingV2Ref()}\" (task: implement_todos;)",
+        StringComparison.Ordinal);
+
+    private static string DriftedDsl() => PatchedDsl().Replace(
+        "(task: input;)", "(task: \"classify\";)", StringComparison.Ordinal);
+
     [Fact]
     public async Task Authoring_pack_renders_the_resolved_execution_plan()
     {
@@ -168,6 +189,156 @@ public sealed class AuthorFromPlanTests : IDisposable
     {
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
+    }
+
+    [Fact]
+    public async Task Patch_pack_renders_the_prior_workflow_and_changed_steps()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = await BuildDesignAsync(ct);
+        var executionPlan = PlannedExecutionDesignSummary.Render(design);
+        var catalogueSummary = CatalogueSummaryBuilder.Render(Registry().Values);
+
+        var promptsRoot = FindPromptsRoot();
+        var authorBuilder = new WorkflowAuthoringPromptBuilder(
+            new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot)));
+        var request = await authorBuilder.BuildAsync(
+            new WorkflowAuthoringPromptContext(
+                "Implement ticket classification.",
+                catalogueSummary,
+                4000,
+                ExecutionPlan: executionPlan,
+                PriorDsl: TranslationDsl(),
+                ChangedSteps: ["implement_billing"]),
+            ct);
+
+        var systemText = TextOf(request, "system");
+        var userText = TextOf(request, "user");
+        systemText.Should().Contain("Prior workflow revision");
+        systemText.Should().Contain("implement_billing");
+        systemText.Should().Contain("activity implement_todos");
+        userText.Should().Contain("implement_billing");
+        userText.Should().Contain("verbatim");
+    }
+
+    [Fact]
+    public async Task Author_from_patch_repairs_drift_and_admits()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = await BuildDesignAsync(ct);
+        var registry = Registry();
+        var catalogue = new InMemoryTrustedCatalogue(
+            [.. registry.Values, GenerateV2Descriptor()]);
+        var catalogueSummary = CatalogueSummaryBuilder.Render(catalogue.Descriptors);
+
+        var priorPlan = await CompileAsync(catalogue, TranslationDsl(), ct);
+        var patch = BillingV2Patch(design);
+        var merged = StagedExecutionGraphBuilder.Apply(design, patch);
+        var executionPlan = PlannedExecutionDesignSummary.Render(merged);
+
+        var promptsRoot = FindPromptsRoot();
+        var router = new CannedPlanRouter([DriftedDsl(), PatchedDsl()]);
+        var author = new WorkflowAuthor(
+            router,
+            new WorkflowAuthoringPromptBuilder(
+                new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot))),
+            maxAttempts: 3);
+
+        var result = await author.AuthorFromPatchAsync(
+            "Implement ticket classification.",
+            executionPlan,
+            TranslationDsl(),
+            priorPlan,
+            patch,
+            catalogueSummary,
+            catalogue,
+            "stub-author",
+            4000,
+            ct);
+
+        result.Succeeded.Should().BeTrue(string.Join("; ", result.Diagnostics));
+        result.Attempts.Should().HaveCount(2);
+        result.Attempts[0].Diagnostics.Should().ContainSingle()
+            .Which.Should().Contain("outside the patch scope");
+        TextOf(router.Requests[1], "user").Should().Contain("outside the patch scope");
+        var nodes = result.Admission!.Compilation.Definition!.ReadPlan().Nodes
+            .OfType<ActivityNode>()
+            .ToDictionary(node => node.Name, StringComparer.Ordinal);
+        nodes["implement_billing"].Activity.Version.Should().Be("2");
+        nodes["implement_todos"].Arguments.Select(argument => argument.Value)
+            .Should().ContainItemsAssignableTo<InputBinding>();
+    }
+
+    [Fact]
+    public async Task Author_from_patch_fails_when_drift_persists()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = await BuildDesignAsync(ct);
+        var registry = Registry();
+        var catalogue = new InMemoryTrustedCatalogue(
+            [.. registry.Values, GenerateV2Descriptor()]);
+        var catalogueSummary = CatalogueSummaryBuilder.Render(catalogue.Descriptors);
+
+        var priorPlan = await CompileAsync(catalogue, TranslationDsl(), ct);
+        var patch = BillingV2Patch(design);
+        var merged = StagedExecutionGraphBuilder.Apply(design, patch);
+        var executionPlan = PlannedExecutionDesignSummary.Render(merged);
+
+        var promptsRoot = FindPromptsRoot();
+        var router = new CannedPlanRouter([DriftedDsl(), DriftedDsl()]);
+        var author = new WorkflowAuthor(
+            router,
+            new WorkflowAuthoringPromptBuilder(
+                new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot))),
+            maxAttempts: 2);
+
+        var result = await author.AuthorFromPatchAsync(
+            "Implement ticket classification.",
+            executionPlan,
+            TranslationDsl(),
+            priorPlan,
+            patch,
+            catalogueSummary,
+            catalogue,
+            "stub-author",
+            4000,
+            ct);
+
+        result.Succeeded.Should().BeFalse();
+        result.Attempts.Should().HaveCount(2);
+        result.Attempts.Should().OnlyContain(attempt => attempt.Admitted);
+        result.Attempts.SelectMany(attempt => attempt.Diagnostics)
+            .Should().OnlyContain(diagnostic => diagnostic.Contains("outside the patch scope"));
+    }
+
+    private static WorkflowPatch BillingV2Patch(PlannedExecutionDesign design)
+    {
+        var billing = design.Bindings.Nodes.Single(node => node.StepId == "implement_billing");
+        var v2 = new DescriptorReference(
+            DescriptorKind.Activity, "guyabano.generate", "2",
+            new ContentDigest("sha256", "descriptor/v1", Digest('2')));
+        return new WorkflowPatch
+        {
+            BaseDesignFingerprint = StagedExecutionDesignIdentity.Compute(design),
+            DerivedFromArtifacts = ["contracts/billing@1"],
+            Rationale = "Use the v2 generator for billing.",
+            AddSteps = [],
+            ReplaceSteps = [],
+            RemoveStepIds = [],
+            AddBindings = [],
+            ReplaceBindings = [billing with { Binding = billing.Binding with { Descriptor = v2 } }],
+            DependencyEdits = [],
+        };
+    }
+
+    private static async Task<WorkflowPlan> CompileAsync(
+        ITrustedCatalogue catalogue, string dsl, CancellationToken ct)
+    {
+        var compiled = await new FuwenSourceCompiler(catalogue)
+            .CompileAsync(dsl, cancellationToken: ct);
+        compiled.Succeeded.Should().BeTrue(
+            string.Join("; ", compiled.Diagnostics.Select(d => $"{d.Code}:{d.Message} path:{d.Path}")));
+        return compiled.Plan!;
     }
 
     private async Task<PlannedExecutionDesign> BuildDesignAsync(CancellationToken ct)

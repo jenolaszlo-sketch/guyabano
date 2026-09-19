@@ -55,4 +55,14 @@ public interface IPlanningArtifactCatalog
         string workflowId,
         PlanningArtifactVersion changed,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks a stale revision valid again after re-derivation from the current
+    /// upstream confirms its content is unchanged. This is how regeneration
+    /// retains unaffected branches instead of republishing them.
+    /// </summary>
+    Task<PlanningArtifactRecord> RevalidateAsync(
+        string workflowId,
+        PlanningArtifactVersion version,
+        CancellationToken cancellationToken = default);
 }

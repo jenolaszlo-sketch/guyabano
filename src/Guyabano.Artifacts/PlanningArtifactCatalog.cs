@@ -92,7 +92,7 @@ public sealed class PlanningArtifactCatalog : IPlanningArtifactCatalog
                 .ToArray();
             await WriteIndexAsync(
                 request.WorkflowId,
-                new PlanningArtifactIndex(records),
+                new PlanningArtifactIndex(records, index.Generation + 1),
                 request.SessionId,
                 cancellationToken).ConfigureAwait(false);
             return record;
@@ -243,7 +243,7 @@ public sealed class PlanningArtifactCatalog : IPlanningArtifactCatalog
             {
                 await WriteIndexAsync(
                     workflowId,
-                    new PlanningArtifactIndex(records),
+                    new PlanningArtifactIndex(records, index.Generation + 1),
                     sessionId: null,
                     cancellationToken).ConfigureAwait(false);
             }
@@ -254,6 +254,41 @@ public sealed class PlanningArtifactCatalog : IPlanningArtifactCatalog
                 .ThenBy(record => record.Version.Value, StringComparer.Ordinal)
                 .ToArray();
             return new PlanningArtifactImpact(changed, affected);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<PlanningArtifactRecord> RevalidateAsync(
+        string workflowId,
+        PlanningArtifactVersion version,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workflowId);
+        ArgumentNullException.ThrowIfNull(version);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var index = await ReadIndexAsync(workflowId, cancellationToken)
+                .ConfigureAwait(false) ?? PlanningArtifactIndex.Empty;
+            var record = Find(index, version) ??
+                throw new PlanningArtifactNotFoundException(workflowId, version);
+            if (record.State != PlanningArtifactState.Stale)
+                return record;
+
+            var revalidated = record with { State = PlanningArtifactState.Valid };
+            await WriteIndexAsync(
+                workflowId,
+                new PlanningArtifactIndex(index.Records
+                    .Select(existing => existing.Version == version ? revalidated : existing)
+                    .ToArray(),
+                    index.Generation + 1),
+                sessionId: null,
+                cancellationToken).ConfigureAwait(false);
+            return revalidated;
         }
         finally
         {

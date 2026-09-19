@@ -226,6 +226,38 @@ public sealed class PlanningArtifactCatalogTests : IDisposable
     }
 
     [Fact]
+    public async Task RevalidateAsync_RestoresAStaleRevisionToValid()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var catalog = CreateCatalog();
+        var architectureKey = new PlanningArtifactKey("architecture", "classification");
+        var contractKey = new PlanningArtifactKey("contracts", "TicketClassifier");
+        var architecture = await catalog.PublishAsync(
+            new PublishPlanningArtifactRequest<PlanningPayload>(
+                WorkflowId, architectureKey, 1, "plan-architecture",
+                new PlanningPayload("v1"), State: PlanningArtifactState.Valid), ct);
+        var contract = await catalog.PublishAsync(
+            new PublishPlanningArtifactRequest<PlanningPayload>(
+                WorkflowId, contractKey, 1, "plan-contracts",
+                new PlanningPayload("c1"), Inputs: [architecture.Version],
+                State: PlanningArtifactState.Valid), ct);
+        var changed = await catalog.PublishAsync(
+            new PublishPlanningArtifactRequest<PlanningPayload>(
+                WorkflowId, architectureKey, 1, "plan-architecture",
+                new PlanningPayload("v2"), State: PlanningArtifactState.Valid), ct);
+
+        await catalog.InvalidateAsync(WorkflowId, changed.Version, ct);
+        (await catalog.GetAsync(WorkflowId, contract.Version, ct))!
+            .State.Should().Be(PlanningArtifactState.Stale);
+
+        var restored = await catalog.RevalidateAsync(WorkflowId, contract.Version, ct);
+
+        restored.State.Should().Be(PlanningArtifactState.Valid);
+        (await catalog.GetAsync(WorkflowId, contract.Version, ct))!
+            .State.Should().Be(PlanningArtifactState.Valid);
+    }
+
+    [Fact]
     public async Task GetCurrentAsync_ReturnsNullForUnknownIdentity()
     {
         var ct = TestContext.Current.CancellationToken;

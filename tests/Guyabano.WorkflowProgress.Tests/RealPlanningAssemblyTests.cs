@@ -640,6 +640,11 @@ public sealed class RealPlanningAssemblyTests
     {
         public async ValueTask<InferenceExecutionResult> ExecuteAsync(InferenceExecutionRequest request, CancellationToken ct = default)
         {
+            if (request.PromptTemplate is null)
+            {
+                throw new InvalidOperationException(
+                    "The staged planning test router serves template-driven inference only.");
+            }
             var template = request.PromptTemplate.Name switch
             {
                 var name when name == PlanningFuwenDescriptors.TemplateName("contract-design") => (IInferenceExecutor)contract,

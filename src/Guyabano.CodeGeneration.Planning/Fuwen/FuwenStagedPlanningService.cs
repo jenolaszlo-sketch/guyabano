@@ -194,6 +194,12 @@ public sealed class FuwenStagedPlanningService(
     {
         public ValueTask<InferenceExecutionResult> ExecuteAsync(InferenceExecutionRequest request, CancellationToken ct = default)
         {
+            if (request.PromptTemplate is null)
+            {
+                throw new InvalidOperationException(
+                    "The staged planning router serves template-driven inference only; " +
+                    "workflow-owned prompt requests need a prompt-aware executor.");
+            }
             var template = request.PromptTemplate.Name switch
             {
                 var name when name == PlanningFuwenDescriptors.TemplateName("domain-discovery") => (IInferenceExecutor)domain,

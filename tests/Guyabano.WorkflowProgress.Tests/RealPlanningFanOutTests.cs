@@ -479,6 +479,11 @@ public sealed class RealPlanningFanOutTests
     {
         public ValueTask<InferenceExecutionResult> ExecuteAsync(InferenceExecutionRequest request, CancellationToken ct = default)
         {
+            if (request.PromptTemplate is null)
+            {
+                throw new InvalidOperationException(
+                    "The staged planning test router serves template-driven inference only.");
+            }
             var template = request.PromptTemplate.Name switch
             {
                 var name when name == PlanningFuwenDescriptors.TemplateName("domain-discovery") => (IInferenceExecutor)domain,

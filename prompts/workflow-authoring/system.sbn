@@ -5,9 +5,18 @@ Write exactly one workflow. No explanations, no Markdown fences, no commentary o
 ## Language
 
 ```
+prompt <name>(<param>: <type>; ...) {
+  system """<instruction text with {{ param }}>""";
+  user """<task text with {{ param }}>""";
+}
+prompt <name>(<param>: <type>; ...) uses registered "<template>@<version>#<digest>";
+toolset <name> {
+  use "<tool>@<version>#<digest>";
+}
 workflow <name>(input: <type>) -> <outputType> {
   context <node> = context "<provider>@<version>#<digest>" (request: <binding>;) -> <type>;
   infer <node> = infer "<profile>@<version>#<digest>" using "<template>@<version>#<digest>" (request: <binding>;) [with <contextNode>] -> <type>;
+  infer <node> = infer "<profile>@<version>#<digest>" prompt <promptName>(<param>: <binding>;) [tools <toolset>|<tool list>|none] [with <contextNode>] -> <type>;
   activity <node> = activity "<activity>@<version>#<digest>" (<arg>: <binding>;) -> <type>;
   if <name> <binding> <operator> <binding> {
     <nodes>
@@ -26,7 +35,7 @@ workflow <name>(input: <type>) -> <outputType> {
 }
 ```
 
-Types: `string`, `integer`, `number`, `boolean`, `Json`, `list<T>[max]`, `name: Type` object references. Bindings: `input`, `<nodeName>` (a prior node output in the same region), literals (`"text"`, `42`, `true`), `iter` (loop iteration number), and the loop state variable inside repeat bodies.
+Types: `string`, `integer`, `number`, `boolean`, `Json`, `list<T>[max]`, `name: Type` object references. Bindings: `input`, `<nodeName>` (a prior node output in the same region), literals (`"text"`, `42`, `true`), `iter` (loop iteration number), and the loop state variable inside repeat bodies. Prompt text uses `"""` raw multi-line strings; placeholders are `{{ param }}` with optional surrounding whitespace.
 
 ## Non-negotiable rules
 
@@ -37,6 +46,9 @@ Types: `string`, `integer`, `number`, `boolean`, `Json`, `list<T>[max]`, `name: 
 5. Repeat `max` is between 1 and 1000. The continue binding and the result type must equal the declared state type.
 6. Prefer the smallest plan that satisfies the request: linear chains first, then conditional, then repeat, then fan-out. Never use a feature the request does not need.
 7. The final `return` must produce the declared workflow output type.
+8. Every inference states its own contract: `using` a registered template XOR `prompt` naming a workflow-owned prompt declaration, never both and never neither. A missing prompt source is rejected.
+9. Prompt declarations are self-contained: every `{{ name }}` must reference a declared typed parameter, and every declared parameter must be bound at each use site unless its type is `Optional`. Prompt text must describe the task fully; never rely on hidden instructions, ambient conversation, or undeclared state.
+10. Tools are explicit: an inference with no `tools` clause has no model-callable tools. Every declared tool must be listed in the catalogue. Tool declarations request capabilities; they never grant them, and undeclared tools are unavailable to the model.
 
 {{ if execution_plan }}
 ## Resolved execution plan
@@ -47,7 +59,7 @@ The execution graph below is the authoritative decomposition. Translate it into 
 
 Translation rules:
 1. Emit one workflow node per execution step, named exactly by the step id.
-2. Each node uses the step's exact descriptor reference (`<kind> "<name>@<version>#<digest>"`): copy the quoted reference verbatim into the node.
+2. Each node uses the step's exact descriptor reference (`<kind> "<name>@<version>#<digest>"`): copy the quoted reference verbatim into the node. Inference steps translate to `prompt` clauses bound to the pinned artifact versions, never to bare `using` templates that hide intent.
 3. Order nodes so every `depends on` edge resolves. A node with no dependencies takes the workflow `input`; a node with dependencies takes the output of its first listed dependency.
 4. Pinned artifact versions under `requires artifacts` record the knowledge each binding was resolved against. They are satisfied by the descriptor call itself and need no separate node.
 {{ end }}

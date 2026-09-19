@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Penghou.Baize.Router;
+using Penghou.Fuwen.Compiler;
 using Guyabano.Llm.Prompting;
 
 namespace Guyabano.CodeGeneration.Planning;
@@ -41,6 +42,7 @@ public sealed class WorkflowPatchProposer(
         string catalogueSummary,
         string model,
         int maxTokens = 4000,
+        ITrustedCatalogueDiscovery? descriptorCatalogue = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(goal);
@@ -97,7 +99,7 @@ public sealed class WorkflowPatchProposer(
                 continue;
             }
 
-            var applied = ValidatePatch(current, patch, allowed, out var validationError);
+            var applied = ValidatePatch(current, patch, allowed, descriptorCatalogue, out var validationError);
             if (applied is null)
             {
                 previousFailure = Truncate(validationError!);
@@ -139,6 +141,7 @@ public sealed class WorkflowPatchProposer(
         PlannedExecutionDesign current,
         WorkflowPatch patch,
         IReadOnlyList<string> allowed,
+        ITrustedCatalogueDiscovery? descriptorCatalogue,
         out string? error)
     {
         var outside = patch.DerivedFromArtifacts
@@ -153,9 +156,15 @@ public sealed class WorkflowPatchProposer(
             return null;
         }
 
+        var canonical = CanonicalizeDescriptors(patch, descriptorCatalogue, out error);
+        if (canonical is null)
+        {
+            return null;
+        }
+
         try
         {
-            var applied = StagedExecutionGraphBuilder.Apply(current, patch);
+            var applied = StagedExecutionGraphBuilder.Apply(current, canonical);
             error = null;
             return applied;
         }
@@ -164,6 +173,71 @@ public sealed class WorkflowPatchProposer(
             error = exception.Message;
             return null;
         }
+    }
+
+    /// <summary>
+    /// Binds every proposed descriptor to the trusted catalogue: with
+    /// discovery available the canonical entry replaces whatever digest the
+    /// model emitted (models name Kind/Name/Version; digests are resolved,
+    /// never transcribed); without it the emitted digest must already be an
+    /// exact 64-hex value.
+    /// </summary>
+    private static WorkflowPatch? CanonicalizeDescriptors(
+        WorkflowPatch patch,
+        ITrustedCatalogueDiscovery? descriptorCatalogue,
+        out string? error)
+    {
+        error = null;
+        var add = new List<PlannedNodeBinding>(patch.AddBindings.Count);
+        var replace = new List<PlannedNodeBinding>(patch.ReplaceBindings.Count);
+        foreach (var binding in patch.AddBindings)
+        {
+            add.Add(CanonicalizeBinding(binding, descriptorCatalogue, ref error));
+            if (error is not null)
+                return null;
+        }
+
+        foreach (var binding in patch.ReplaceBindings)
+        {
+            replace.Add(CanonicalizeBinding(binding, descriptorCatalogue, ref error));
+            if (error is not null)
+                return null;
+        }
+
+        return patch with { AddBindings = add, ReplaceBindings = replace };
+    }
+
+    private static PlannedNodeBinding CanonicalizeBinding(
+        PlannedNodeBinding binding,
+        ITrustedCatalogueDiscovery? descriptorCatalogue,
+        ref string? error)
+    {
+        var descriptor = binding.Binding.Descriptor;
+        if (descriptorCatalogue is not null)
+        {
+            if (descriptorCatalogue.TryGetDescriptor(
+                    descriptor.Kind, descriptor.Name, descriptor.Version, out var found) &&
+                found is not null)
+            {
+                return binding with { Binding = binding.Binding with { Descriptor = found.Descriptor } };
+            }
+
+            error = $"The proposal references unknown descriptor " +
+                $"'{descriptor.Kind} {descriptor.Name}@{descriptor.Version}'; " +
+                $"copy references verbatim from the catalogue.";
+            return binding;
+        }
+
+        if (descriptor.ContentDigest?.Value is not { Length: 64 } digest ||
+            !digest.All(static character =>
+                (character >= '0' && character <= '9') ||
+                (character >= 'a' && character <= 'f')))
+        {
+            error = $"The proposal carries descriptor '{descriptor.Name}@{descriptor.Version}' " +
+                $"without an exact 64-hex digest.";
+        }
+
+        return binding;
     }
 
     private string Truncate(string value) =>

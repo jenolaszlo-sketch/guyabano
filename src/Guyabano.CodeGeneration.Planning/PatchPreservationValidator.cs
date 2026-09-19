@@ -54,7 +54,11 @@ public static class PatchPreservationValidator
 
         foreach (var name in priorNodes.Keys.OrderBy(id => id, StringComparer.Ordinal))
         {
-            if (!candidateNodes.ContainsKey(name) && !affected.Contains(name))
+            // Only an explicit removal excuses a missing node. A step the
+            // patch touches any other way (replace, rebind, rewire) must
+            // still be present: the patch never authorized its deletion.
+            if (!candidateNodes.ContainsKey(name) &&
+                !patch.RemoveStepIds.Contains(name, StringComparer.Ordinal))
             {
                 drifts.Add($"Candidate removes node '{name}' outside the patch scope.");
             }

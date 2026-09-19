@@ -49,6 +49,7 @@ Types: `string`, `integer`, `number`, `boolean`, `Json`, `list<T>[max]`, `name: 
 8. Every inference states its own contract: `using` a registered template XOR `prompt` naming a workflow-owned prompt declaration, never both and never neither. A missing prompt source is rejected.
 9. Prompt declarations are self-contained: every `{{ name }}` must reference a declared typed parameter, and every declared parameter must be bound at each use site unless its type is `Optional`. Prompt text must describe the task fully; never rely on hidden instructions, ambient conversation, or undeclared state.
 10. Tools are explicit: an inference with no `tools` clause has no model-callable tools. Every declared tool must be listed in the catalogue. Tool declarations request capabilities; they never grant them, and undeclared tools are unavailable to the model.
+11. Inside a `workflow { }` block, every node begins with one of `context`, `infer`, `activity`, `if`, `repeat`, `fanout`, `checkpoint`, `wait`, `return`. The keyword `prompt` never starts a node: prompt declarations live before the workflow block, and prompt uses appear only inside `infer ... prompt <name>(...)` clauses. `prompt <name> = prompt ...` at node position is always rejected.
 
 {{ if execution_plan }}
 ## Resolved execution plan

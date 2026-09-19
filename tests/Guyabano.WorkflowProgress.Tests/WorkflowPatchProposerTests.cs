@@ -6,6 +6,7 @@ using Guyabano.Llm.Prompting;
 using Penghou.Baize;
 using Penghou.Baize.Router;
 using Penghou.Fuwen;
+using Penghou.Fuwen.Compiler;
 
 namespace Guyabano.WorkflowProgressTests;
 
@@ -157,9 +158,7 @@ public sealed class WorkflowPatchProposerTests
             PlannedExecutionDesignSummary.Render(design),
             ["contracts/billing@2"],
             "activity guyabano.execute@1#aaa",
-            "stub-proposer",
-            4000,
-            ct);
+            "stub-proposer", 4000, cancellationToken: ct);
 
         result.Succeeded.Should().BeTrue(string.Join("; ", result.Diagnostics));
         result.Attempts.Should().HaveCount(1);
@@ -167,6 +166,101 @@ public sealed class WorkflowPatchProposerTests
             .Binding.Descriptor.Version.Should().Be("2");
         result.Applied.Graph.Steps.Select(step => step.Id).Should()
             .BeEquivalentTo("implement_a", "implement_billing");
+    }
+
+    [Fact]
+    public async Task Propose_canonicalizes_binding_digests_from_the_catalogue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = Design();
+        var catalogue = new InMemoryTrustedCatalogue(
+        [
+            new TrustedCatalogueDescriptor(ActivityRef("1", 'a')),
+            new TrustedCatalogueDescriptor(ActivityRef("2", 'b')),
+        ]);
+        var mangled = BillingV2Patch(design);
+        var billing = mangled.ReplaceBindings.Single();
+        var bad = billing with
+        {
+            Binding = billing.Binding with
+            {
+                Descriptor = new DescriptorReference(
+                    DescriptorKind.Activity,
+                    "guyabano.execute",
+                    "2",
+                    new ContentDigest("sha256", "descriptor/v1", "invented")),
+            },
+        };
+        var patchJson = JsonSerializer.Serialize(mangled with { ReplaceBindings = [bad] });
+
+        var router = new ScriptedRouter([patchJson]);
+        var proposer = new WorkflowPatchProposer(
+            router,
+            new WorkflowPatchPromptBuilder(
+                new ScribanPromptTemplateEngine(new FilePromptLoader(FindPromptsRoot()))),
+            maxAttempts: 1);
+
+        var result = await proposer.ProposeAsync(
+            "Use the v2 generator for billing.",
+            design,
+            PlannedExecutionDesignSummary.Render(design),
+            ["contracts/billing@2"],
+            "activity guyabano.execute@1#aaa",
+            "stub-proposer",
+            4000,
+            catalogue,
+            cancellationToken: ct);
+
+        result.Succeeded.Should().BeTrue(string.Join("; ", result.Diagnostics));
+        result.Applied!.Bindings.Nodes.Single(node => node.StepId == "implement_billing")
+            .Binding.Descriptor.ContentDigest.Value.Should().Be(new string('b', 64));
+    }
+
+    [Fact]
+    public async Task Propose_rejects_bindings_unknown_to_the_catalogue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = Design();
+        var catalogue = new InMemoryTrustedCatalogue(
+        [
+            new TrustedCatalogueDescriptor(ActivityRef("1", 'a')),
+        ]);
+        var mangled = BillingV2Patch(design);
+        var billing = mangled.ReplaceBindings.Single();
+        var bad = billing with
+        {
+            Binding = billing.Binding with
+            {
+                Descriptor = new DescriptorReference(
+                    DescriptorKind.Activity,
+                    "guyabano.missing",
+                    "9",
+                    new ContentDigest("sha256", "descriptor/v1", "invented")),
+            },
+        };
+        var patchJson = JsonSerializer.Serialize(mangled with { ReplaceBindings = [bad] });
+
+        var router = new ScriptedRouter([patchJson]);
+        var proposer = new WorkflowPatchProposer(
+            router,
+            new WorkflowPatchPromptBuilder(
+                new ScribanPromptTemplateEngine(new FilePromptLoader(FindPromptsRoot()))),
+            maxAttempts: 1);
+
+        var result = await proposer.ProposeAsync(
+            "Use the v2 generator for billing.",
+            design,
+            PlannedExecutionDesignSummary.Render(design),
+            ["contracts/billing@2"],
+            "activity guyabano.execute@1#aaa",
+            "stub-proposer",
+            4000,
+            catalogue,
+            cancellationToken: ct);
+
+        result.Succeeded.Should().BeFalse();
+        result.Diagnostics.Should().ContainSingle()
+            .Which.Should().Contain("unknown descriptor");
     }
 
     [Fact]
@@ -197,9 +291,7 @@ public sealed class WorkflowPatchProposerTests
             PlannedExecutionDesignSummary.Render(design),
             ["contracts/billing@2"],
             "activity guyabano.execute@1#aaa",
-            "stub-proposer",
-            4000,
-            ct);
+            "stub-proposer", 4000, cancellationToken: ct);
 
         result.Succeeded.Should().BeTrue(string.Join("; ", result.Diagnostics));
         result.Attempts.Should().HaveCount(3);
@@ -237,9 +329,7 @@ public sealed class WorkflowPatchProposerTests
             PlannedExecutionDesignSummary.Render(design),
             ["contracts/billing@2"],
             "activity guyabano.execute@1#aaa",
-            "stub-proposer",
-            4000,
-            ct);
+            "stub-proposer", 4000, cancellationToken: ct);
 
         result.Succeeded.Should().BeFalse();
         result.Attempts.Should().HaveCount(2);

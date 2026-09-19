@@ -35,3 +35,22 @@ Descriptors available for new or replaced bindings. References are exact (`<kind
 3. Dependencies must name surviving or added steps; no self-dependencies, no cycles. A removal must not orphan a surviving dependent.
 4. If the changed artifacts require no workflow change, return every list empty with a rationale explaining why. An empty patch is a valid no-op, not a failure.
 5. `rationale` is required and must state why the delta is the smallest change that absorbs the revised artifacts.
+
+## Descriptor shape
+
+A binding descriptor names the capability; the trusted catalogue resolves the digest. Emit Kind, Name, and Version exactly as the catalogue lists them and never invent digest values:
+
+```json
+{
+  "stepId": "implement_billing",
+  "binding": {
+    "role": "implement",
+    "capability": "code.modify",
+    "modelProfile": "implementation",
+    "contextArtifacts": ["contracts/billing@2"],
+    "descriptor": { "Kind": "Activity", "Name": "guyabano.execute", "Version": "2" }
+  }
+}
+```
+
+Copy `role`, `capability`, and `modelProfile` from the current design entry for the step (or from a sibling step for added steps). References to unknown Kind/Name/Version triples are rejected.

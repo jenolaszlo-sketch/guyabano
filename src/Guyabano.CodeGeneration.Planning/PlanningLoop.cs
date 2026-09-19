@@ -477,6 +477,7 @@ public sealed class PlanningLoop(
             catalogueSummary,
             model,
             maxTokens,
+            catalogue as ITrustedCatalogueDiscovery,
             cancellationToken).ConfigureAwait(false);
         state.ModelCalls += proposal.Attempts.Count;
         if (!proposal.Succeeded || proposal.Applied is null || proposal.Patch is null)

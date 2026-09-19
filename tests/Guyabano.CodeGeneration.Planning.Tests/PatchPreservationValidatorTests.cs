@@ -74,6 +74,18 @@ public sealed class PatchPreservationValidatorTests
         drifts.Should().ContainSingle().Which.Should().Contain("return");
     }
 
+    [Fact]
+    public void Validate_RejectsDroppingANodeThePatchDidNotRemove()
+    {
+        var prior = Plan();
+        var candidate = PlanWithoutBilling(NewCacheNode());
+
+        var drifts = PatchPreservationValidator.Validate(
+            prior, candidate, PatchAffecting("implement_b", "implement_cache"));
+
+        drifts.Should().ContainSingle().Which.Should().Contain("implement_b");
+    }
+
     private static ContentDigest Digest(char c) => new("sha256", "test/v1", new string(c, 64));
 
     private static DescriptorReference Activity(string version = "1") =>
@@ -150,39 +162,33 @@ public sealed class PatchPreservationValidatorTests
             .Build();
     }
 
-    private static WorkflowPatch PatchAffecting(string stepId) => new()
+    private static WorkflowPatch PatchAffecting(params string[] stepIds) => new()
     {
         BaseDesignFingerprint = "test-base",
         DerivedFromArtifacts = ["contracts/billing@1"],
         Rationale = "Test patch.",
-        AddSteps =
-        [
-            new PlannedExecutionStep
-            {
-                Id = stepId,
-                Title = "Test step",
-                DependsOn = ["implement_a"],
-                RequiredArtifacts = [],
-                AcceptanceCriteria = [],
-            },
-        ],
+        AddSteps = stepIds.Select(id => new PlannedExecutionStep
+        {
+            Id = id,
+            Title = "Test step",
+            DependsOn = ["implement_a"],
+            RequiredArtifacts = [],
+            AcceptanceCriteria = [],
+        }).ToArray(),
         ReplaceSteps = [],
         RemoveStepIds = [],
-        AddBindings =
-        [
-            new PlannedNodeBinding
+        AddBindings = stepIds.Select(id => new PlannedNodeBinding
+        {
+            StepId = id,
+            Binding = new PlannedExecutionBinding
             {
-                StepId = stepId,
-                Binding = new PlannedExecutionBinding
-                {
-                    Role = "implement",
-                    Capability = "code.modify",
-                    ModelProfile = "implementation",
-                    ContextArtifacts = [],
-                    Descriptor = Activity(),
-                },
+                Role = "implement",
+                Capability = "code.modify",
+                ModelProfile = "implementation",
+                ContextArtifacts = [],
+                Descriptor = Activity(),
             },
-        ],
+        }).ToArray(),
         ReplaceBindings = [],
         DependencyEdits = [],
     };

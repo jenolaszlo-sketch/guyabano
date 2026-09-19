@@ -43,7 +43,9 @@ public static class PlannedExecutionDesignSummary
             builder.Append("\" capability=");
             builder.Append(binding.Capability);
             builder.Append(" profile=");
-            builder.AppendLine(binding.ModelProfile + "]");
+            builder.Append(binding.ModelProfile);
+            builder.Append(" role=");
+            builder.AppendLine(binding.Role + "]");
             builder.Append("  title: ");
             builder.AppendLine(step.Title);
             builder.Append("  depends on: ");

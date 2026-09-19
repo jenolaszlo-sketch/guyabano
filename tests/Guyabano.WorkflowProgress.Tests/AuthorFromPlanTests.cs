@@ -104,10 +104,12 @@ public sealed class AuthorFromPlanTests : IDisposable
         systemText.Should().Contain($"guyabano.generate@1#{Digest('f')}");
         systemText.Should().Contain("contracts/billing@1");
         systemText.Should().Contain("do not add steps");
+        systemText.Should().Contain("role=implement");
         systemText.Should().Contain("prompt <name>");
         systemText.Should().Contain("toolset <name>");
         systemText.Should().Contain("never both and never neither");
         systemText.Should().Contain("no model-callable tools");
+        systemText.Should().Contain("never starts a node");
         systemText.Should().Contain("reproduce every node for an unchanged step verbatim");
         userText.Should().Contain("preserve every step");
     }

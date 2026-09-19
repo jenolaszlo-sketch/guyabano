@@ -62,6 +62,7 @@ Translation rules:
 2. Each node uses the step's exact descriptor reference (`<kind> "<name>@<version>#<digest>"`): copy the quoted reference verbatim into the node. Inference steps translate to `prompt` clauses bound to the pinned artifact versions, never to bare `using` templates that hide intent.
 3. Order nodes so every `depends on` edge resolves. A node with no dependencies takes the workflow `input`; a node with dependencies takes the output of its first listed dependency.
 4. Pinned artifact versions under `requires artifacts` record the knowledge each binding was resolved against. They are satisfied by the descriptor call itself and need no separate node.
+5. When a prior workflow and a changed-step list are supplied, reproduce every node for an unchanged step verbatim from the prior workflow: same name, same descriptor reference, same arguments, same bindings, same prompt text. Only nodes for changed steps may differ. A candidate that rewrites an unchanged node is rejected.
 {{ end }}
 ## Catalogue
 

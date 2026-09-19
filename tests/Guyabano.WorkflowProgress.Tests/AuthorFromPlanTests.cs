@@ -87,6 +87,7 @@ public sealed class AuthorFromPlanTests : IDisposable
         systemText.Should().Contain("toolset <name>");
         systemText.Should().Contain("never both and never neither");
         systemText.Should().Contain("no model-callable tools");
+        systemText.Should().Contain("reproduce every node for an unchanged step verbatim");
         userText.Should().Contain("preserve every step");
     }
 

@@ -45,6 +45,9 @@ public sealed class PlanningDecisionPromptBuilder(
             FreshArtifacts = context.FreshArtifacts.Count == 0
                 ? "(none)"
                 : string.Join(", ", context.FreshArtifacts),
+            SupersededPins = context.SupersededPins.Count == 0
+                ? "(none)"
+                : string.Join("; ", context.SupersededPins),
             IterationsRemaining = context.IterationsRemaining,
             MutationsRemaining = context.MutationsRemaining,
             StructuralRemaining = context.StructuralRemaining,

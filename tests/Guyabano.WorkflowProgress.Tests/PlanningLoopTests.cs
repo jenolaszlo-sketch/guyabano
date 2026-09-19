@@ -110,7 +110,7 @@ public sealed class PlanningLoopTests : IDisposable
         return new WorkflowPatch
         {
             BaseDesignFingerprint = StagedExecutionDesignIdentity.Compute(design),
-            DerivedFromArtifacts = ["contracts/billing@1"],
+            DerivedFromArtifacts = ["contracts/billing@2"],
             Rationale = "Use the v2 generator for billing.",
             AddSteps = [],
             ReplaceSteps = [],
@@ -175,7 +175,7 @@ public sealed class PlanningLoopTests : IDisposable
         var harness = await CreateHarnessAsync(ct);
         var decider = new ScriptedDecider(
         [
-            obs => ExpandFor(obs, "contracts/billing@1"),
+            obs => ExpandFor(obs, "contracts/billing@2"),
             obs => FinishFor(obs, "Billing uses v2; goal met."),
         ]);
         var loop = harness.Loop(
@@ -192,11 +192,20 @@ public sealed class PlanningLoopTests : IDisposable
         outcome.Checkpoint.Mutations.Should().Be(1);
         outcome.Checkpoint.StructuralIterations.Should().Be(1);
         outcome.Checkpoint.ModelCalls.Should().Be(4);
-        outcome.Checkpoint.Iteration.Should().Be(2);
+        outcome.Checkpoint.Iteration.Should().Be(1);
         outcome.Checkpoint.DecisionLog.Should().HaveCount(2);
         outcome.FinalDesign.Bindings.Nodes.Single(node => node.StepId == "implement_billing")
             .Binding.Descriptor.Version.Should().Be("2");
         harness.Host.Executions.Should().Be(1);
+
+        // Bootstrap reports pre-existing revisions as fresh and flags the
+        // design pin the catalog has moved past.
+        decider.Observations.Should().HaveCount(2);
+        var first = decider.Observations[0];
+        first.FreshArtifactRevisions.Should().ContainSingle()
+            .Which.Should().Be("contracts/billing@2");
+        first.SupersededPins.Should().ContainSingle()
+            .Which.Should().Be("contracts/billing@2 supersedes pinned contracts/billing@1");
     }
 
     [Fact]
@@ -205,7 +214,7 @@ public sealed class PlanningLoopTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         var design = Design();
         var harness = await CreateHarnessAsync(ct, PlanningPolicy.Default with { MaxIterations = 1 });
-        var decider = new ScriptedDecider([obs => ExpandFor(obs, "contracts/billing@1")]);
+        var decider = new ScriptedDecider([obs => ExpandFor(obs, "contracts/billing@2")]);
         var loop = harness.Loop(
             decider,
             proposerScript: [JsonSerializer.Serialize(BillingV2Patch(design))],
@@ -230,8 +239,8 @@ public sealed class PlanningLoopTests : IDisposable
         var emptyJson = JsonSerializer.Serialize(EmptyPatch(design));
         var decider = new ScriptedDecider(
         [
-            obs => ExpandFor(obs, "contracts/billing@1"),
-            obs => ExpandFor(obs, "contracts/billing@1"),
+            obs => ExpandFor(obs, "contracts/billing@2"),
+            obs => ExpandFor(obs, "contracts/billing@2"),
         ]);
         var loop = harness.Loop(
             decider,
@@ -260,7 +269,7 @@ public sealed class PlanningLoopTests : IDisposable
 
         var crashingDecider = new ScriptedDecider(
         [
-            obs => ExpandFor(obs, "contracts/billing@1"),
+            obs => ExpandFor(obs, "contracts/billing@2"),
             obs => throw new InvalidOperationException("simulated crash"),
         ]);
         var crashingLoop = harness.Loop(
@@ -287,7 +296,7 @@ public sealed class PlanningLoopTests : IDisposable
             WorkflowId, Goal, design, PriorDsl(),
             CompileCatalogue(), "activity guyabano.execute@1#aaa", "stub", 4000, ct);
         resumed.Status.Should().Be(PlanningLoopStatus.Finished);
-        resumed.Checkpoint.Iteration.Should().Be(2);
+        resumed.Checkpoint.Iteration.Should().Be(1);
         harness.Host.Executions.Should().Be(1);
 
         var replayLoop = harness.Loop(new ScriptedDecider([]), [], []);
@@ -306,7 +315,7 @@ public sealed class PlanningLoopTests : IDisposable
         var harness = await CreateHarnessAsync(ct);
         var decider = new ScriptedDecider(
         [
-            obs => ExpandFor(obs, "contracts/billing@1") with { DesignFingerprint = "stale" },
+            obs => ExpandFor(obs, "contracts/billing@2") with { DesignFingerprint = "stale" },
             obs => FinishFor(obs, "Fresh basis; nothing to do."),
         ]);
         var loop = harness.Loop(decider, [], []);
@@ -339,6 +348,7 @@ public sealed class PlanningLoopTests : IDisposable
                 false,
                 "nothing executed yet",
                 ["contracts/billing@2"],
+                ["contracts/billing@2 supersedes pinned contracts/billing@1"],
                 9, 5, 8, 29, null, 2000),
             ct);
 
@@ -346,6 +356,7 @@ public sealed class PlanningLoopTests : IDisposable
         var userText = TextOf(request, "user");
         systemText.Should().Contain(fingerprint);
         systemText.Should().Contain("contracts/billing@2");
+        systemText.Should().Contain("supersedes pinned contracts/billing@1");
         systemText.Should().Contain("implement_billing");
         systemText.Should().Contain("Iterations: 9");
         userText.Should().Contain(Goal);
@@ -379,6 +390,7 @@ public sealed class PlanningLoopTests : IDisposable
             PlannedExecutionDesignSummary.Render(design),
             fingerprint,
             ["contracts/billing@2"],
+            ["contracts/billing@2 supersedes pinned contracts/billing@1"],
             "v1",
             false,
             "nothing executed yet",
@@ -408,7 +420,15 @@ public sealed class PlanningLoopTests : IDisposable
                 new PlanningArtifactKey("contracts", "billing"),
                 1,
                 "test",
-                new ContractPayload("billing")),
+                new ContractPayload("billing-v1")),
+            ct);
+        await catalog.PublishAsync(
+            new PublishPlanningArtifactRequest<ContractPayload>(
+                WorkflowId,
+                new PlanningArtifactKey("contracts", "billing"),
+                1,
+                "test",
+                new ContractPayload("billing-v2")),
             ct);
         return new Harness(catalog, policy ?? PlanningPolicy.Default);
     }
@@ -442,12 +462,14 @@ public sealed class PlanningLoopTests : IDisposable
     {
         private int next;
         public int Calls { get; private set; }
+        public List<PlanningLoopObservation> Observations { get; } = [];
 
         public Task<PlanningDecisionResult> DecideAsync(
             PlanningLoopObservation observation,
             CancellationToken cancellationToken = default)
         {
             Calls++;
+            Observations.Add(observation);
             var decision = script[Math.Min(next, script.Count - 1)](observation);
             next++;
             return Task.FromResult(new PlanningDecisionResult(true, decision, 1, []));

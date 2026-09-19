@@ -58,6 +58,19 @@ The driver repeats until a `finish` decision is admitted or a policy bound is
 hit. Hitting a bound ends the loop with a typed outcome
 (`Exhausted/bound-name`), never an exception and never a silent stop.
 
+### Observation signals
+
+`fresh` means "live catalog heads the loop has not yet seen", not
+"arrivals since bootstrap": a fresh run seeds nothing as seen, so iteration
+one reports the whole live inventory. The loop's own checkpoint revisions are
+excluded from fresh (bookkeeping, not planning knowledge).
+
+Separately, the driver reports **superseded pins**: design-pinned revisions
+(`RequiredArtifacts`, binding `ContextArtifacts`) the catalog has moved past,
+as `kind/name@current supersedes pinned kind/name@pinned` entries. This is
+the revise signal, and unlike arrival-freshness it works on bootstrap for
+pre-existing changes as well as mid-run.
+
 ## 4. PlanningPolicy
 
 Bounds, checked before every iteration and before every mutation:
@@ -118,6 +131,9 @@ matches the live design and the workflow version is the expected one →
 continue at `observe`. Any mismatch is a typed `failed` outcome with the
 divergence described, not a blind resume. This is what makes the driver
 re-entrant across restarts.
+
+`Iteration` counts completed acting cycles; terminal saves record the outcome
+without advancing it.
 
 ## 7. Composition with existing pieces
 

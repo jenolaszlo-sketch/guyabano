@@ -40,6 +40,7 @@ public sealed class LlmPlanningDecider(
                     observation.WorkflowComplete,
                     observation.EvidenceSummary,
                     observation.FreshArtifactRevisions,
+                    observation.SupersededPins,
                     observation.Remaining.IterationsRemaining,
                     observation.Remaining.MutationsRemaining,
                     observation.Remaining.StructuralIterationsRemaining,

@@ -26,6 +26,12 @@ Revisions published since the last checkpoint. Only these may motivate `expand` 
 
 {{ fresh_artifacts }}
 
+## Superseded pins
+
+Design pins the catalog has moved past. Each entry names the current revision and the pinned revision it supersedes. Prefer `revise` motivated by the superseding revision:
+
+{{ superseded_pins }}
+
 ## Budget remaining
 
 Iterations: {{ iterations_remaining }}, mutations: {{ mutations_remaining }}, structural iterations: {{ structural_remaining }}, model calls: {{ model_calls_remaining }}{{ if tokens_remaining }}, tokens: {{ tokens_remaining }}{{ end }}

@@ -192,12 +192,10 @@ public sealed class PlanningLoop(
 
             var snapshot = await executionHost.ObserveAsync(workflowId, cancellationToken)
                 .ConfigureAwait(false);
-            var known = await CurrentRevisionsAsync(workflowId, cancellationToken)
-                .ConfigureAwait(false);
             var state = LoopState.CreateFresh(
                 workflowId, initial, initialDsl, plan,
                 snapshot.WorkflowVersion, snapshot.IsComplete, snapshot.EvidenceSummary,
-                known, catalog, policy);
+                catalog, policy);
             await state.SaveAsync(PlanningLoopStatus.Running, null, increment: false, cancellationToken)
                 .ConfigureAwait(false);
             return new Restored(state, null);
@@ -254,17 +252,6 @@ public sealed class PlanningLoop(
             LoopState.Resume(checkpoint, resumed, live, catalog, policy), null);
     }
 
-    private async Task<HashSet<string>> CurrentRevisionsAsync(
-        string workflowId,
-        CancellationToken cancellationToken)
-    {
-        var current = await catalog.ListCurrentAsync(workflowId, cancellationToken)
-            .ConfigureAwait(false);
-        return current
-            .Select(record => record.Version.Value)
-            .ToHashSet(StringComparer.Ordinal);
-    }
-
     private async Task<PlanningLoopObservation> ObserveAsync(
         LoopState state,
         string goal,
@@ -290,6 +277,7 @@ public sealed class PlanningLoop(
             PlannedExecutionDesignSummary.Render(state.Current),
             state.Fingerprint,
             fresh,
+            SupersededPins(state.Current, current),
             state.WorkflowVersion,
             state.WorkflowComplete,
             state.Evidence,
@@ -302,6 +290,51 @@ public sealed class PlanningLoop(
                     ? null
                     : Math.Max(0, policy.MaxTotalTokens.Value - state.ReportedTokens.Value)),
             state.Checkpoint);
+    }
+
+    /// <summary>
+    /// Reports design pins the catalog has moved past, as
+    /// <c>kind/name@current supersedes pinned kind/name@pinned</c> entries.
+    /// This is the revise signal: it works on bootstrap (pre-existing changes)
+    /// as well as mid-run, unlike arrival-only freshness.
+    /// </summary>
+    private static IReadOnlyList<string> SupersededPins(
+        PlannedExecutionDesign design,
+        IReadOnlyList<PlanningArtifactRecord> current)
+    {
+        var revisions = current
+            .GroupBy(record => record.Key.Value, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Max(record => record.Revision),
+                StringComparer.Ordinal);
+        var pins = design.Graph.Steps
+            .SelectMany(step => step.RequiredArtifacts)
+            .Concat(design.Bindings.Nodes
+                .SelectMany(node => node.Binding.ContextArtifacts))
+            .Distinct(StringComparer.Ordinal);
+        var superseded = new List<string>();
+        foreach (var pin in pins)
+        {
+            var at = pin.LastIndexOf('@');
+            var key = at > 0 ? pin[..at] : pin;
+            if (at <= 0 ||
+                !int.TryParse(
+                    pin[(at + 1)..],
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var pinned) ||
+                !revisions.TryGetValue(key, out var live) ||
+                live <= pinned)
+            {
+                continue;
+            }
+
+            superseded.Add($"{key}@{live} supersedes pinned {pin}");
+        }
+
+        superseded.Sort(StringComparer.Ordinal);
+        return superseded;
     }
 
     /// <summary>
@@ -546,7 +579,7 @@ public sealed class PlanningLoop(
         string reason,
         CancellationToken cancellationToken)
     {
-        var checkpoint = await state.SaveAsync(status, reason, increment: true, cancellationToken)
+        var checkpoint = await state.SaveAsync(status, reason, increment: status == PlanningLoopStatus.Running, cancellationToken)
             .ConfigureAwait(false);
         return new PlanningLoopOutcome(status, reason, checkpoint, state.Current);
     }
@@ -574,7 +607,6 @@ public sealed class PlanningLoop(
             string workflowVersion,
             bool workflowComplete,
             string evidence,
-            IReadOnlySet<string> knownRevisions,
             IPlanningArtifactCatalog catalog,
             PlanningPolicy policy)
         {
@@ -602,18 +634,12 @@ public sealed class PlanningLoop(
                     StructuralIterations = 0,
                     ReportedTokens = null,
                     ConsecutiveNoOps = 0,
-                    KnownArtifactRevisions = knownRevisions
-                        .OrderBy(revision => revision, StringComparer.Ordinal).ToArray(),
+                    KnownArtifactRevisions = [],
                     DecisionLog = [],
                     Status = PlanningLoopStatus.Running,
                     TerminalReason = null,
                 },
             };
-            foreach (var revision in knownRevisions)
-            {
-                state.KnownRevisions.Add(revision);
-            }
-
             return state;
         }
 

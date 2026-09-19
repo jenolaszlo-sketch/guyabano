@@ -16,6 +16,7 @@ public sealed record PlanningLoopObservation(
     string ExecutionPlan,
     string DesignFingerprint,
     IReadOnlyList<string> FreshArtifactRevisions,
+    IReadOnlyList<string> SupersededPins,
     string WorkflowVersion,
     bool WorkflowComplete,
     string EvidenceSummary,

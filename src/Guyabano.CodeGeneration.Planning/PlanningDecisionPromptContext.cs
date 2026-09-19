@@ -11,6 +11,7 @@ public sealed record PlanningDecisionPromptContext(
     bool WorkflowComplete,
     string EvidenceSummary,
     IReadOnlyList<string> FreshArtifacts,
+    IReadOnlyList<string> SupersededPins,
     int IterationsRemaining,
     int MutationsRemaining,
     int StructuralRemaining,

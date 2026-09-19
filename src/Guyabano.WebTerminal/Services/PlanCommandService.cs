@@ -22,7 +22,8 @@ public sealed record PlanCommandResult(
 /// <summary>Executed plan output for UI display.</summary>
 public sealed record PlanExecutionResult(
     string? Output,
-    string? Error);
+    string? Error,
+    string? Input = null);
 
 /// <summary>
 /// Handles <c>/plan</c> chat commands: authors a Fuwen workflow from the
@@ -137,7 +138,9 @@ public sealed class PlanCommandService(
             var output = await engine.WaitForCompletionAsync<JsonElement>(
                 runId, cancellationToken: cancellationToken).ConfigureAwait(false);
             return new PlanExecutionResult(
-                JsonSerializer.Serialize(output, new JsonSerializerOptions { WriteIndented = true }), null);
+                JsonSerializer.Serialize(output, new JsonSerializerOptions { WriteIndented = true }),
+                null,
+                request);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

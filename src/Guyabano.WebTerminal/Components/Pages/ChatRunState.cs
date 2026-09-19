@@ -32,6 +32,8 @@ internal sealed class ChatRunState(
 
     public string? PlanResult { get; set; }
 
+    public string? PlanInput { get; set; }
+
     public CodeGenerationWorkflowResult? Result { get; set; }
 
     public RestartPreview? RestartPreview { get; set; }

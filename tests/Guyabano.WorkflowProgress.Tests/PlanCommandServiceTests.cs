@@ -99,6 +99,7 @@ public sealed class PlanCommandServiceTests
 
         result.Error.Should().BeNull();
         result.Output.Should().Contain("Echo hi.");
+        result.Input.Should().Be("Echo hi.");
     }
 
     [Fact]

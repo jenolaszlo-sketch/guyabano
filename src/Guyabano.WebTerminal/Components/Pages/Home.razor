@@ -264,6 +264,10 @@
                 {
                     <div class="result-card">
                         <div class="result-heading">Plan result</div>
+                        @if (run.PlanInput is not null)
+                        {
+                            <p><span>Input: @run.PlanInput</span></p>
+                        }
                         <pre>@run.PlanResult</pre>
                     </div>
                 }
@@ -505,6 +509,7 @@
             if (result.Output is not null)
             {
                 run.PlanResult = result.Output;
+                run.PlanInput = result.Input;
                 run.Status = "Plan executed";
             }
             else

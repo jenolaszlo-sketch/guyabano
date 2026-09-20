@@ -7,7 +7,8 @@ namespace Guyabano.CodeGeneration.Planning;
 public sealed record StageExecutionInput(
     PlannedStage Stage,
     PlanningStageDefinition Definition,
-    IReadOnlyDictionary<string, JsonElement> UpstreamOutputs);
+    IReadOnlyDictionary<string, JsonElement> UpstreamOutputs,
+    string Request);
 
 /// <summary>One stage invocation result; executors self-validate their output.</summary>
 public sealed record StageExecutionResult(
@@ -47,6 +48,9 @@ public sealed class PlanningStageRunner(
     private const int ArtifactSchemaVersion = 1;
     private const string ProducedBy = "planning-stage-runner";
 
+    /// <summary>Definitions this runner executes.</summary>
+    public PlanningStageCatalogue Catalogue => catalogue;
+
     /// <summary>
     /// Validates the plan, then runs and publishes it. Failures stop at the
     /// first failing stage with partial outputs preserved in the result.
@@ -55,11 +59,13 @@ public sealed class PlanningStageRunner(
         string workflowId,
         PlanningStagePlan plan,
         IReadOnlySet<string> knownRevisions,
+        string request,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowId);
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(knownRevisions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request);
 
         var errors = PlanningStageValidator.Validate(plan, catalogue, knownRevisions);
         if (errors.Count > 0)
@@ -90,7 +96,7 @@ public sealed class PlanningStageRunner(
                     dependency => outputs[dependency],
                     StringComparer.Ordinal);
             var executed = await executor.ExecuteAsync(
-                new StageExecutionInput(stage, definition, inputs), cancellationToken)
+                new StageExecutionInput(stage, definition, inputs, request), cancellationToken)
                 .ConfigureAwait(false);
             if (!executed.Succeeded || executed.Output is null)
             {

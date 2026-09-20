@@ -18,7 +18,8 @@ public sealed class PlanningLoop(
     WorkflowAuthor author,
     IPlanningExecutionHost executionHost,
     IPlanningArtifactCatalog catalog,
-    PlanningPolicy policy)
+    PlanningPolicy policy,
+    PlanningStageRunner? stageRunner = null)
 {
     private const int CheckpointSchemaVersion = 1;
     private const string CheckpointKind = "planning-checkpoint";
@@ -115,13 +116,36 @@ public sealed class PlanningLoop(
                 $"{iteration}:{decision.Action.ToString().ToLowerInvariant()}" +
                 $"[{string.Join(",", decision.MotivatingArtifacts)}]");
 
+            if (decision.ProduceStages.Count > 0)
+            {
+                if (!await ProduceStagesAsync(
+                        state, goal, decision, iteration, cancellationToken).ConfigureAwait(false))
+                {
+                    return await FinishAsync(
+                        state,
+                        state.PendingFailureIsExhaustion
+                            ? PlanningLoopStatus.Exhausted
+                            : PlanningLoopStatus.Failed,
+                        state.PendingFailure ?? "Artifact production failed.",
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+
             switch (decision.Action)
             {
                 case PlanningAction.Finish:
+                    if (decision.ProduceStages.Count > 0)
+                    {
+                        return await FinishAsync(
+                            state, PlanningLoopStatus.Failed,
+                            "Finish decisions must not request artifact production.",
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
                     return await FinishAsync(
-                        state, PlanningLoopStatus.Finished,
-                        decision.FinishReason!,
-                        cancellationToken).ConfigureAwait(false);
+                            state, PlanningLoopStatus.Finished,
+                            decision.FinishReason!,
+                            cancellationToken).ConfigureAwait(false);
 
                 case PlanningAction.Validate:
                     await AdvanceAsync(state, cancellationToken).ConfigureAwait(false);
@@ -446,6 +470,47 @@ public sealed class PlanningLoop(
     {
         await state.SaveAsync(PlanningLoopStatus.Running, null, increment: true, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Produces requested artifacts before patching. The synthetic plan is
+    /// validated like any planner proposal; outputs surface as fresh
+    /// revisions next iteration. Returns false when the run must terminate.
+    /// </summary>
+    private async Task<bool> ProduceStagesAsync(
+        LoopState state,
+        string goal,
+        PlanningDecision decision,
+        int iteration,
+        CancellationToken cancellationToken)
+    {
+        if (stageRunner is null)
+        {
+            return state.Fail("The decision requests artifact production, but no stage runner is configured.");
+        }
+
+        var plan = new PlanningStagePlan
+        {
+            Stages = decision.ProduceStages,
+            Rationale = decision.Rationale,
+            Provenance = new PlanningStagePlanProvenance
+            {
+                ProducedBy = $"planning-loop:{state.WorkflowId}#{iteration}",
+                InputRevisions = state.KnownRevisions
+                    .OrderBy(revision => revision, StringComparer.Ordinal).ToArray(),
+                DefinitionCatalogueVersion = stageRunner.Catalogue.Version,
+            },
+        };
+        var produced = await stageRunner.RunAsync(
+            state.WorkflowId, plan, state.KnownRevisions, goal, cancellationToken)
+            .ConfigureAwait(false);
+        if (!produced.Succeeded)
+        {
+            return state.Fail(
+                "Artifact production failed: " + string.Join(" ", produced.Diagnostics));
+        }
+
+        return true;
     }
 
     /// <summary>

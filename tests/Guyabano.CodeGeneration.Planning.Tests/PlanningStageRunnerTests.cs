@@ -89,7 +89,7 @@ public sealed class PlanningStageRunnerTests : IDisposable
             catalog);
 
         var result = await runner.RunAsync(
-            "workflow-1", ResearchPlan(catalogue), new HashSet<string>(), ct);
+            "workflow-1", ResearchPlan(catalogue), new HashSet<string>(), "Test the runner.", ct);
 
         result.Succeeded.Should().BeTrue(string.Join(" ", result.Diagnostics));
         result.Published.Should().Equal("research-notes/main@1", "benchmarks/main@1");
@@ -218,7 +218,7 @@ public sealed class PlanningStageRunnerTests : IDisposable
             catalog);
 
         var result = await runner.RunAsync(
-            "workflow-1", ResearchPlan(catalogue), new HashSet<string>(), ct);
+            "workflow-1", ResearchPlan(catalogue), new HashSet<string>(), "Test the runner.", ct);
 
         result.Succeeded.Should().BeFalse();
         result.Outputs.Keys.Should().ContainSingle().Which.Should().Be("research-notes/main");

@@ -153,6 +153,7 @@ public sealed class PlanningLoopTests : IDisposable
             WorkflowVersion = observation.WorkflowVersion,
             Action = PlanningAction.Expand,
             MotivatingArtifacts = motivating,
+            ProduceStages = [],
             Rationale = "Absorb the revised billing contract.",
         };
 
@@ -163,6 +164,7 @@ public sealed class PlanningLoopTests : IDisposable
         WorkflowVersion = observation.WorkflowVersion,
         Action = PlanningAction.Finish,
         MotivatingArtifacts = [],
+        ProduceStages = [],
         Rationale = "Goal met.",
         FinishReason = reason,
     };
@@ -331,6 +333,116 @@ public sealed class PlanningLoopTests : IDisposable
     }
 
     [Fact]
+    public async Task Loop_produces_stages_before_patching()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = Design();
+        var harness = await CreateHarnessAsync(ct);
+        var emptyPatch = JsonSerializer.Serialize(new WorkflowPatch
+        {
+            BaseDesignFingerprint = StagedExecutionDesignIdentity.Compute(design),
+            DerivedFromArtifacts = ["contracts/billing@2"],
+            Rationale = "No workflow change; research only.",
+            AddSteps = [],
+            ReplaceSteps = [],
+            RemoveStepIds = [],
+            AddBindings = [],
+            ReplaceBindings = [],
+            DependencyEdits = [],
+        });
+        var produce = new[]
+        {
+            new PlannedStage
+            {
+                StageId = "research",
+                Name = "research-notes/main",
+                DependsOn = [],
+                InputArtifacts = [],
+            },
+        };
+        var decider = new ScriptedDecider(
+        [
+            obs => ExpandFor(obs, "contracts/billing@2") with { ProduceStages = produce },
+            obs => FinishFor(obs, "Research published; nothing structural to do."),
+        ]);
+        var loop = harness.Loop(decider, [emptyPatch], [], withStageRunner: true);
+
+        var outcome = await loop.RunAsync(
+            WorkflowId, Goal, design, PriorDsl(),
+            CompileCatalogue(), "activity guyabano.execute@1#aaa", "stub", 4000, ct);
+
+        outcome.Status.Should().Be(PlanningLoopStatus.Finished);
+        outcome.Checkpoint.Mutations.Should().Be(0);
+        harness.Host.Executions.Should().Be(0);
+        harness.AuthorRouter.Requests.Should().BeEmpty();
+        var stored = await harness.Catalog.GetCurrentAsync(
+            WorkflowId, new PlanningArtifactKey("research-notes", "main"), ct);
+        stored.Should().NotBeNull();
+        decider.Observations.Should().HaveCount(2);
+        decider.Observations[1].FreshArtifactRevisions.Should().Contain("research-notes/main@1");
+    }
+
+    [Fact]
+    public async Task Loop_rejects_production_on_finish_decisions()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = Design();
+        var harness = await CreateHarnessAsync(ct);
+        var produce = new[]
+        {
+            new PlannedStage
+            {
+                StageId = "research",
+                Name = "research-notes/main",
+                DependsOn = [],
+                InputArtifacts = [],
+            },
+        };
+        var decider = new ScriptedDecider(
+        [
+            obs => FinishFor(obs, "Done.") with { ProduceStages = produce },
+        ]);
+        var loop = harness.Loop(decider, [], [], withStageRunner: true);
+
+        var outcome = await loop.RunAsync(
+            WorkflowId, Goal, design, PriorDsl(),
+            CompileCatalogue(), "activity guyabano.execute@1#aaa", "stub", 4000, ct);
+
+        outcome.Status.Should().Be(PlanningLoopStatus.Failed);
+        outcome.Reason.Should().Contain("must not request artifact production");
+    }
+
+    [Fact]
+    public async Task Loop_rejects_production_without_a_configured_runner()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = Design();
+        var harness = await CreateHarnessAsync(ct);
+        var produce = new[]
+        {
+            new PlannedStage
+            {
+                StageId = "research",
+                Name = "research-notes/main",
+                DependsOn = [],
+                InputArtifacts = [],
+            },
+        };
+        var decider = new ScriptedDecider(
+        [
+            obs => ExpandFor(obs, "contracts/billing@2") with { ProduceStages = produce },
+        ]);
+        var loop = harness.Loop(decider, [], []);
+
+        var outcome = await loop.RunAsync(
+            WorkflowId, Goal, design, PriorDsl(),
+            CompileCatalogue(), "activity guyabano.execute@1#aaa", "stub", 4000, ct);
+
+        outcome.Status.Should().Be(PlanningLoopStatus.Failed);
+        outcome.Reason.Should().Contain("no stage runner is configured");
+    }
+
+    [Fact]
     public async Task Decision_pack_renders_the_observation()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -357,6 +469,7 @@ public sealed class PlanningLoopTests : IDisposable
         systemText.Should().Contain(fingerprint);
         systemText.Should().Contain("contracts/billing@2");
         systemText.Should().Contain("supersedes pinned contracts/billing@1");
+        systemText.Should().Contain("produceStages");
         systemText.Should().Contain("implement_billing");
         systemText.Should().Contain("Iterations: 9");
         userText.Should().Contain(Goal);
@@ -376,6 +489,7 @@ public sealed class PlanningLoopTests : IDisposable
             WorkflowVersion = "v1",
             Action = PlanningAction.Expand,
             MotivatingArtifacts = ["contracts/billing@2"],
+            ProduceStages = [],
             Rationale = "Absorb the revision.",
         };
 
@@ -438,22 +552,66 @@ public sealed class PlanningLoopTests : IDisposable
         public ScriptedHost Host { get; } = new();
         public ScriptedRouter ProposerRouter { get; private set; } = null!;
         public ScriptedRouter AuthorRouter { get; private set; } = null!;
+        public PlanningArtifactCatalog Catalog => catalog;
 
         public PlanningLoop Loop(
             ScriptedDecider decider,
             IReadOnlyList<string> proposerScript,
-            IReadOnlyList<string> authorScript)
+            IReadOnlyList<string> authorScript,
+            bool withStageRunner = false)
         {
             var engine = new ScribanPromptTemplateEngine(new FilePromptLoader(FindPromptsRoot()));
             ProposerRouter = new ScriptedRouter(proposerScript);
             AuthorRouter = new ScriptedRouter(authorScript);
+            PlanningStageRunner? runner = withStageRunner
+                ? new PlanningStageRunner(
+                    StageCatalogue(),
+                    new Dictionary<string, IPlanningStageExecutor>(StringComparer.Ordinal)
+                    {
+                        ["research"] = new ScriptedStageExecutor(),
+                    },
+                    catalog)
+                : null;
             return new PlanningLoop(
                 decider,
                 new WorkflowPatchProposer(ProposerRouter, new WorkflowPatchPromptBuilder(engine), 3),
                 new WorkflowAuthor(AuthorRouter, new WorkflowAuthoringPromptBuilder(engine), 3),
                 Host,
                 catalog,
-                policy);
+                policy,
+                runner);
+        }
+
+        public static PlanningStageCatalogue StageCatalogue() => PlanningStageCatalogue.Create(
+        [
+            new PlanningStageDefinition
+            {
+                Id = "research",
+                ArtifactKind = "research-notes",
+                SystemPack = "research/system.sbn",
+                UserPack = "research/user.sbn",
+                InputKinds = [],
+                OutputSchema = "ResearchNotes",
+                MaxAttempts = 1,
+                ModelProfile = "research",
+            },
+        ]);
+    }
+
+    private sealed class ScriptedStageExecutor : IPlanningStageExecutor
+    {
+        public string StageId => "research";
+        public List<StageExecutionInput> Calls { get; } = [];
+
+        public Task<StageExecutionResult> ExecuteAsync(
+            StageExecutionInput input,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add(input);
+            return Task.FromResult(new StageExecutionResult(
+                true,
+                JsonSerializer.SerializeToElement(new { note = "researched" }),
+                []));
         }
     }
 

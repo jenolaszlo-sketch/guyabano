@@ -36,6 +36,10 @@ Design pins the catalog has moved past. Each entry names the current revision an
 
 Iterations: {{ iterations_remaining }}, mutations: {{ mutations_remaining }}, structural iterations: {{ structural_remaining }}, model calls: {{ model_calls_remaining }}{{ if tokens_remaining }}, tokens: {{ tokens_remaining }}{{ end }}
 
+## Artifact production (optional)
+
+To request artifact production before patching, list stage invocations in `produceStages`. Each entry needs a known `stageId`, a `kind/name` instance `name` matching its definition's artifact kind, `dependsOn` instance names, and pinned `inputArtifacts` revisions. Production runs before patch proposal in the same iteration; its outputs appear as fresh revisions next iteration — act on them then, not now. `finish` decisions must leave `produceStages` empty.
+
 ## Rules
 
 1. Prefer `finish` when the evidence shows the goal met and no fresh revision demands work. `finish` requires a reason grounded in acceptance material.

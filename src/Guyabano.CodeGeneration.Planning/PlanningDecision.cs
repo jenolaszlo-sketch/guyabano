@@ -38,6 +38,14 @@ public sealed record PlanningDecision
     [JsonPropertyName("motivatingArtifacts")]
     public required IReadOnlyList<string> MotivatingArtifacts { get; init; }
 
+    /// <summary>
+    /// Stage invocations to produce before patching (possibly empty).
+    /// Executed by the generic runner, then the loop proceeds with the
+    /// action; outputs appear as fresh revisions next iteration.
+    /// </summary>
+    [JsonPropertyName("produceStages")]
+    public required IReadOnlyList<PlannedStage> ProduceStages { get; init; }
+
     [JsonPropertyName("rationale")]
     public required string Rationale { get; init; }
 

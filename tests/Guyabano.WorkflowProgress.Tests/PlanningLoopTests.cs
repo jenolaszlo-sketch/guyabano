@@ -444,6 +444,29 @@ public sealed class PlanningLoopTests : IDisposable
     }
 
     [Fact]
+    public async Task Loop_repairs_a_malformed_decision()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var design = Design();
+        var harness = await CreateHarnessAsync(ct);
+        var decider = new ScriptedDecider(
+        [
+            obs => FinishFor(obs, string.Empty),
+            obs => FinishFor(obs, "Nothing left to do."),
+        ]);
+        var loop = harness.Loop(decider, [], []);
+
+        var outcome = await loop.RunAsync(
+            WorkflowId, Goal, design, PriorDsl(),
+            CompileCatalogue(), "activity guyabano.execute@1#aaa", "stub", 4000, ct);
+
+        outcome.Status.Should().Be(PlanningLoopStatus.Finished);
+        outcome.Reason.Should().Contain("Nothing left to do.");
+        decider.Calls.Should().Be(2);
+        decider.Observations[1].PreviousFailure.Should().Contain("must state a reason");
+    }
+
+    [Fact]
     public async Task Decision_pack_renders_the_observation()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -510,6 +533,7 @@ public sealed class PlanningLoopTests : IDisposable
             false,
             "nothing executed yet",
             new PlanningLoopBudget(9, 5, 8, 29, null),
+            null,
             null);
 
         var result = await decider.DecideAsync(observation, ct);

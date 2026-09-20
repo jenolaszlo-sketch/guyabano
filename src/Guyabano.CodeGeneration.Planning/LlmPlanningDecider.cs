@@ -27,7 +27,7 @@ public sealed class LlmPlanningDecider(
         if (maxAttempts < 1)
             throw new ArgumentOutOfRangeException(nameof(maxAttempts));
 
-        string? previousFailure = null;
+        string? previousFailure = observation.PreviousFailure;
         var calls = 0;
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {

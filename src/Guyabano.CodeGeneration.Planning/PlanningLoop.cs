@@ -92,23 +92,13 @@ public sealed class PlanningLoop(
 
             var observation = await ObserveAsync(
                 state, goal, iteration, cancellationToken).ConfigureAwait(false);
-            var decision = await DecideAsync(
-                state, observation, allowReobserve: true, cancellationToken)
-                .ConfigureAwait(false);
+            var decision = await DecideAdmittedAsync(
+                state, observation, cancellationToken).ConfigureAwait(false);
             if (decision is null)
             {
                 return await FinishAsync(
                     state, PlanningLoopStatus.Failed,
                     state.PendingFailure ?? "The decider produced no usable decision.",
-                    cancellationToken).ConfigureAwait(false);
-            }
-
-            var shapeErrors = ValidateDecision(decision, state);
-            if (shapeErrors.Count > 0)
-            {
-                return await FinishAsync(
-                    state, PlanningLoopStatus.Failed,
-                    string.Join(" ", shapeErrors),
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -378,6 +368,42 @@ public sealed class PlanningLoop(
 
         superseded.Sort(StringComparer.Ordinal);
         return superseded;
+    }
+
+    /// <summary>
+    /// Decides with semantic repair: parse/stale failures and shape errors
+    /// feed back as rejection notes for up to three rounds. Returns null
+    /// when no usable decision results.
+    /// </summary>
+    private async Task<PlanningDecision?> DecideAdmittedAsync(
+        LoopState state,
+        PlanningLoopObservation observation,
+        CancellationToken cancellationToken)
+    {
+        string? rejection = null;
+        for (var round = 1; round <= 3; round++)
+        {
+            var candidate = await DecideAsync(
+                state,
+                round == 1 ? observation : observation with { PreviousFailure = rejection },
+                allowReobserve: true,
+                cancellationToken).ConfigureAwait(false);
+            if (candidate is null)
+            {
+                return null;
+            }
+
+            var shapeErrors = ValidateDecision(candidate, state);
+            if (shapeErrors.Count == 0)
+            {
+                return candidate;
+            }
+
+            rejection = string.Join(" ", shapeErrors);
+        }
+
+        state.PendingFailure = rejection;
+        return null;
     }
 
     /// <summary>

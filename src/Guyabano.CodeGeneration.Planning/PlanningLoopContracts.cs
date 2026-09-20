@@ -21,7 +21,8 @@ public sealed record PlanningLoopObservation(
     bool WorkflowComplete,
     string EvidenceSummary,
     PlanningLoopBudget Remaining,
-    PlanningCheckpoint? PriorCheckpoint);
+    PlanningCheckpoint? PriorCheckpoint,
+    string? PreviousFailure = null);
 
 /// <summary>Terminal outcome of one loop run.</summary>
 public sealed record PlanningLoopOutcome(

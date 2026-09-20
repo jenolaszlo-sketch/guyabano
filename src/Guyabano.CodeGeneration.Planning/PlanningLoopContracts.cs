@@ -67,13 +67,32 @@ public sealed record RevisionExecutionResult(
 /// </summary>
 public interface IPlanningExecutionHost
 {
+    /// <summary>
+    /// Creates, registers, starts, and fully executes the initial workflow
+    /// revision. Idempotent: returns the current snapshot when already known.
+    /// </summary>
+    Task<WorkflowExecutionSnapshot> EnsureWorkflowAsync(
+        string workflowId,
+        string dsl,
+        string inputJson,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-admits and registers one revision without running it, restoring
+    /// fingerprint reuse after a restart from the DSL alone.
+    /// </summary>
+    Task RegisterAsync(
+        string workflowId,
+        string version,
+        string dsl,
+        CancellationToken cancellationToken = default);
+
     Task<WorkflowExecutionSnapshot> ObserveAsync(
         string workflowId,
         CancellationToken cancellationToken = default);
 
     Task<RevisionExecutionResult> ExecuteRevisionAsync(
         string workflowId,
-        PlannedExecutionDesign applied,
         string dsl,
         WorkflowPatch patch,
         CancellationToken cancellationToken = default);

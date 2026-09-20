@@ -328,7 +328,8 @@ public sealed class PlanningLoopTests : IDisposable
 
         outcome.Status.Should().Be(PlanningLoopStatus.Finished);
         decider.Calls.Should().Be(2);
-        harness.Host.Observes.Should().Be(2);
+        harness.Host.Ensures.Should().Be(1);
+        harness.Host.Observes.Should().Be(1);
         outcome.Checkpoint.ModelCalls.Should().Be(2);
     }
 
@@ -637,8 +638,25 @@ public sealed class PlanningLoopTests : IDisposable
     private sealed class ScriptedHost : IPlanningExecutionHost
     {
         public string Version = "v1";
+        public int Ensures { get; private set; }
         public int Observes { get; private set; }
         public int Executions { get; private set; }
+
+        public Task<WorkflowExecutionSnapshot> EnsureWorkflowAsync(
+            string workflowId,
+            string dsl,
+            string inputJson,
+            CancellationToken cancellationToken = default)
+        {
+            Ensures++;
+            return Task.FromResult(new WorkflowExecutionSnapshot(Version, false, "ensured"));
+        }
+
+        public Task RegisterAsync(
+            string workflowId,
+            string version,
+            string dsl,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task<WorkflowExecutionSnapshot> ObserveAsync(
             string workflowId,
@@ -650,7 +668,6 @@ public sealed class PlanningLoopTests : IDisposable
 
         public Task<RevisionExecutionResult> ExecuteRevisionAsync(
             string workflowId,
-            PlannedExecutionDesign applied,
             string dsl,
             WorkflowPatch patch,
             CancellationToken cancellationToken = default)

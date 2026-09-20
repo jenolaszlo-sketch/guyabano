@@ -64,7 +64,7 @@ public sealed class PlanningLoop(
         }
 
         var restored = await RestoreAsync(
-            workflowId, initial, initialDsl, catalogue, cancellationToken).ConfigureAwait(false);
+            workflowId, goal, initial, initialDsl, catalogue, cancellationToken).ConfigureAwait(false);
         if (restored.Terminal is not null)
         {
             return restored.Terminal;
@@ -195,6 +195,7 @@ public sealed class PlanningLoop(
 
     private async Task<Restored> RestoreAsync(
         string workflowId,
+        string goal,
         PlannedExecutionDesign initial,
         string initialDsl,
         ITrustedCatalogue catalogue,
@@ -214,8 +215,11 @@ public sealed class PlanningLoop(
                     nameof(initialDsl));
             }
 
-            var snapshot = await executionHost.ObserveAsync(workflowId, cancellationToken)
-                .ConfigureAwait(false);
+            var snapshot = await executionHost.EnsureWorkflowAsync(
+                workflowId,
+                initialDsl,
+                System.Text.Json.JsonSerializer.Serialize(goal),
+                cancellationToken).ConfigureAwait(false);
             var state = LoopState.CreateFresh(
                 workflowId, initial, initialDsl, plan,
                 snapshot.WorkflowVersion, snapshot.IsComplete, snapshot.EvidenceSummary,
@@ -268,6 +272,21 @@ public sealed class PlanningLoop(
             return new Restored(null, new PlanningLoopOutcome(
                 PlanningLoopStatus.Failed,
                 "Checkpoint DSL no longer compiles against the current catalogue.",
+                checkpoint,
+                checkpoint.Design));
+        }
+
+        try
+        {
+            await executionHost.RegisterAsync(
+                workflowId, checkpoint.WorkflowVersion, checkpoint.Dsl, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return new Restored(null, new PlanningLoopOutcome(
+                PlanningLoopStatus.Failed,
+                "Checkpoint revision could not be re-registered: " + exception.Message,
                 checkpoint,
                 checkpoint.Design));
         }
@@ -473,6 +492,26 @@ public sealed class PlanningLoop(
     }
 
     /// <summary>
+    /// Records a revision with no executable effect (identical design or
+    /// identical plan) toward no-op convergence.
+    /// </summary>
+    private async Task<bool> NoteNoOpAsync(
+        LoopState state,
+        CancellationToken cancellationToken)
+    {
+        state.ConsecutiveNoOps++;
+        await AdvanceAsync(state, cancellationToken).ConfigureAwait(false);
+        if (state.ConsecutiveNoOps >= policy.MaxConsecutiveNoOps)
+        {
+            state.TerminalOverride = (
+                PlanningLoopStatus.Finished,
+                $"No-op convergence after {state.ConsecutiveNoOps} consecutive no-change revisions.");
+        }
+
+        return state.TerminalOverride is null;
+    }
+
+    /// <summary>
     /// Produces requested artifacts before patching. The synthetic plan is
     /// validated like any planner proposal; outputs surface as fresh
     /// revisions next iteration. Returns false when the run must terminate.
@@ -566,16 +605,7 @@ public sealed class PlanningLoop(
                 state.Fingerprint,
                 StringComparison.Ordinal))
         {
-            state.ConsecutiveNoOps++;
-            await AdvanceAsync(state, cancellationToken).ConfigureAwait(false);
-            if (state.ConsecutiveNoOps >= policy.MaxConsecutiveNoOps)
-            {
-                state.TerminalOverride = (
-                    PlanningLoopStatus.Finished,
-                    $"No-op convergence after {state.ConsecutiveNoOps} consecutive no-change revisions.");
-            }
-
-            return state.TerminalOverride is null;
+            return await NoteNoOpAsync(state, cancellationToken).ConfigureAwait(false);
         }
 
         state.ConsecutiveNoOps = 0;
@@ -611,9 +641,28 @@ public sealed class PlanningLoop(
                 "Revision authoring failed: " + string.Join("; ", authored.Diagnostics));
         }
 
-        var executed = await executionHost.ExecuteRevisionAsync(
-            state.WorkflowId, applied, authored.Dsl, proposal.Patch, cancellationToken)
-            .ConfigureAwait(false);
+        RevisionExecutionResult executed;
+        try
+        {
+            executed = await executionHost.ExecuteRevisionAsync(
+                state.WorkflowId, authored.Dsl, proposal.Patch, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return state.Fail("Revision execution failed: " + exception.Message);
+        }
+
+        if (string.Equals(
+                executed.WorkflowVersion, state.WorkflowVersion, StringComparison.Ordinal))
+        {
+            state.Current = applied;
+            state.Dsl = authored.Dsl;
+            state.Plan = authored.Admission.Compilation.Definition.ReadPlan();
+            state.Evidence = executed.EvidenceSummary;
+            return await NoteNoOpAsync(state, cancellationToken).ConfigureAwait(false);
+        }
+
         state.Mutations++;
         state.StructuralIterations++;
         if (executed.ReportedTokens is not null)

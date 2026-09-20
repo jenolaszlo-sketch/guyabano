@@ -1,96 +1,167 @@
 # Guyabano
 
-Guyabano is an opinionated, deterministic software-development workflow for
-.NET. It coordinates planning, architecture review, task decomposition,
-implementation, build/test, correction, and validation phases using
-[Zhinu](https://github.com/jenolaszlo-sketch/penghou-zhinu) for durable
-workflow execution and [Baize](https://github.com/jenolaszlo-sketch/penghou-baize)
-for model communication. [Hetu](https://github.com/jenolaszlo-sketch/penghou-hetu)
-indexes repository structure, while
-[Cangjie](https://github.com/jenolaszlo-sketch/penghou-cangjie) records the exact
-source-derived context selected for a workflow.
+[![CI](https://github.com/jenolaszlo-sketch/guyabano/actions/workflows/ci.yml/badge.svg)](https://github.com/jenolaszlo-sketch/guyabano/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/jenolaszlo-sketch/guyabano)](LICENSE)
 
-> Guyabano decides what must happen. Zhinu durably enforces the process.
-> A coding executor attempts one bounded workspace change.
+Guyabano is an opinionated, auditable software-development workflow for .NET.
+It coordinates repository inspection, planning, architecture review,
+decomposition, implementation, validation, build repair, and promotion through
+explicit durable boundaries.
 
-## Packages
+[Penghou.Zhinu](https://github.com/jenolaszlo-sketch/penghou-zhinu) persists and
+recovers execution. [Penghou.Fuwen](https://github.com/jenolaszlo-sketch/penghou-fuwen)
+defines typed planning workflows. [Penghou.Baize](https://github.com/jenolaszlo-sketch/penghou-baize)
+routes model work. [Penghou.Hetu](https://github.com/jenolaszlo-sketch/penghou-hetu)
+and [Penghou.Cangjie](https://github.com/jenolaszlo-sketch/penghou-cangjie)
+provide reproducible repository context.
 
-| Package | Purpose |
-| --- | --- |
-| `Guyabano.CodeGeneration.Planning` | Architecture review, domain discovery, decomposition, planning |
-| `Guyabano.CodeGeneration.Workflows` | Durable Zhinu workflow orchestration |
-| `Guyabano.CodeGeneration.Validation` | Generated file validation (CSharp/Json/Xml) |
-| `Guyabano.Llm.CodeGeneration` | LLM-driven code emission and file management |
-| `Guyabano.Llm.Prompting` | Prompt building and template engine (Scriban) |
-| `Guyabano.Artifacts` | Artifact storage with integrity verification |
-| `Guyabano.Session` | Long-lived session identity, event contracts, and projections |
-| `Guyabano.Session.Sqlite` | Penghou.Siming-backed transactional session event ledger |
-| `Guyabano.Messaging` | Workflow progress publishing/subscribing |
-| `Guyabano.CI.Contracts` | Build/test/scaffold contracts |
-| `Guyabano.CI.Server` | HTTP CI server (build, test, JetBrains analysis) |
-| `Guyabano.CI.Client` | Typed client for the CI server |
-| `Guyabano.WebTerminal` | Blazor web terminal UI |
+> Guyabano decides what must happen. Zhinu durably enforces the process. A
+> coding executor attempts one bounded candidate-workspace change.
 
-## Durable workflow composition
-
-The code-generation workflow keeps control flow, bounded loops, gates, and
-result aggregation visible in `CodeGenerationWorkflow.RunAsync`. Each external
-operation is a typed, keyed Zhinu workflow step implemented in
-`Guyabano.WorkflowWorker`:
+## System shape
 
 ```text
-CodeGenerationWorkflow
-  -> IndexRepositoryStep
-  -> SelectRepositoryContextStep
-  -> CaptureRepositoryContextStep
-  -> PlanCodeGenerationStep
-  -> Review / resolve / integrate architecture steps
-  -> DecomposeCodeGenerationTaskStep
-  -> ScaffoldCodeGenerationStep
-  -> GenerateCodeTaskStep
-  -> BuildGeneratedCodeStep
-  -> Load / save checkpoint steps
+request + workspace
+    -> session operation and repository snapshot
+    -> staged planning and architecture review
+    -> typed Fuwen plan and host admission
+    -> durable Zhinu execution
+    -> bounded code-generation tasks
+    -> reindex, validate, build, and repair
+    -> immutable artifacts, evidence, and session outcome
 ```
 
-Zhinu resolves every execution attempt in a fresh DI scope. Completed-step
-replay resolves no implementation, and the durable step key remains separate
-from the keyed implementation identity. Shared typed step references bind each
-registration and invocation to the same input/output contract at compile time.
-Guyabano does not enable Zhinu
-compensation for these steps because filesystem, model, CI, and artifact
-operations do not yet have a truthful reversible contract.
+The main code-generation workflow is currently version `7`. It keeps control
+flow, retry limits, review gates, repair loops, and result aggregation visible
+in `CodeGenerationWorkflow.RunAsync`. External operations are keyed,
+strongly-typed Zhinu steps resolved in fresh dependency-injection scopes.
 
-Workflow definition version `4` adds session identity and cross-product state
-correlation around the repository-intelligence steps.
-Earlier histories remain distinct instead of being replayed against changed
-execution bindings.
+Completed steps replay from durable state without resolving their
+implementations. Filesystem, model, CI, and artifact operations do not claim
+compensation because they do not yet have a truthful reversible contract.
+Downstream side effects instead receive stable idempotency and correlation
+identities.
+
+## Packages and applications
+
+| Project | Responsibility |
+| --- | --- |
+| `Guyabano.CodeGeneration.Planning` | Staged planning, architecture review, Fuwen authoring, workflow patches, and the bounded planning loop |
+| `Guyabano.CodeGeneration.Workflows` | Durable Zhinu orchestration and workflow contracts |
+| `Guyabano.CodeGeneration.Validation` | Generated C#, JSON, and XML validation |
+| `Guyabano.Llm.CodeGeneration` | Model-driven code emission and candidate file management |
+| `Guyabano.Llm.Prompting` | Scriban prompt packs and deterministic prompt construction |
+| `Guyabano.Artifacts` | Immutable artifact storage with integrity verification |
+| `Guyabano.Session` | Long-lived session identity, events, decisions, incidents, and projections |
+| `Guyabano.Session.Sqlite` | Siming-backed transactional session event ledger |
+| `Guyabano.Messaging` | Workflow progress publication and subscription |
+| `Guyabano.CI.Contracts` | Build, test, and scaffold contracts |
+| `Guyabano.CI.Server` | HTTP build/test and JetBrains-analysis service |
+| `Guyabano.CI.Client` | Typed CI service client |
+| `Guyabano.WorkflowWorker` | Hosted durable workflow worker and production adapters |
+| `Guyabano.WebTerminal` | Blazor operator interface |
+| `Guyabano.FuwenPlanning` | Executable Fuwen planning and authoring host |
+
+Guyabano targets .NET 10.
+
+## Durable code-generation workflow
+
+The workflow records a cross-store session operation before product work begins,
+then advances it alongside the authoritative Zhinu run. Its current path is:
+
+```text
+start session operation
+  -> index repository -> select context -> capture immutable snapshot
+  -> plan
+  -> review / resolve / integrate architecture (bounded)
+  -> decompose
+  -> scaffold
+  -> generate tasks
+  -> reindex and checkpoint
+  -> build / test / bounded repair
+  -> record product outcome
+```
+
+Stable `WorkflowStepReference<TInput,TOutput>` values bind registrations and
+invocations to the same contract. Retry counts, architecture passes, model
+tiers, generation attempts, and build-repair cycles are hard-coded upper bounds
+rather than open-ended agent loops.
+
+A failed attempt preserves diagnostic artifacts and session history. Restart
+approval is bound to the exact impact artifact, canonical change-set hash,
+workspace revision, and Hetu publication, then applied through Zhinu's durable
+restart receipt.
+
+## Fuwen planning and workflow evolution
+
+The planning subsystem has moved beyond whole-workflow regeneration.
+
+The bootstrap path still runs the deterministic staged sequence—domain,
+topology, contracts, components, execution design, and first Fuwen authoring.
+The resulting source compiles through Fuwen IR v8 with workflow-owned prompts
+and declared tools.
+
+Later changes are represented as a `WorkflowPatch` against an exact
+`BaseDesignFingerprint`. A patch names only additions, replacements, removals,
+binding changes, and dependency edits. Deterministic code applies the delta,
+rejects stale bases, missing bindings, dangling dependencies, and cycles, then
+rebuilds the merged design.
+
+`PatchPreservationValidator` compares every untouched node with the prior
+admitted plan. If model-authored Fuwen source changes a node outside the patch,
+admission fails with repair feedback. This turns “preserve completed work” into
+a checked invariant instead of relying on prompt wording. Empty or cosmetic
+patches are recorded as no-ops.
+
+`PlanningLoop` now owns the bounded observe-decide-act-checkpoint cycle:
+
+```text
+observe current design, artifacts, evidence, and superseded pins
+    -> admit expand / revise / validate / finish decision
+    -> propose and apply a patch when required
+    -> author, validate, preserve, mutate, and execute
+    -> persist a planning checkpoint
+```
+
+Host-owned `PlanningPolicy` limits iterations, mutations, workflow nodes,
+planning depth, model calls, consecutive no-ops, and reported token usage.
+Exhaustion is a typed terminal outcome. A restarted loop loads its checkpoint,
+verifies the live design and workflow version, and resumes without repeating an
+applied mutation.
+
+The first dynamic-stage slice is also implemented. A versioned catalogue
+fingerprints stage definitions, the validator admits only known and acyclic
+plans with resolvable inputs and valid artifact-kind flow, and the generic
+runner executes admitted stages in topological order. It chains outputs and
+publishes revisioned artifacts with provenance. Built-in domain, topology,
+contract, and component stages mirror the established pipeline.
+
+Planner-authored stage selection and integration into the end-to-end product
+remain follow-on work. The built-in definitions preserve the current bootstrap
+while the generic runner is proven.
+
+Design details:
+
+- [Workflow patch design](docs/workflow-patch-design.md)
+- [Planning loop design](docs/planning-loop-design.md)
+- [Dynamic stages design](docs/dynamic-stages-design.md)
+- [Product roadmap](ROADMAP.md)
 
 ## Repository intelligence
 
 Repository context is enabled by default for the configured output workspace.
-Guyabano incrementally indexes it into a durable embedded Hetu graph, derives a
-content-addressed workspace revision, selects a bounded public surface or
+Guyabano incrementally indexes the workspace into an embedded Hetu graph,
+derives a content-addressed revision, selects a bounded public surface or
 configured symbol neighborhoods, and stores the rendered observations in
-Cangjie. An immutable Cangjie snapshot ID and its Hetu publication identity are
-carried through workflow results, task requests, and checkpoints for exact
-restart replay.
+Cangjie.
 
-Guyabano uses Hetu's exact published index identity and a publication-bound
-query view. If the repository is reindexed while context selection is running,
-selection fails explicitly instead of combining facts from different graph
-generations. Selected observations enter Cangjie as one atomic batch, and
-deterministic snapshot retries reuse the original immutable snapshot without a
-read-before-create race.
+The immutable Cangjie snapshot and exact Hetu publication identity flow through
+planning requests, workflow results, and checkpoints. Selection fails if the
+graph is republished mid-query, preventing observations from different graph
+generations from being combined.
 
 Hetu remains authoritative for current code structure. Cangjie stores only the
-bounded textual observations selected for a workflow; Guyabano does not copy the
-entire graph into memory.
-
-The durable graph uses LadybugDB. Hosts must provide a matching native runtime;
-on Windows, LadybugDB also requires the OpenSSL 3 runtime libraries described by
-the Hetu package documentation. Advanced hosts may register their own
-`HetuHost` before calling `AddGuyabanoCodeGeneration` to replace the default
-filesystem provider, C# plugin, or Ladybug store.
+bounded observations selected for the workflow.
 
 ```json
 {
@@ -104,42 +175,72 @@ filesystem provider, C# plugin, or Ladybug store.
 }
 ```
 
-Source-derived context is local-only by default. Set
-`IncludeRepositoryContextInPrompts` to `true` only when the selected model route
-is permitted to receive repository information. The character limit is applied
-before disclosure, and prompt text labels the snapshot as untrusted reference
-data rather than instructions.
+Source-derived context stays local by default. Enable
+`IncludeRepositoryContextInPrompts` only for a model route permitted to receive
+repository information. The character limit is applied before disclosure, and
+the prompt labels the snapshot as untrusted reference data.
 
-## Session event ledger
+The default graph store uses LadybugDB. Hosts must supply its native runtime;
+Windows also requires the OpenSSL 3 runtime libraries documented by Hetu.
+Advanced hosts can register their own `HetuHost` before
+`AddGuyabanoCodeGeneration`.
 
-Guyabano persists each session's authoritative event history through
-`Penghou.Siming.Sqlite`. Every session has an independently verifiable,
-contiguously ordered ledger at
-`<OutputRoot>/.gen/sessions/{session-id}/session.db`.
+## Session ledger and recovery
 
-Rebuildable current-state projections live in
-`<OutputRoot>/.gen/session-catalog.db`. Projection failure cannot roll back or
-erase an event; replay or a complete ledger scan repairs the projection. Each
-projection cursor is bound to its ledger head hash as well as its sequence.
+Every session has an independently verifiable, ordered event ledger at:
 
-Every immutable event uses envelope schema v1 and records payload sensitivity.
-Callers choose whether payload content is retained, replaced by a versioned
-SHA-256 digest, or omitted before append. This makes disclosure and retention an
-append-time decision; later redaction never rewrites the audit chain.
+```text
+<OutputRoot>/.gen/sessions/{session-id}/session.db
+```
 
-Unusual conditions are first-class session incidents. Detection, recovery plan,
-each meaningful attempt, and its outcome are appended with causation and stable
-idempotency. A successful repair returns the session to a safe operator state
-without removing the incident from history.
+Rebuildable projections live at:
 
-Restart approval is bound to an exact persisted impact artifact. Guyabano
-revalidates its workflow target, restart mode, canonical change-set hash,
-workspace revision, and Hetu publication while holding a session-scoped
-cross-process decision lease through Zhinu's authoritative restart receipt.
-Workspace promotion and repository reindexing use the same lease contract.
+```text
+<OutputRoot>/.gen/session-catalog.db
+```
 
-## Status
+`Penghou.Siming.Sqlite` provides the append-only ledger. Projection failure
+cannot roll back or erase an event; replay repairs the projection, and every
+cursor is bound to its ledger sequence and head hash.
 
-Pre-release scaffolding. See [ROADMAP.md](ROADMAP.md) for product direction and
-[docs/session-backlog.md](docs/session-backlog.md) for the active implementation
-tracker.
+Events use envelope schema v1 and record payload sensitivity. Callers decide at
+append time whether content is retained, replaced by a versioned SHA-256 digest,
+or omitted. Incidents, recovery plans, attempts, and outcomes remain in history
+after repair.
+
+Workspace promotion, repository reindexing, and restart decisions use a
+session-scoped cross-process lease. Failures that cross store boundaries become
+discoverable reconciliation work rather than an implied distributed
+transaction.
+
+## Safety boundaries
+
+- Coding happens in an isolated candidate workspace.
+- Model output proposes plans, patches, source, and files; deterministic
+  validation decides what is admitted.
+- Exact descriptor, artifact, workspace, plan, and publication identities are
+  carried through durable state.
+- Repository context is not disclosed to model routes unless explicitly
+  enabled.
+- Git commit, push, package publication, and deployment remain explicit host or
+  operator capabilities.
+- External side effects must use stable idempotency keys or return durable
+  receipts.
+
+## Development
+
+```powershell
+dotnet build Guyabano.slnx --configuration Release
+dotnet test Guyabano.slnx --configuration Release --no-build
+```
+
+The repository is active pre-release software. The durable code-generation
+workflow and planning primitives are implemented and tested, while the
+Fuwen-driven adaptive-planning path is still being integrated into the full
+product surface.
+
+## License
+
+[AGPL-3.0](LICENSE)
+
+Copyright (c) 2026 Jenő Konrád László

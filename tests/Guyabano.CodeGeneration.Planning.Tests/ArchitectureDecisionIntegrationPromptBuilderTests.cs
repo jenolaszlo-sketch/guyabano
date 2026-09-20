@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Penghou.Guihua.Baize;
 using Guyabano.Llm.Prompting;
 using Penghou.Baize;
 using Penghou.Baize.Tools;

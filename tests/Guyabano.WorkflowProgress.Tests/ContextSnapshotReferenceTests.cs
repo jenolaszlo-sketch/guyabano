@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Penghou.Guihua;
 using Guyabano.Artifacts;
 using Guyabano.Llm.Prompting;
 using Guyabano.Session;

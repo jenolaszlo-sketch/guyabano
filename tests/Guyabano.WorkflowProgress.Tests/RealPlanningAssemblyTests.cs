@@ -1,5 +1,7 @@
 #pragma warning disable xUnit1030
 using System.Text.Json;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using Guyabano.CodeGeneration.Planning;

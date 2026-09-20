@@ -1,5 +1,7 @@
 #pragma warning disable xUnit1030
 using System.Text.Json;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using FluentAssertions;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Planning;
@@ -150,18 +152,17 @@ public sealed class PlanningToExecutionMutationTests : IDisposable
             cancellationToken: ct);
 
         // Author v2 from the resolved design (canned model) and register it.
-        var promptsRoot = FindPromptsRoot();
         var router = new CannedPlanRouter(V2Dsl());
         var author = new WorkflowAuthor(
             router,
             new WorkflowAuthoringPromptBuilder(
-                new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot))),
+                new ScribanPromptTemplateEngine(new EmbeddedPromptLoader())),
+            catalogue,
             maxAttempts: 3);
         var authored = await author.AuthorFromPlanAsync(
             "Implement ticket classification.",
-            PlannedExecutionDesignSummary.Render(design),
+            PlanningGraphSummary.Render(design),
             CatalogueSummaryBuilder.Render(Descriptors()),
-            catalogue,
             "stub-author",
             4000,
             ct);
@@ -311,18 +312,6 @@ public sealed class PlanningToExecutionMutationTests : IDisposable
             new() { BoundedContextName = "Billing", Components = [], Decisions = [], InferredDefaults = [] },
         ];
         return (domain, topology, contracts, components);
-    }
-
-    private static string FindPromptsRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        for (var i = 0; i < 10 && directory is not null; i++, directory = directory.Parent)
-        {
-            var candidate = Path.Combine(directory.FullName, "prompts", "workflow-authoring", "system.sbn");
-            if (File.Exists(candidate))
-                return Path.Combine(directory.FullName, "prompts");
-        }
-        throw new DirectoryNotFoundException("Could not locate the Guyabano prompts root.");
     }
 
     private sealed class PlanningTaskActivity(Dictionary<string, string> canned) : IActivityExecutor

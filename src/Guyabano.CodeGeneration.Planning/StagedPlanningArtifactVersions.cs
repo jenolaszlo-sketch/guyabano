@@ -1,4 +1,6 @@
 using Guyabano.Artifacts;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 
 namespace Guyabano.CodeGeneration.Planning;
 

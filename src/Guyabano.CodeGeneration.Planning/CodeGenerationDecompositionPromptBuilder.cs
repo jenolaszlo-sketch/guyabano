@@ -1,11 +1,13 @@
 using Guyabano.Llm.Prompting;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Penghou.Baize;
 
 namespace Guyabano.CodeGeneration.Planning;
 
 public sealed class CodeGenerationDecompositionPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<CodeGenerationDecompositionPromptContext>(
+    : CorrelatedPromptBuilderBase<CodeGenerationDecompositionPromptContext>(
         templateEngine),
       IPromptBuilder<CodeGenerationDecompositionPromptContext>
 {

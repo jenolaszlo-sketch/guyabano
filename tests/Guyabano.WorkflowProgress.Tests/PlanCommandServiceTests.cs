@@ -1,5 +1,7 @@
 #pragma warning disable xUnit1030
 using System.Text.Json;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using FluentAssertions;
 using Guyabano.CodeGeneration.Planning;
 using Guyabano.Llm.Prompting;
@@ -134,8 +136,7 @@ public sealed class PlanCommandServiceTests
 
     private static PlanCommandService CreateService(QueueRouter router)
     {
-        var promptsRoot = FindPromptsRoot();
-        var templateEngine = new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot));
+        var templateEngine = new ScribanPromptTemplateEngine(new EmbeddedPromptLoader());
         var str = new PrimitiveType(FuwenPrimitiveKind.String);
         ContentDigest DigestOf(char c) => new("sha256", "descriptor/v1", Digest(c));
         var context = new DescriptorReference(DescriptorKind.ContextProvider, "sample.context", "1", DigestOf('a'));
@@ -152,7 +153,7 @@ public sealed class PlanCommandServiceTests
         var catalogue = new InMemoryTrustedCatalogue(entries);
         return new PlanCommandService(
             new WorkflowAuthor(
-                router, new WorkflowAuthoringPromptBuilder(templateEngine), maxAttempts: 3),
+                router, new WorkflowAuthoringPromptBuilder(templateEngine), catalogue, maxAttempts: 3),
             new PlanCommandCatalogue(catalogue, CatalogueSummaryBuilder.Render(entries)),
             new FuwenZhinuExecutionPorts(
                 new EchoActivity(), new EchoContext(), new EchoInference()),
@@ -200,18 +201,6 @@ public sealed class PlanCommandServiceTests
           return echo;
         }
         """;
-
-    private static string FindPromptsRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        for (var i = 0; i < 10 && directory is not null; i++, directory = directory.Parent)
-        {
-            var candidate = Path.Combine(directory.FullName, "prompts", "workflow-authoring", "system.sbn");
-            if (File.Exists(candidate))
-                return Path.Combine(directory.FullName, "prompts");
-        }
-        throw new DirectoryNotFoundException("Could not locate the Guyabano prompts root.");
-    }
 
     private sealed class QueueRouter(IReadOnlyList<string> script) : ILlmRouter
     {

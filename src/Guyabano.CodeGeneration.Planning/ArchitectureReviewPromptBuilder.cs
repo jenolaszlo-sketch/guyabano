@@ -1,4 +1,6 @@
 using Guyabano.Llm.Prompting;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Penghou.Baize;
 using System.Text.Json;
 
@@ -6,7 +8,7 @@ namespace Guyabano.CodeGeneration.Planning;
 
 public sealed class ArchitectureReviewPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<ArchitectureReviewPromptContext>(templateEngine),
+    : CorrelatedPromptBuilderBase<ArchitectureReviewPromptContext>(templateEngine),
       IPromptBuilder<ArchitectureReviewPromptContext>
 {
     private static readonly JsonSerializerOptions JsonOptions =

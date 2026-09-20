@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Artifacts;
 using Guyabano.Llm.Prompting;
 using Microsoft.Extensions.Options;

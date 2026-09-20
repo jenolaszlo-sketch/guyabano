@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Guyabano.Llm.Prompting;
+using Penghou.Guihua.Baize;
 using Penghou.Baize;
 
 namespace Guyabano.Llm.CodeGeneration.Tests;

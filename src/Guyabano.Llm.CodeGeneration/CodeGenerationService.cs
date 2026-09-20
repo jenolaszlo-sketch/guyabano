@@ -5,6 +5,7 @@ using Penghou.Baize.Router;
 using Guyabano.Llm.Prompting;
 using Penghou.Baize.Tools;
 using Penghou.Baize.Tools.Schema;
+using Penghou.Guihua.Baize;
 
 namespace Guyabano.Llm.CodeGeneration;
 

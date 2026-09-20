@@ -33,6 +33,8 @@ builder.Services.AddSingleton<PlanCommandCatalogue>(provider =>
         section["PlannerModel"] ?? "deepseek-v4-flash",
         int.TryParse(section["PlannerMaxTokens"], out var maxTokens) ? maxTokens : 24000);
 });
+builder.Services.AddSingleton<Penghou.Fuwen.Compiler.ITrustedCatalogue>(provider =>
+    provider.GetRequiredService<PlanCommandCatalogue>().Catalogue);
 Guyabano.CodeGeneration.Planning.Extensions.ServiceCollectionExtensions
     .AddFuwenPlanning(builder.Services, builder.Configuration);
 builder.Services.AddSingleton<Penghou.Fuwen.Zhinu.FuwenZhinuExecutionPorts>(provider =>
@@ -45,7 +47,7 @@ builder.Services.AddSingleton<Penghou.Fuwen.Zhinu.FuwenZhinuExecutionPorts>(prov
             Guyabano.CodeGeneration.Planning.Fuwen.PlanningRequestContextProvider>(),
         new Guyabano.CodeGeneration.Planning.Fuwen.PlanningDomainDiscoveryExecutor(
             provider.GetRequiredService<Penghou.Baize.Router.ILlmRouter>(),
-            provider.GetRequiredService<Guyabano.Llm.Prompting.IPromptBuilder<Guyabano.CodeGeneration.Planning.DomainDiscoveryPromptContext>>(),
+            provider.GetRequiredService<Penghou.Guihua.Baize.IPromptBuilder<Guyabano.CodeGeneration.Planning.DomainDiscoveryPromptContext>>(),
             provider.GetRequiredService<Penghou.Baize.Tools.ILlmStructuredOutputRepairer>(),
             model.PlannerModel,
             model.DomainMaxTokens));

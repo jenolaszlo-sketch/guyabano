@@ -1,4 +1,6 @@
 using System.Text;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Penghou.Baize.Router;
 using Penghou.Baize.Tools;
 using Penghou.Fuwen;

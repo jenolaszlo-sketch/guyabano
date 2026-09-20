@@ -1,4 +1,5 @@
 using System.Threading;
+using Penghou.Guihua;
 using Penghou.Zhinu;
 using Guyabano.Artifacts;
 using Guyabano.Llm.Prompting;

@@ -1,4 +1,6 @@
 using FluentAssertions;
+using Penghou.Guihua;
+using Penghou.Guihua.Baize;
 using Guyabano.Artifacts;
 using Penghou.Fuwen;
 using Penghou.Fuwen.Compiler;
@@ -98,9 +100,9 @@ public sealed class StagedExecutionGraphBuilderTests : IDisposable
         var bindingsRecord = await catalog.GetAsync(WorkflowId, published.Bindings, ct);
         bindingsRecord!.Inputs.Select(version => version.Value).Should().Equal(published.Graph.Value);
 
-        var graphPayload = await catalog.ReadPayloadAsync<PlannedExecutionGraph>(graphRecord, ct);
+        var graphPayload = await catalog.ReadPayloadAsync<PlanningGraph>(graphRecord, ct);
         graphPayload.Steps.Should().HaveCount(4);
-        var bindingsPayload = await catalog.ReadPayloadAsync<PlannedExecutionBindings>(bindingsRecord, ct);
+        var bindingsPayload = await catalog.ReadPayloadAsync<PlanningBindings>(bindingsRecord, ct);
         bindingsPayload.Nodes.Should().HaveCount(4);
     }
 

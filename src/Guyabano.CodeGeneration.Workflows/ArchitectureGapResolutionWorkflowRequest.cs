@@ -1,4 +1,5 @@
 using Guyabano.Artifacts;
+using Penghou.Guihua;
 using Guyabano.CodeGeneration.Planning;
 
 namespace Guyabano.CodeGeneration.Workflows;

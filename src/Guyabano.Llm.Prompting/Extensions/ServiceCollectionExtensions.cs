@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Penghou.Guihua.Baize;
 
 namespace Guyabano.Llm.Prompting.Extensions;
 

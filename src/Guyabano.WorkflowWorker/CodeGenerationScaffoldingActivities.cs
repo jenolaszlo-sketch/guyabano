@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Penghou.Guihua;
 using Guyabano.Artifacts;
 using Guyabano.CI.Client;
 using Guyabano.CI.Contracts;

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Penghou.Cangjie" Version="0.1.0-preview.3" />
+    <PackageReference Include="Penghou.Guihua" Version="0.1.0-preview.1" />
   </ItemGroup>
 
 </Project>

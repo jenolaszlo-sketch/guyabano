@@ -2,6 +2,8 @@ using Guyabano.CodeGeneration.Planning;
 using Guyabano.CodeGeneration.Planning.Fuwen;
 using Penghou.Fuwen;
 using Penghou.Fuwen.Compiler;
+using Penghou.Guihua;
+using Penghou.Guihua.Baize;
 
 namespace Guyabano.WebTerminal.Services;
 

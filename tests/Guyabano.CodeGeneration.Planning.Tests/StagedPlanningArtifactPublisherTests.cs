@@ -1,4 +1,6 @@
 using FluentAssertions;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Artifacts;
 
 namespace Guyabano.CodeGeneration.Planning.Tests;

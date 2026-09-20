@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Penghou.Guihua;
 using System.Text;
 using FluentAssertions;
 using Guyabano.Artifacts;

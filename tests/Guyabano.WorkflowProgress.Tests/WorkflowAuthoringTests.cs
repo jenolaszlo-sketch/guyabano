@@ -1,12 +1,12 @@
 #pragma warning disable xUnit1030
 using System.Text.Json;
 using FluentAssertions;
-using Guyabano.CodeGeneration.Planning;
-using Guyabano.Llm.Prompting;
 using Penghou.Baize;
 using Penghou.Baize.Router;
 using Penghou.Fuwen;
 using Penghou.Fuwen.Compiler;
+using Penghou.Guihua;
+using Penghou.Guihua.Baize;
 
 namespace Guyabano.WorkflowProgressTests;
 
@@ -36,8 +36,7 @@ public sealed class WorkflowAuthoringTests
     public async Task Authored_dsl_compiles_and_admits_against_the_catalogue()
     {
         var ct = TestContext.Current.CancellationToken;
-        var promptsRoot = FindPromptsRoot();
-        var templateEngine = new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot));
+        var templateEngine = new ScribanPromptTemplateEngine(new EmbeddedPromptLoader());
         var authorBuilder = new WorkflowAuthoringPromptBuilder(templateEngine);
         var router = new CannedAuthorRouter(AuthoredDsl());
 
@@ -94,34 +93,21 @@ public sealed class WorkflowAuthoringTests
         .OfType<LlmTextContent>()
         .Select(p => p.Text));
 
-    private static string FindPromptsRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        for (var i = 0; i < 10 && directory is not null; i++, directory = directory.Parent)
-        {
-            var candidate = Path.Combine(directory.FullName, "prompts", "workflow-authoring", "system.sbn");
-            if (File.Exists(candidate))
-                return Path.Combine(directory.FullName, "prompts");
-        }
-        throw new DirectoryNotFoundException("Could not locate the Guyabano prompts root.");
-    }
-
     [Fact]
     public async Task Repair_loop_recovers_after_compiler_rejection()
     {
         var ct = TestContext.Current.CancellationToken;
-        var promptsRoot = FindPromptsRoot();
-        var templateEngine = new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot));
+        var templateEngine = new ScribanPromptTemplateEngine(new EmbeddedPromptLoader());
         var router = new CannedAuthorRouter(
         [
             AuthoredDsl().Replace(Digest('b'), new string('9', 64)),
             AuthoredDsl(),
         ]);
         var author = new WorkflowAuthor(
-            router, new WorkflowAuthoringPromptBuilder(templateEngine), maxAttempts: 3);
+            router, new WorkflowAuthoringPromptBuilder(templateEngine), TestCatalogue(), maxAttempts: 3);
 
         var result = await author.AuthorAsync(
-            "Echo my request.", CatalogueSummary(), TestCatalogue(), "stub-author", 4000, ct);
+            "Echo my request.", CatalogueSummary(), "stub-author", 4000, ct);
 
         result.Succeeded.Should().BeTrue(string.Join("; ", result.Diagnostics));
         result.Attempts.Should().HaveCount(2);
@@ -139,15 +125,14 @@ public sealed class WorkflowAuthoringTests
     public async Task Repair_loop_gives_up_after_max_attempts()
     {
         var ct = TestContext.Current.CancellationToken;
-        var promptsRoot = FindPromptsRoot();
-        var templateEngine = new ScribanPromptTemplateEngine(new FilePromptLoader(promptsRoot));
+        var templateEngine = new ScribanPromptTemplateEngine(new EmbeddedPromptLoader());
         var bad = AuthoredDsl().Replace(Digest('b'), new string('9', 64));
         var router = new CannedAuthorRouter([bad, bad, bad, bad]);
         var author = new WorkflowAuthor(
-            router, new WorkflowAuthoringPromptBuilder(templateEngine), maxAttempts: 3);
+            router, new WorkflowAuthoringPromptBuilder(templateEngine), TestCatalogue(), maxAttempts: 3);
 
         var result = await author.AuthorAsync(
-            "Echo my request.", CatalogueSummary(), TestCatalogue(), "stub-author", 4000, ct);
+            "Echo my request.", CatalogueSummary(), "stub-author", 4000, ct);
 
         result.Succeeded.Should().BeFalse();
         result.Attempts.Should().HaveCount(3);

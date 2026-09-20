@@ -1,4 +1,6 @@
 using Penghou.Baize;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Llm.Prompting;
 
 namespace Guyabano.CodeGeneration.Planning;

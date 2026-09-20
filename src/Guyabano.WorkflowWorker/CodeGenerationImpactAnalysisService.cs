@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Penghou.Guihua;
 using System.Text;
 using Microsoft.Extensions.Options;
 using Penghou.Cangjie;

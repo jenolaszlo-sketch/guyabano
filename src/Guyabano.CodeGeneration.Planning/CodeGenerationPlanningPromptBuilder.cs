@@ -1,11 +1,13 @@
 using Guyabano.Llm.Prompting;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Penghou.Baize;
 
 namespace Guyabano.CodeGeneration.Planning;
 
 public sealed class CodeGenerationPlanningPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<CodeGenerationPlanningPromptContext>(templateEngine),
+    : CorrelatedPromptBuilderBase<CodeGenerationPlanningPromptContext>(templateEngine),
       IPromptBuilder<CodeGenerationPlanningPromptContext>
 {
     protected override PromptTemplate Template { get; } = new(

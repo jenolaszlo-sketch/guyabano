@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Penghou.Guihua;
 using Microsoft.Extensions.Options;
 using Penghou.Cangjie;
 using Penghou.Zhinu;

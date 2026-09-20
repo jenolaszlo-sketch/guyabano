@@ -1,10 +1,11 @@
 using Penghou.Baize;
+using Penghou.Guihua.Baize;
 
 namespace Guyabano.Llm.Prompting;
 
 public sealed class CodeGenerationTaskPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<CodeGenerationTaskPromptContext>(templateEngine),
+    : CorrelatedPromptBuilderBase<CodeGenerationTaskPromptContext>(templateEngine),
       IPromptBuilder<CodeGenerationTaskPromptContext>
 {
     protected override PromptTemplate Template { get; } = new(

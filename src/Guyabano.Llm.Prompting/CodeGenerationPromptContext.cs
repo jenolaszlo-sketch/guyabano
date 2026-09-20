@@ -1,4 +1,5 @@
 using Penghou.Baize;
+using Penghou.Guihua.Baize;
 
 namespace Guyabano.Llm.Prompting;
 

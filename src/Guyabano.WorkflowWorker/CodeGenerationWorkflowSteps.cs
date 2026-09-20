@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Penghou.Guihua;
 using System.Security.Cryptography;
 using System.Text;
 using Penghou.Zhinu;
@@ -450,9 +451,9 @@ internal sealed class SaveCodeGenerationCheckpointStep(
     CodeGenerationActivityHeartbeatStore heartbeatStore) :
     CodeGenerationWorkflowStep<
         CodeGenerationCheckpointRequest,
-        Guyabano.Artifacts.ArtifactReference>(heartbeatStore)
+        ArtifactReference>(heartbeatStore)
 {
-    protected override Task<Guyabano.Artifacts.ArtifactReference>
+    protected override Task<ArtifactReference>
         ExecuteCoreAsync(
             CodeGenerationCheckpointRequest input,
             CancellationToken cancellationToken) =>

@@ -1,11 +1,13 @@
 using Penghou.Baize;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Llm.Prompting;
 
 namespace Guyabano.CodeGeneration.Planning;
 
 public sealed class ComponentDesignPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<ComponentDesignPromptContext>(templateEngine),
+    : CorrelatedPromptBuilderBase<ComponentDesignPromptContext>(templateEngine),
       IPromptBuilder<ComponentDesignPromptContext>
 {
     protected override PromptTemplate Template { get; } = new(

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Penghou.Guihua;
 using Microsoft.Extensions.Options;
 using Guyabano.Artifacts;
 using Guyabano.CI.Client;

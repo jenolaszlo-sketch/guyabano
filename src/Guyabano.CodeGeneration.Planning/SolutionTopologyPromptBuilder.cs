@@ -1,11 +1,13 @@
 using Penghou.Baize;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Llm.Prompting;
 
 namespace Guyabano.CodeGeneration.Planning;
 
 public sealed class SolutionTopologyPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<SolutionTopologyPromptContext>(templateEngine),
+    : CorrelatedPromptBuilderBase<SolutionTopologyPromptContext>(templateEngine),
       IPromptBuilder<SolutionTopologyPromptContext>
 {
     protected override PromptTemplate Template { get; } = new(

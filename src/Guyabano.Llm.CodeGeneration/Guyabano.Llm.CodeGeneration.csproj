@@ -10,6 +10,7 @@
     <ProjectReference Include="..\Guyabano.CodeGeneration.Validation\Guyabano.CodeGeneration.Validation.csproj" />
     <PackageReference Include="Penghou.Baize.Router" Version="0.3.0-preview.5" />
     <PackageReference Include="Penghou.Baize.Tools" Version="0.3.0-preview.5" />
+    <PackageReference Include="Penghou.Guihua.Baize" Version="0.1.0-preview.1" />
     <ProjectReference Include="..\Guyabano.Llm.Prompting\Guyabano.Llm.Prompting.csproj" />
   </ItemGroup>
 

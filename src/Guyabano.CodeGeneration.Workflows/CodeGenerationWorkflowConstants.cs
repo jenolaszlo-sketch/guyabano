@@ -1,4 +1,5 @@
 using Penghou.Zhinu;
+using Penghou.Guihua;
 
 namespace Guyabano.CodeGeneration.Workflows;
 
@@ -72,7 +73,7 @@ public static class CodeGenerationWorkflowConstants
         new(new("guyabano.reindex-generated-workspace"));
     public static readonly WorkflowStepReference<
         CodeGenerationCheckpointRequest,
-        Guyabano.Artifacts.ArtifactReference> SaveCheckpointStep =
+        ArtifactReference> SaveCheckpointStep =
         new(new("guyabano.save-code-generation-checkpoint"));
     public const int MaximumBuildRepairCycles = 5;
     public const int MaximumBuildAttempts =

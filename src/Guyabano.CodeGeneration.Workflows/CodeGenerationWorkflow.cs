@@ -1,4 +1,5 @@
 using Penghou.Baize;
+using Penghou.Guihua;
 using Penghou.Zhinu;
 using Guyabano.CodeGeneration.Planning;
 using Guyabano.Session;
@@ -937,7 +938,7 @@ public sealed class CodeGenerationWorkflow
         IReadOnlyCollection<string>? dependsOn = null) =>
         _ = await workflow.StepAsync<
             CodeGenerationCheckpointRequest,
-            Guyabano.Artifacts.ArtifactReference>(
+            ArtifactReference>(
             $"checkpoint/{checkpointKey}",
             CodeGenerationWorkflowConstants.SaveCheckpointStep,
             new CodeGenerationCheckpointRequest(
@@ -1311,7 +1312,7 @@ public sealed class CodeGenerationWorkflow
         return new(plan, result, true, lastIntegrationKey);
     }
 
-    private static IReadOnlyList<Guyabano.Artifacts.ArtifactReference>
+    private static IReadOnlyList<ArtifactReference>
         ArchitectureInputs(CodeGenerationWorkflowResult result) =>
         result.PlanningArtifacts
             .Concat(result.ArchitectureResolutions

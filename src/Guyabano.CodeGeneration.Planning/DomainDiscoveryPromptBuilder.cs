@@ -1,11 +1,13 @@
 using Penghou.Baize;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Llm.Prompting;
 
 namespace Guyabano.CodeGeneration.Planning;
 
 public sealed class DomainDiscoveryPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<DomainDiscoveryPromptContext>(templateEngine),
+    : CorrelatedPromptBuilderBase<DomainDiscoveryPromptContext>(templateEngine),
       IPromptBuilder<DomainDiscoveryPromptContext>
 {
     protected override PromptTemplate Template { get; } = new(

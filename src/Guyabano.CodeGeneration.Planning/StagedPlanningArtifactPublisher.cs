@@ -1,4 +1,6 @@
 using System.Text;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Artifacts;
 
 namespace Guyabano.CodeGeneration.Planning;
@@ -128,9 +130,9 @@ public sealed class StagedPlanningArtifactPublisher(IPlanningArtifactCatalog cat
     /// cascade: the semantic execution graph, then its bindings. The graph
     /// declares the passed design inputs; the bindings declare the graph.
     /// </summary>
-    public async Task<PlannedExecutionDesignVersions> PublishExecutionDesignAsync(
+    public async Task<PlanningDesignVersions> PublishExecutionDesignAsync(
         string workflowId,
-        PlannedExecutionDesign design,
+        PlanningDesign design,
         IReadOnlyList<PlanningArtifactVersion> designInputs,
         PlanningArtifactState state = PlanningArtifactState.Valid,
         string? sessionId = null,
@@ -141,7 +143,7 @@ public sealed class StagedPlanningArtifactPublisher(IPlanningArtifactCatalog cat
         ArgumentNullException.ThrowIfNull(designInputs);
 
         var graph = await catalog.PublishAsync(
-            new PublishPlanningArtifactRequest<PlannedExecutionGraph>(
+            new PublishPlanningArtifactRequest<PlanningGraph>(
                 workflowId,
                 new PlanningArtifactKey("execution-graph", "main"),
                 SchemaVersion,
@@ -155,7 +157,7 @@ public sealed class StagedPlanningArtifactPublisher(IPlanningArtifactCatalog cat
             cancellationToken).ConfigureAwait(false);
 
         var bindings = await catalog.PublishAsync(
-            new PublishPlanningArtifactRequest<PlannedExecutionBindings>(
+            new PublishPlanningArtifactRequest<PlanningBindings>(
                 workflowId,
                 new PlanningArtifactKey("bindings", "main"),
                 SchemaVersion,
@@ -168,7 +170,7 @@ public sealed class StagedPlanningArtifactPublisher(IPlanningArtifactCatalog cat
             },
             cancellationToken).ConfigureAwait(false);
 
-        return new PlannedExecutionDesignVersions(graph.Version, bindings.Version);
+        return new PlanningDesignVersions(graph.Version, bindings.Version);
     }
 
     /// <summary>Builds the stable catalog key for one bounded-context artifact.</summary>

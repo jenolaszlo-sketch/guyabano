@@ -1,10 +1,12 @@
-using Guyabano.Artifacts;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Penghou.Baize.Router;
 using Penghou.Baize.Tools;
+using Penghou.Fuwen.Compiler;
+using Penghou.Guihua;
+using Penghou.Guihua.Baize;
 using Guyabano.CodeGeneration.Planning.Fuwen;
 using Guyabano.Llm.Prompting;
 
@@ -76,7 +78,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<
             IPromptBuilder<WorkflowAuthoringPromptContext>,
             WorkflowAuthoringPromptBuilder>();
-        services.AddSingleton<WorkflowAuthor>();
+        services.AddSingleton<WorkflowAuthor>(provider =>
+            new WorkflowAuthor(
+                provider.GetRequiredService<ILlmRouter>(),
+                provider.GetRequiredService<IPromptBuilder<WorkflowAuthoringPromptContext>>(),
+                provider.GetRequiredService<ITrustedCatalogue>()));
 
         return services;
     }

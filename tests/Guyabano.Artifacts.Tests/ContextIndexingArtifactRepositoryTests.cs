@@ -2,6 +2,7 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Penghou.Cangjie;
 using Penghou.Cangjie.Sqlite;
+using Penghou.Guihua;
 
 namespace Guyabano.Artifacts.Tests;
 

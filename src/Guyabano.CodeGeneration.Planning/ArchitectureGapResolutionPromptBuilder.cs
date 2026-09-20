@@ -1,11 +1,13 @@
 using Penghou.Baize;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Llm.Prompting;
 
 namespace Guyabano.CodeGeneration.Planning;
 
 public sealed class ArchitectureGapResolutionPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<ArchitectureGapResolutionPromptContext>(templateEngine),
+    : CorrelatedPromptBuilderBase<ArchitectureGapResolutionPromptContext>(templateEngine),
       IPromptBuilder<ArchitectureGapResolutionPromptContext>
 {
     protected override PromptTemplate Template { get; } = new(

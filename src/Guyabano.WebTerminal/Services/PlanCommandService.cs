@@ -1,10 +1,11 @@
 using System.Text.Json;
-using Guyabano.CodeGeneration.Planning;
 using Guyabano.CodeGeneration.Planning.Fuwen;
 using Microsoft.Extensions.Options;
 using Penghou.Fuwen;
 using Penghou.Fuwen.Compiler;
 using Penghou.Fuwen.Zhinu;
+using Penghou.Guihua;
+using Penghou.Guihua.Baize;
 using Penghou.Zhinu;
 using Penghou.Zhinu.Sqlite;
 using Guyabano.WorkflowWorker;
@@ -66,7 +67,6 @@ public sealed class PlanCommandService(
         var result = await author.AuthorAsync(
             request,
             catalogueSource.Summary,
-            catalogueSource.Catalogue,
             settings.PlannerModel,
             settings.PlannerMaxTokens,
             cancellationToken).ConfigureAwait(false);

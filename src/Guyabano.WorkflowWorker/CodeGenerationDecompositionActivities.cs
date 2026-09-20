@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Penghou.Guihua;
 using Penghou.Baize;
 using Penghou.Cangjie;
 using Guyabano.Artifacts;

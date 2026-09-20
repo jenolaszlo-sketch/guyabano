@@ -1,11 +1,13 @@
 using Penghou.Baize;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using Guyabano.Llm.Prompting;
 
 namespace Guyabano.CodeGeneration.Planning;
 
 public sealed class ContractDesignPromptBuilder(
     IPromptTemplateEngine templateEngine)
-    : PromptBuilderBase<ContractDesignPromptContext>(templateEngine),
+    : CorrelatedPromptBuilderBase<ContractDesignPromptContext>(templateEngine),
       IPromptBuilder<ContractDesignPromptContext>
 {
     protected override PromptTemplate Template { get; } = new(

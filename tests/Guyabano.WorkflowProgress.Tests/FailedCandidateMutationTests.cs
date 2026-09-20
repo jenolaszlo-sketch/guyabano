@@ -1,5 +1,7 @@
 #pragma warning disable xUnit1030
 using System.Text.Json;
+using Penghou.Guihua.Baize;
+using Penghou.Guihua;
 using FluentAssertions;
 using Guyabano.Artifacts;
 using Guyabano.CodeGeneration.Planning;
@@ -243,17 +245,17 @@ public sealed class FailedCandidateMutationTests : IDisposable
         }
     }
 
-    private static PlannedExecutionDesign Design(
+    private static PlanningDesign Design(
         (string Id, string? Descriptor, char? Digest, string[]? DependsOn) first,
         (string Id, string? Descriptor, char? Digest, string[]? DependsOn) second)
     {
-        var steps = new List<PlannedExecutionStep>();
-        var bindings = new List<PlannedNodeBinding>();
+        var steps = new List<PlanningStep>();
+        var bindings = new List<PlanningNodeBinding>();
         foreach (var (id, descriptor, digest, dependsOn) in new[] { first, second })
         {
             if (descriptor is null || digest is null || dependsOn is null)
                 continue;
-            steps.Add(new PlannedExecutionStep
+            steps.Add(new PlanningStep
             {
                 Id = id,
                 Title = id,
@@ -261,10 +263,10 @@ public sealed class FailedCandidateMutationTests : IDisposable
                 RequiredArtifacts = ["solution-topology/main@1"],
                 AcceptanceCriteria = [],
             });
-            bindings.Add(new PlannedNodeBinding
+            bindings.Add(new PlanningNodeBinding
             {
                 StepId = id,
-                Binding = new PlannedExecutionBinding
+                Binding = new PlanningBinding
                 {
                     Role = PlannedExecutionRoles.Implement,
                     Capability = "code.modify",
@@ -277,15 +279,15 @@ public sealed class FailedCandidateMutationTests : IDisposable
             });
         }
 
-        return new PlannedExecutionDesign(
-            new PlannedExecutionGraph
+        return new PlanningDesign(
+            new PlanningGraph
             {
                 WorkflowName = "implementation",
                 InputType = "string",
                 OutputType = "string",
                 Steps = steps,
             },
-            new PlannedExecutionBindings
+            new PlanningBindings
             {
                 WorkflowName = "implementation",
                 Nodes = bindings,
@@ -312,36 +314,36 @@ public sealed class FailedCandidateMutationTests : IDisposable
     }
 
     private async Task<WorkflowAuthorResult> AuthorAsync(
-        PlannedExecutionDesign design, string dsl, int maxAttempts, CancellationToken ct)
+        PlanningDesign design, string dsl, int maxAttempts, CancellationToken ct)
     {
         var author = new WorkflowAuthor(
             new CannedPlanRouter(dsl),
             new WorkflowAuthoringPromptBuilder(
-                new ScribanPromptTemplateEngine(new FilePromptLoader(FindPromptsRoot()))),
+                new ScribanPromptTemplateEngine(new EmbeddedPromptLoader())),
+            Catalogue(),
             maxAttempts: maxAttempts);
         return await author.AuthorFromPlanAsync(
             "Implement the plan.",
-            PlannedExecutionDesignSummary.Render(design),
+            PlanningGraphSummary.Render(design),
             CatalogueSummaryBuilder.Render(Descriptors()),
-            Catalogue(),
             "stub-author",
             4000,
             ct);
     }
 
     private async Task<WorkflowAuthorResult> AuthorRepairAsync(
-        PlannedExecutionDesign design, CancellationToken ct)
+        PlanningDesign design, CancellationToken ct)
     {
         var author = new WorkflowAuthor(
             new CannedPlanRouter([BadV3Dsl(), GoodV3Dsl()]),
             new WorkflowAuthoringPromptBuilder(
-                new ScribanPromptTemplateEngine(new FilePromptLoader(FindPromptsRoot()))),
+                new ScribanPromptTemplateEngine(new EmbeddedPromptLoader())),
+            Catalogue(),
             maxAttempts: 3);
         return await author.AuthorFromPlanAsync(
             "Implement the plan.",
-            PlannedExecutionDesignSummary.Render(design),
+            PlanningGraphSummary.Render(design),
             CatalogueSummaryBuilder.Render(Descriptors()),
-            Catalogue(),
             "stub-author",
             4000,
             ct);
@@ -349,18 +351,6 @@ public sealed class FailedCandidateMutationTests : IDisposable
 
     private static IReadOnlyList<string> CallsFor(TaskActivity activity, string node) =>
         activity.Calls.Where(call => call.StartsWith(node + ":", StringComparison.Ordinal)).ToArray();
-
-    private static string FindPromptsRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        for (var i = 0; i < 10 && directory is not null; i++, directory = directory.Parent)
-        {
-            var candidate = Path.Combine(directory.FullName, "prompts", "workflow-authoring", "system.sbn");
-            if (File.Exists(candidate))
-                return Path.Combine(directory.FullName, "prompts");
-        }
-        throw new DirectoryNotFoundException("Could not locate the Guyabano prompts root.");
-    }
 
     private sealed record FuwenCandidatePayload(string Dsl, IReadOnlyList<string> Diagnostics);
 

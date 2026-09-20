@@ -113,7 +113,9 @@ public sealed class WorkflowPatchProposer(
         }
 
         var last = attempts[^1];
-        return new WorkflowPatchProposalResult(false, null, null, attempts, last.Diagnostics);
+        return new WorkflowPatchProposalResult(
+            false, null, null, attempts,
+            attempts.SelectMany(attempt => attempt.Diagnostics).ToArray());
     }
 
     private static WorkflowPatch? TryParse(string content, out string? error)

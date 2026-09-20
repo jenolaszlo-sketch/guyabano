@@ -209,7 +209,12 @@ public sealed class WorkflowAuthor(
         }
 
         var last = attempts[^1];
-        return new WorkflowAuthorResult(false, last.Dsl, null, attempts, last.Diagnostics);
+        return new WorkflowAuthorResult(
+            false,
+            last.Dsl,
+            null,
+            attempts,
+            attempts.SelectMany(attempt => attempt.Diagnostics).ToArray());
     }
 
     private string Truncate(string value) =>

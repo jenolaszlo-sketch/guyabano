@@ -107,7 +107,9 @@ public sealed class PlanningStagePlanProposer(
         }
 
         var last = attempts[^1];
-        return new PlanningStagePlanProposalResult(false, null, attempts, last.Diagnostics);
+        return new PlanningStagePlanProposalResult(
+            false, null, attempts,
+            attempts.SelectMany(attempt => attempt.Diagnostics).ToArray());
     }
 
     private static PlanningStagePlan? TryParse(string content, out string? error)

@@ -15,8 +15,8 @@ toolset <name> {
 }
 workflow <name>(input: <type>) -> <outputType> {
   context <node> = context "<provider>@<version>#<digest>" (request: <binding>;) -> <type>;
-  infer <node> = infer "<profile>@<version>#<digest>" using "<template>@<version>#<digest>" (request: <binding>;) [with <contextNode>] -> <type>;
-  infer <node> = infer "<profile>@<version>#<digest>" prompt <promptName>(<param>: <binding>;) [tools <toolset>|<tool list>|none] [with <contextNode>] -> <type>;
+  infer <node> = infer "<profile>@<version>#<digest>" using "<template>@<version>#<digest>" (request: <binding>;) [with <contextNode>] [limits maxTokens <N> [timeout <S>]] -> <type>;
+  infer <node> = infer "<profile>@<version>#<digest>" prompt <promptName>(<param>: <binding>;) [tools <toolset>|<tool list>|none] [with <contextNode>] [limits maxTokens <N> [timeout <S>]] -> <type>;
   activity <node> = activity "<activity>@<version>#<digest>" (<arg>: <binding>;) -> <type>;
   if <name> <binding> <operator> <binding> {
     <nodes>
@@ -50,6 +50,7 @@ Types: `string`, `integer`, `number`, `boolean`, `Json`, `list<T>[max]`, `name: 
 9. Prompt declarations are self-contained: every `{{ name }}` must reference a declared typed parameter, and every declared parameter must be bound at each use site unless its type is `Optional`. Prompt text must describe the task fully; never rely on hidden instructions, ambient conversation, or undeclared state.
 10. Tools are explicit: an inference with no `tools` clause has no model-callable tools. Every declared tool must be listed in the catalogue. Tool declarations request capabilities; they never grant them, and undeclared tools are unavailable to the model.
 11. Inside a `workflow { }` block, every node begins with one of `context`, `infer`, `activity`, `if`, `repeat`, `fanout`, `checkpoint`, `wait`, `return`. The keyword `prompt` never starts a node: prompt declarations live before the workflow block, and prompt uses appear only inside `infer ... prompt <name>(...)` clauses. `prompt <name> = prompt ...` at node position is always rejected.
+12. Limits are optional and explicit: `limits maxTokens <N> [timeout <S>]` caps model output tokens and wall-clock seconds per attempt. Emit limits only when the task needs a bound; never invent them to fill space.
 
 {{ if execution_plan }}
 ## Resolved execution plan

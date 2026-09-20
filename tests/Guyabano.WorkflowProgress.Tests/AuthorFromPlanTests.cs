@@ -111,6 +111,7 @@ public sealed class AuthorFromPlanTests : IDisposable
         systemText.Should().Contain("no model-callable tools");
         systemText.Should().Contain("never starts a node");
         systemText.Should().Contain("reproduce every node for an unchanged step verbatim");
+        systemText.Should().Contain("caps model output tokens");
         userText.Should().Contain("preserve every step");
     }
 

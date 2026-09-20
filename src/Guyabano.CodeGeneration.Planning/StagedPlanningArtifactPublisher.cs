@@ -80,7 +80,7 @@ public sealed class StagedPlanningArtifactPublisher(IPlanningArtifactCatalog cat
             var published = await catalog.PublishAsync(
                 new PublishPlanningArtifactRequest<BoundedContextContractCatalog>(
                     workflowId,
-                    new PlanningArtifactKey(ContractKind, Slug(contractCatalog.BoundedContextName)),
+                    new PlanningArtifactKey(ContractKind, ArtifactSlugs.Slug(contractCatalog.BoundedContextName)),
                     SchemaVersion,
                     PlanContracts,
                     contractCatalog,
@@ -103,7 +103,7 @@ public sealed class StagedPlanningArtifactPublisher(IPlanningArtifactCatalog cat
             var published = await catalog.PublishAsync(
                 new PublishPlanningArtifactRequest<BoundedContextComponentManifest>(
                     workflowId,
-                    new PlanningArtifactKey(ComponentKind, Slug(manifest.BoundedContextName)),
+                    new PlanningArtifactKey(ComponentKind, ArtifactSlugs.Slug(manifest.BoundedContextName)),
                     SchemaVersion,
                     PlanComponents,
                     manifest,
@@ -173,24 +173,5 @@ public sealed class StagedPlanningArtifactPublisher(IPlanningArtifactCatalog cat
 
     /// <summary>Builds the stable catalog key for one bounded-context artifact.</summary>
     public static PlanningArtifactKey ContextKey(string kind, string contextName) =>
-        new(kind, Slug(contextName));
-
-    private static string Slug(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        foreach (var character in value.Normalize())
-        {
-            if (char.IsLetterOrDigit(character))
-            {
-                builder.Append(char.ToLowerInvariant(character));
-            }
-            else if (builder.Length > 0 && builder[^1] != '-')
-            {
-                builder.Append('-');
-            }
-        }
-
-        var slug = builder.ToString().Trim('-');
-        return slug.Length == 0 ? "unnamed" : slug;
-    }
+        new(kind, ArtifactSlugs.Slug(contextName));
 }

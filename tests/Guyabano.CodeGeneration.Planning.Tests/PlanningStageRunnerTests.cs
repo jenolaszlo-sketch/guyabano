@@ -89,7 +89,8 @@ public sealed class PlanningStageRunnerTests : IDisposable
             catalog);
 
         var result = await runner.RunAsync(
-            "workflow-1", ResearchPlan(catalogue), new HashSet<string>(), "Test the runner.", ct);
+            "workflow-1", ResearchPlan(catalogue), new HashSet<string>(), "Test the runner.",
+            cancellationToken: ct);
 
         result.Succeeded.Should().BeTrue(string.Join(" ", result.Diagnostics));
         result.Published.Should().Equal("research-notes/main@1", "benchmarks/main@1");
@@ -218,7 +219,8 @@ public sealed class PlanningStageRunnerTests : IDisposable
             catalog);
 
         var result = await runner.RunAsync(
-            "workflow-1", ResearchPlan(catalogue), new HashSet<string>(), "Test the runner.", ct);
+            "workflow-1", ResearchPlan(catalogue), new HashSet<string>(), "Test the runner.",
+            cancellationToken: ct);
 
         result.Succeeded.Should().BeFalse();
         result.Outputs.Keys.Should().ContainSingle().Which.Should().Be("research-notes/main");
@@ -239,7 +241,7 @@ public sealed class PlanningStageRunnerTests : IDisposable
         byId["solution-topology"].InputKinds.Should().Equal("domain-discovery");
         byId["contract-design"].ArtifactKind.Should().Be("contracts");
         byId["contract-design"].InputKinds.Should()
-            .BeEquivalentTo("domain-discovery", "solution-topology", "contracts");
+            .BeEquivalentTo("domain-discovery", "solution-topology", "contracts", "components");
         byId["component-design"].ArtifactKind.Should().Be("components");
         foreach (var definition in catalogue.Definitions)
         {

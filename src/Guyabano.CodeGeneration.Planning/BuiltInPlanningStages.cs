@@ -47,6 +47,7 @@ public static class BuiltInPlanningStages
                 StagedPlanningArtifactPublisher.DomainKind,
                 StagedPlanningArtifactPublisher.TopologyKind,
                 StagedPlanningArtifactPublisher.ContractKind,
+                StagedPlanningArtifactPublisher.ComponentKind,
             ],
             OutputSchema = "Guyabano.CodeGeneration.Planning.BoundedContextContractCatalog",
             MaxAttempts = 3,

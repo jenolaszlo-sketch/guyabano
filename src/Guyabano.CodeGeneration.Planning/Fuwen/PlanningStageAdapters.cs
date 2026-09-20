@@ -42,7 +42,9 @@ public abstract class PlanningStageAdapterBase(
             return new StageExecutionResult(false, null, [exception.Message]);
         }
 
-        string? failure = null;
+        // The hand-wired pipeline seeds previousFailure with "" on the first
+        // attempt; matching that keeps model-visible prompts identical.
+        string failure = string.Empty;
         var diagnostics = new List<string>();
         for (var attempt = 1; attempt <= Math.Max(1, input.Definition.MaxAttempts); attempt++)
         {
@@ -108,6 +110,23 @@ public abstract class PlanningStageAdapterBase(
         $"sha256:{FuwenContracts.ExecutionFingerprintVersionV1}:" +
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
 
+    /// <summary>
+    /// Upstream outputs of one artifact kind in availability order
+    /// (seed and completion sequence), matching the hand-wired pipeline's
+    /// sequential accumulation.
+    /// </summary>
+    protected static IReadOnlyList<KeyValuePair<string, JsonElement>> OrderedUpstream(
+        StageExecutionInput input, string kind)
+    {
+        var byName = input.UpstreamOutputs
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        return input.UpstreamOrder
+            .Where(byName.ContainsKey)
+            .Where(name => KindOf(name).Equals(kind, StringComparison.Ordinal))
+            .Select(name => new KeyValuePair<string, JsonElement>(name, byName[name]))
+            .ToArray();
+    }
+
     /// <summary>Exactly one upstream output of the given artifact kind.</summary>
     protected static KeyValuePair<string, JsonElement> SingleUpstreamByKind(
         StageExecutionInput input, string kind)
@@ -137,24 +156,6 @@ public abstract class PlanningStageAdapterBase(
         return identity[..slash];
     }
 
-    protected static string Slug(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        foreach (var character in value.Normalize())
-        {
-            if (char.IsLetterOrDigit(character))
-            {
-                builder.Append(char.ToLowerInvariant(character));
-            }
-            else if (builder.Length > 0 && builder[^1] != '-')
-            {
-                builder.Append('-');
-            }
-        }
-
-        var slug = builder.ToString().Trim('-');
-        return slug.Length == 0 ? "unnamed" : slug;
-    }
 
     protected static JsonElement Element(string value) =>
         JsonSerializer.SerializeToElement(value);
@@ -217,19 +218,13 @@ public abstract class ContextDesignStageAdapterBase(
         var topologyPlan = JsonSerializer.Deserialize<SolutionTopology>(topology.Value.GetRawText())
             ?? throw new InvalidOperationException("Topology output is unreadable.");
         var context = topologyPlan.BoundedContexts
-            .SingleOrDefault(item => Slug(item.Name).Equals(slug, StringComparison.Ordinal))
+            .SingleOrDefault(item => ArtifactSlugs.Slug(item.Name).Equals(slug, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"Topology has no bounded context matching '{input.Stage.Name}'.");
-        var catalogs = input.UpstreamOutputs
-            .Where(pair => KindOf(pair.Key)
-                .Equals(StagedPlanningArtifactPublisher.ContractKind, StringComparison.Ordinal))
-            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+        var catalogs = OrderedUpstream(input, StagedPlanningArtifactPublisher.ContractKind)
             .Select(pair => JsonNode.Parse(pair.Value.GetRawText()))
             .ToArray();
-        var manifests = input.UpstreamOutputs
-            .Where(pair => KindOf(pair.Key)
-                .Equals(StagedPlanningArtifactPublisher.ComponentKind, StringComparison.Ordinal))
-            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+        var manifests = OrderedUpstream(input, StagedPlanningArtifactPublisher.ComponentKind)
             .Select(pair => JsonNode.Parse(pair.Value.GetRawText()))
             .ToArray();
         return JsonSerializer.SerializeToElement(new
@@ -275,7 +270,7 @@ public sealed class ComponentDesignStageAdapter(
         var catalog = input.UpstreamOutputs
             .Where(pair => KindOf(pair.Key)
                     .Equals(StagedPlanningArtifactPublisher.ContractKind, StringComparison.Ordinal) &&
-                Slug(pair.Key[(pair.Key.LastIndexOf('/') + 1)..])
+                ArtifactSlugs.Slug(pair.Key[(pair.Key.LastIndexOf('/') + 1)..])
                     .Equals(slug, StringComparison.Ordinal))
             .Select(pair => (JsonElement?)pair.Value.Clone())
             .SingleOrDefault()

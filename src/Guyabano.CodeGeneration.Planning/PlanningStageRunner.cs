@@ -8,7 +8,8 @@ public sealed record StageExecutionInput(
     PlannedStage Stage,
     PlanningStageDefinition Definition,
     IReadOnlyDictionary<string, JsonElement> UpstreamOutputs,
-    string Request);
+    string Request,
+    IReadOnlyList<string> UpstreamOrder);
 
 /// <summary>One stage invocation result; executors self-validate their output.</summary>
 public sealed record StageExecutionResult(
@@ -60,6 +61,7 @@ public sealed class PlanningStageRunner(
         PlanningStagePlan plan,
         IReadOnlySet<string> knownRevisions,
         string request,
+        IReadOnlyDictionary<string, JsonElement>? seedInputs = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowId);
@@ -76,7 +78,10 @@ public sealed class PlanningStageRunner(
         var definitions = catalogue.Definitions
             .ToDictionary(definition => definition.Id, StringComparer.Ordinal);
         var ordered = PlanningStageValidator.Order(plan.Stages);
+        var seeds = seedInputs ?? new Dictionary<string, JsonElement>();
         var outputs = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var order = new List<string>(seeds.Keys);
+
         var published = new List<string>();
         var publishedVersions = new Dictionary<string, PlanningArtifactVersion>(StringComparer.Ordinal);
 
@@ -90,13 +95,15 @@ public sealed class PlanningStageRunner(
                     [$"No executor is registered for stage id '{stage.StageId}'."]);
             }
 
-            var inputs = stage.DependsOn
-                .ToDictionary(
-                    dependency => dependency,
-                    dependency => outputs[dependency],
-                    StringComparer.Ordinal);
+            var inputs = new Dictionary<string, JsonElement>(seeds, StringComparer.Ordinal);
+            foreach (var dependency in stage.DependsOn)
+            {
+                inputs[dependency] = outputs[dependency];
+            }
+
             var executed = await executor.ExecuteAsync(
-                new StageExecutionInput(stage, definition, inputs, request), cancellationToken)
+                new StageExecutionInput(stage, definition, inputs, request, order.ToArray()),
+                cancellationToken)
                 .ConfigureAwait(false);
             if (!executed.Succeeded || executed.Output is null)
             {
@@ -117,6 +124,7 @@ public sealed class PlanningStageRunner(
                     State: PlanningArtifactState.Valid),
                 cancellationToken).ConfigureAwait(false);
             outputs[stage.Name] = executed.Output.Value;
+            order.Add(stage.Name);
             publishedVersions[stage.Name] = record.Version;
             published.Add(record.Version.Value);
         }

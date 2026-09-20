@@ -502,7 +502,8 @@ public sealed class PlanningLoop(
             },
         };
         var produced = await stageRunner.RunAsync(
-            state.WorkflowId, plan, state.KnownRevisions, goal, cancellationToken)
+            state.WorkflowId, plan, state.KnownRevisions, goal,
+            cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         if (!produced.Succeeded)
         {

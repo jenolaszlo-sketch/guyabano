@@ -108,11 +108,13 @@ public sealed class CodeGenerationWorkspaceResolver(
     private static void ValidateMutationId(string mutationId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mutationId);
+        // Reject both separators on every platform so a Windows-shaped ID
+        // cannot smuggle a traversal segment onto a Unix host.
         if (mutationId is "." or ".." ||
             Path.IsPathRooted(mutationId) ||
             mutationId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
-            mutationId.Contains(Path.DirectorySeparatorChar) ||
-            mutationId.Contains(Path.AltDirectorySeparatorChar))
+            mutationId.Contains('/') ||
+            mutationId.Contains('\\'))
         {
             throw new ArgumentException(
                 "The mutation ID must be one safe path segment.",

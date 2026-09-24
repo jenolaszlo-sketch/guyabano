@@ -48,7 +48,7 @@ public sealed class FuwenPilotParityTests
 
         compiled.Succeeded.Should().BeTrue(string.Join("; ", compiled.Diagnostics.Select(d => $"{d.Code}:{d.Message}")));
         compiled.Plan.Should().NotBeNull();
-        compiled.Plan!.IrVersion.Should().Be(FuwenContracts.IrVersionV7);
+        compiled.Plan!.IrVersion.Should().Be(FuwenContracts.IrVersion);
         compiled.Plan.Nodes.Should().ContainSingle(n => n is ContextNode);
         compiled.Plan.Nodes.Should().ContainSingle(n => n is InferenceNode);
         compiled.Plan.Nodes.Should().ContainSingle(n => n is ConditionalNode);
@@ -62,7 +62,7 @@ public sealed class FuwenPilotParityTests
     public async Task Extended_programmatic_plan_admits_as_v7()
     {
         var plan = CodegenFuwenPilot.BuildExtendedPlan();
-        plan.IrVersion.Should().Be(FuwenContracts.IrVersionV7);
+        plan.IrVersion.Should().Be(FuwenContracts.IrVersion);
         var admission = await CodegenFuwenPilot.AdmitAsync(plan, TestContext.Current.CancellationToken).ConfigureAwait(false);
         admission.Succeeded.Should().BeTrue(string.Join("; ", admission.Diagnostics.Select(d => $"{d.Code}:{d.Message}")));
     }
@@ -258,8 +258,10 @@ public sealed class FuwenPilotParityTests
         }
     }
 
-    private sealed class EchoInference : IInferenceExecutor
+    private sealed class EchoInference : IInferenceExecutor, IInferenceExecutorPreflight
     {
+        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) => null;
+
         public ValueTask<InferenceExecutionResult> ExecuteAsync(InferenceExecutionRequest request, CancellationToken ct = default)
         {
             var input = request.Arguments.FirstOrDefault()?.Value ?? request.ContextInputs.FirstOrDefault()?.Value!;
@@ -284,8 +286,10 @@ public sealed class FuwenPilotParityTests
         }
     }
 
-    private sealed class ExtendedPlanInference : IInferenceExecutor
+    private sealed class ExtendedPlanInference : IInferenceExecutor, IInferenceExecutorPreflight
     {
+        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) => null;
+
         public ValueTask<InferenceExecutionResult> ExecuteAsync(InferenceExecutionRequest request, CancellationToken ct = default)
         {
             var input = request.Arguments.FirstOrDefault()?.Value ?? request.ContextInputs.FirstOrDefault()?.Value!;

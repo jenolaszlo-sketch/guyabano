@@ -148,7 +148,7 @@ public static class CodegenFuwenPilot
                     new WorkflowExecutionPhase([returnPath]),
                 ])
             ]))
-            .BuildV3();
+            .Build();
     }
 
     /// <summary>
@@ -192,7 +192,7 @@ public static class CodegenFuwenPilot
                     new WorkflowExecutionPhase([bodyActivityPath]),
                 ]),
             ]))
-            .BuildV4();
+            .Build();
     }
 
     /// <summary>
@@ -325,7 +325,7 @@ public static class CodegenFuwenPilot
                 ]),
             ]));
 
-        return plan.BuildV7();
+        return plan.Build();
     }
 
     public static async Task<WorkflowAdmissionResult> AdmitAsync(WorkflowPlan plan, CancellationToken ct = default)

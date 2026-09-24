@@ -502,7 +502,7 @@ public sealed class RealPlanningAssemblyTests
                         new WorkflowExecutionPhase([applyPath]),
                     ]),
                 ]))
-                .BuildV6();
+                .Build();
 
             var admission = await new WorkflowAdmissionService(compiler)
                 .AdmitAsync(plan, cancellationToken: ct);
@@ -550,7 +550,7 @@ public sealed class RealPlanningAssemblyTests
                         new WorkflowExecutionPhase([returnPath]),
                     ]),
                 ]))
-                .BuildV3();
+                .Build();
             var admission = await new WorkflowAdmissionService(compiler)
                 .AdmitAsync(plan, cancellationToken: ct);
             admission.Succeeded.Should().BeTrue(
@@ -638,8 +638,16 @@ public sealed class RealPlanningAssemblyTests
 
     private sealed class PhasedInferenceRouter(
         PlanningContractExecutor contract,
-        PlanningComponentExecutor component) : IInferenceExecutor
+        PlanningComponentExecutor component) : IInferenceExecutor, IInferenceExecutorPreflight
     {
+        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) =>
+            requirement.PromptTemplate?.Name switch
+            {
+                var name when name == PlanningFuwenDescriptors.TemplateName("contract-design") => contract.Preflight(requirement),
+                var name when name == PlanningFuwenDescriptors.TemplateName("component-design") => component.Preflight(requirement),
+                _ => null,
+            };
+
         public async ValueTask<InferenceExecutionResult> ExecuteAsync(InferenceExecutionRequest request, CancellationToken ct = default)
         {
             if (request.PromptTemplate is null)

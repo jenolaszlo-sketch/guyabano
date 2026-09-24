@@ -101,7 +101,7 @@ public sealed class RealPlanningContextTests
         var provider = PlanningFuwenDescriptors.Context();
         return new ContextExecutionRequest(
             new ExecutionInvocation(
-                $"sha256:fuwen-execution/v3:{new string('a', 64)}",
+                $"sha256:fuwen-execution/v1:{new string('a', 64)}",
                 "realCtx/ctx", "run/realCtx/ctx", 1L,
                 $"sha256:request/v1:{new string('b', 64)}"),
             provider,

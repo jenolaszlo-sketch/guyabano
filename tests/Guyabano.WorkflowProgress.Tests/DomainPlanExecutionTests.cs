@@ -125,8 +125,10 @@ public sealed class DomainPlanExecutionTests : IDisposable
             throw new InvalidOperationException("unused");
     }
 
-    private sealed class StubInference(string json) : IInferenceExecutor
+    private sealed class StubInference(string json) : IInferenceExecutor, IInferenceExecutorPreflight
     {
+        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) => null;
+
         public ValueTask<InferenceExecutionResult> ExecuteAsync(
             InferenceExecutionRequest request, CancellationToken ct = default)
         {

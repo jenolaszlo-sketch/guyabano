@@ -123,7 +123,7 @@ public sealed class RealPlanningFuwenTests
                     new WorkflowExecutionPhase([returnPath]),
                 ]),
             ]))
-            .BuildV3();
+            .Build();
 
         var catalogue = new InMemoryTrustedCatalogue([
             new TrustedCatalogueDescriptor(contextDescriptor, callableContract: new CallableContract(

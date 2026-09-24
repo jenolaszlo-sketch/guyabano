@@ -139,14 +139,14 @@ public sealed class FuwenMutationTests
             builder
                 .AddNode(new ReturnNode("return_result", returnPath, new NodeOutputBinding(cPath, [])))
                 .SetExecutionOrder(new WorkflowExecutionOrder([bodyRegion]));
-            return builder.BuildV3();
+            return builder.Build();
         }
         phases.Add(new WorkflowExecutionPhase([returnPath]));
         bodyRegion = new WorkflowExecutionRegion("mutate", phases);
         builder
             .AddNode(new ReturnNode("return_result", returnPath, new NodeOutputBinding(bPath, [])))
             .SetExecutionOrder(new WorkflowExecutionOrder([bodyRegion]));
-        return builder.BuildV3();
+        return builder.Build();
     }
 
     private static async Task<WorkflowAdmissionResult> AdmitAsync(

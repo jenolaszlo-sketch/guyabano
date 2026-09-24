@@ -21,7 +21,7 @@ public sealed class PlanningTopologyExecutor(
     ILlmStructuredOutputRepairer repairer,
     string model,
     int maxTokens = 10000,
-    bool outputEnvelope = false) : IInferenceExecutor
+    bool outputEnvelope = false) : IInferenceExecutor, IInferenceExecutorPreflight
 {
     public async ValueTask<InferenceExecutionResult> ExecuteAsync(
         InferenceExecutionRequest request,
@@ -78,4 +78,7 @@ public sealed class PlanningTopologyExecutor(
         }));
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
     }
+
+    public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) =>
+        PlanningInferencePreflight.Check(requirement);
 }

@@ -23,7 +23,7 @@ public sealed class PlanningContractExecutor(
     ILlmStructuredOutputRepairer repairer,
     string model,
     int maxTokens = 12000,
-    bool outputEnvelope = false) : IInferenceExecutor
+    bool outputEnvelope = false) : IInferenceExecutor, IInferenceExecutorPreflight
 {
     public async ValueTask<InferenceExecutionResult> ExecuteAsync(
         InferenceExecutionRequest request,
@@ -91,6 +91,9 @@ public sealed class PlanningContractExecutor(
         }));
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
     }
+
+    public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) =>
+        PlanningInferencePreflight.Check(requirement);
 
     private static IReadOnlyList<BoundedContextContractCatalog> ReadCatalogs(
         InferenceExecutionRequest request)

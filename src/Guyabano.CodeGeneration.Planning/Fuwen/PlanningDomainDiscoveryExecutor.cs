@@ -33,7 +33,7 @@ public sealed class PlanningDomainDiscoveryExecutor(
     ILlmStructuredOutputRepairer repairer,
     string model,
     int maxTokens = 8000,
-    bool outputEnvelope = false) : IInferenceExecutor
+    bool outputEnvelope = false) : IInferenceExecutor, IInferenceExecutorPreflight
 {
     public async ValueTask<InferenceExecutionResult> ExecuteAsync(
         InferenceExecutionRequest request,
@@ -87,5 +87,8 @@ public sealed class PlanningDomainDiscoveryExecutor(
         }));
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
     }
+
+    public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) =>
+        PlanningInferencePreflight.Check(requirement);
 
 }

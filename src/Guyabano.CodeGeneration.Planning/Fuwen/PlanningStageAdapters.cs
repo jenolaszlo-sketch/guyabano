@@ -109,7 +109,7 @@ public abstract class PlanningStageAdapterBase(
     }
 
     private static string Fingerprint(string text) =>
-        $"sha256:{FuwenContracts.ExecutionFingerprintVersionV1}:" +
+        $"sha256:{FuwenContracts.ExecutionFingerprintVersion}:" +
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
 
     /// <summary>

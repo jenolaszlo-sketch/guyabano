@@ -24,7 +24,7 @@ public sealed class PlanningComponentExecutor(
     ILlmStructuredOutputRepairer repairer,
     string model,
     int maxTokens = 16000,
-    bool outputEnvelope = false) : IInferenceExecutor
+    bool outputEnvelope = false) : IInferenceExecutor, IInferenceExecutorPreflight
 {
     public async ValueTask<InferenceExecutionResult> ExecuteAsync(
         InferenceExecutionRequest request,
@@ -104,6 +104,9 @@ public sealed class PlanningComponentExecutor(
         }));
         return InferenceExecutionResult.Succeeded(RuntimeValue.FromJson(envelope.RootElement));
     }
+
+    public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) =>
+        PlanningInferencePreflight.Check(requirement);
 
     /// <summary>
     /// Reads the sibling catalog, unwrapping a stage envelope when the

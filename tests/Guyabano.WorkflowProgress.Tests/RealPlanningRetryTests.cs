@@ -206,7 +206,7 @@ public sealed class RealPlanningRetryTests
                         new WorkflowExecutionPhase([answerPath]),
                     ]),
                 ]))
-                .BuildV6();
+                .Build();
 
             var catalogue = new InMemoryTrustedCatalogue([
                 new TrustedCatalogueDescriptor(contextDescriptor, callableContract: new CallableContract(

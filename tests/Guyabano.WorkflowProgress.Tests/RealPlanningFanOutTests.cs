@@ -317,7 +317,7 @@ public sealed class RealPlanningFanOutTests
                     new WorkflowExecutionPhase([manifestPath]),
                 ]),
             ]))
-            .BuildV4();
+            .Build();
 
         CallableContract StageContract(params (string Name, FuwenType Type)[] parameters) => new(
             new CallableSignature([.. parameters.Select(p => new CallableParameter(p.Name, p.Type))], json),
@@ -477,8 +477,18 @@ public sealed class RealPlanningFanOutTests
         PlanningDomainDiscoveryExecutor domain,
         PlanningTopologyExecutor topology,
         PlanningContractExecutor contract,
-        PlanningComponentExecutor component) : IInferenceExecutor
+        PlanningComponentExecutor component) : IInferenceExecutor, IInferenceExecutorPreflight
     {
+        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) =>
+            requirement.PromptTemplate?.Name switch
+            {
+                var name when name == PlanningFuwenDescriptors.TemplateName("domain-discovery") => domain.Preflight(requirement),
+                var name when name == PlanningFuwenDescriptors.TemplateName("solution-topology") => topology.Preflight(requirement),
+                var name when name == PlanningFuwenDescriptors.TemplateName("contract-design") => contract.Preflight(requirement),
+                var name when name == PlanningFuwenDescriptors.TemplateName("component-design") => component.Preflight(requirement),
+                _ => null,
+            };
+
         public ValueTask<InferenceExecutionResult> ExecuteAsync(InferenceExecutionRequest request, CancellationToken ct = default)
         {
             if (request.PromptTemplate is null)

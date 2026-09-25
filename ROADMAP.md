@@ -957,11 +957,12 @@ and retry-safe Zhinu input responses. Resume deferred work:
 5. **Hongxian preview consumed (removal gated on dogfood):** `Penghou.Hongxian`
    and `Penghou.Hongxian.Sqlite` `0.1.0-preview.3` referenced as NuGet
    packages (never project references); the explicit Guyabano mapping layer
-   (`Guyabano.Session.Hongxian`: repository/workspace identities,
-   Zhinu-run external references, revision CAS) plus package-backed parity
-   (`Guyabano.Session.Hongxian.Tests`: create/get/list/attach/find/CAS and
-   reopen, both backends) prove equivalence. Remove the duplicate internal
-   kernel only after the recovery scenario passes in real dogfood.
+   (`Guyabano.Session.Hongxian`: session identities, Zhinu-run external
+   references, revision CAS, event envelopes with legacy actor claims, and
+   decision leases) plus package-backed parity
+   (`Guyabano.Session.Hongxian.Tests`: sessions, events, leases, and reopen,
+   both backends) prove equivalence. Remove the duplicate internal kernel
+   only after the recovery scenario passes in real dogfood.
 6. Add Guyabano-specific workspace, artifact, restart, and audit query APIs plus
    product-level interactive Zhinu request/wait/cancel/timeout/resume policy.
    Generic catalog, timeline, pending-input, decision, incident, and lifecycle

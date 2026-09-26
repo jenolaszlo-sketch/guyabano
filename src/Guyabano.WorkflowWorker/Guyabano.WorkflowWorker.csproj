@@ -19,10 +19,9 @@
     <PackageReference Include="Penghou.Cangjie.Sqlite" Version="0.1.0-preview.3" />
     <PackageReference Include="Penghou.Guihua" Version="0.1.0-preview.2" />
     <PackageReference Include="Penghou.Guihua.Baize" Version="0.1.0-preview.2" />
-    <PackageReference Include="Penghou.Hetu" Version="0.2.0-preview.3" />
-    <PackageReference Include="Penghou.Hetu.CSharp" Version="0.2.0-preview.3" />
-    <PackageReference Include="Penghou.Hetu.Ladybug" Version="0.2.0-preview.3" />
-    <PackageReference Include="LadybugDB.Native" Version="0.19.1" />
+    <PackageReference Include="Penghou.Hetu" Version="0.2.0-preview.5" />
+    <PackageReference Include="Penghou.Hetu.CSharp" Version="0.2.0-preview.5" />
+    <PackageReference Include="Penghou.Hetu.LatticeDb" Version="0.2.0-preview.5" />
     <PackageReference Include="Penghou.Zhinu.Hosting" Version="0.1.0-preview.14" />
     <PackageReference Include="Penghou.Zhinu.Sqlite" Version="0.1.0-preview.14" />
   </ItemGroup>

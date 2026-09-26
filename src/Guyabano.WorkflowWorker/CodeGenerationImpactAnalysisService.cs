@@ -135,6 +135,7 @@ public sealed class CodeGenerationImpactAnalysisService(
                 // Hetu resolves source paths relative to the indexed repository root.
                 var declarations = await query.GetDeclarationsInFileAsync(
                     relativePath,
+                    options: null,
                     cancellationToken).ConfigureAwait(false);
                 seeds.AddRange(declarations.Result.Select(declaration => declaration.SymbolNodeId));
             }
@@ -526,6 +527,7 @@ public sealed class CodeGenerationImpactAnalysisService(
             // Hetu resolves source paths relative to the indexed repository root.
             var declarations = await query.GetDeclarationsInFileAsync(
                 relativePath,
+                options: null,
                 cancellationToken).ConfigureAwait(false);
             foreach (var declaration in declarations.Result)
             {

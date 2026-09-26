@@ -14,7 +14,7 @@ using Penghou.Cangjie;
 using Penghou.Cangjie.Sqlite;
 using Penghou.Hetu;
 using Penghou.Hetu.CSharp;
-using Penghou.Hetu.Ladybug;
+using Penghou.Hetu.LatticeDb;
 using Penghou.Zhinu;
 using Penghou.Zhinu.Hosting;
 using Guyabano.Artifacts;
@@ -149,7 +149,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CangjieRevisionedConceptService>();
         services.TryAddSingleton(_ => new HetuHostBuilder()
             .AddCSharpPlugin()
-            .UseLadybugStore(Path.Combine(stateRoot, "hetu"))
+            .UseLatticeStore(Path.Combine(stateRoot, "hetu"))
             .Build());
         services.TryAddSingleton<
             IRepositoryContextService,

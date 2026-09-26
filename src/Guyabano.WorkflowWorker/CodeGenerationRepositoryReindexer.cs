@@ -62,7 +62,7 @@ public sealed class CodeGenerationRepositoryReindexer(
         var payload = new RepositoryReindexPublicationPayload(
             RepositoryId: repositoryId,
             Location: workspace.HostPath,
-            IndexRunId: publication.IndexRunId.Value,
+            IndexRunId: runId.Value,
             IndexIdentity: publication.IndexIdentity.Value,
             ProviderSnapshotIdentity: publishedState.SnapshotIdentity,
             IsConsistentSnapshot: publishedState.IsConsistentSnapshot,
@@ -102,7 +102,7 @@ public sealed class CodeGenerationRepositoryReindexer(
             new ContextItem
             {
                 Scope = scope,
-                Key = $"publication:{publication.IndexRunId.Value}",
+                Key = $"publication:{runId.Value}",
                 Kind = ContextKinds.Summary,
                 Content = summaryContent,
                 Provenance = new ContextProvenance
@@ -111,7 +111,7 @@ public sealed class CodeGenerationRepositoryReindexer(
                     ProducerVersion = "1",
                     Source = new ContextSource
                     {
-                        Uri = $"guyabano://session/{workspace.SessionId}/publication/{publication.IndexRunId.Value}",
+                        Uri = $"guyabano://session/{workspace.SessionId}/publication/{runId.Value}",
                         Kind = "hetu-publication",
                         ContentHash = hash
                     }
@@ -120,7 +120,7 @@ public sealed class CodeGenerationRepositoryReindexer(
                 {
                     ["repositoryId"] = repositoryId,
                     ["sessionId"] = workspace.SessionId.ToString(),
-                    ["indexRunId"] = publication.IndexRunId.Value,
+                    ["indexRunId"] = runId.Value,
                     ["indexIdentity"] = publication.IndexIdentity.Value,
                     ["filesUnchanged"] = diagnostics.FilesUnchanged.ToString(),
                     ["nodesProduced"] = diagnostics.NodesProduced.ToString()
@@ -129,13 +129,13 @@ public sealed class CodeGenerationRepositoryReindexer(
             },
             new ContextWriteOptions
             {
-                IdempotencyKey = $"publication:{publication.IndexRunId.Value}"
+                IdempotencyKey = $"publication:{runId.Value}"
             },
             cancellationToken).ConfigureAwait(false);
 
         return new RepositoryReindexReceipt(
             RepositoryId: repositoryId,
-            IndexRunId: publication.IndexRunId.Value,
+            IndexRunId: runId.Value,
             IndexIdentity: publication.IndexIdentity.Value,
             SnapshotIdentity: publishedState.SnapshotIdentity,
             IsConsistentSnapshot: publishedState.IsConsistentSnapshot,

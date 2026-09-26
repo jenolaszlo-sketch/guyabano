@@ -150,6 +150,28 @@ public sealed class SimingSessionEventStore : ISessionEventStore, IAsyncDisposab
         return events.LastOrDefault();
     }
 
+    /// <summary>Captures the session ledger's current head as a portable checkpoint.</summary>
+    public async Task<LedgerCheckpoint> CaptureCheckpointAsync(
+        GuyabanoSessionId sessionId, CancellationToken cancellationToken = default)
+    {
+        await using var ledgerLease = await AcquireLedgerAsync(
+            sessionId, cancellationToken).ConfigureAwait(false);
+        return await LedgerCheckpoints.CaptureAsync(
+            ledgerLease.Ledger, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Verifies the session ledger against an independently retained checkpoint.</summary>
+    public async Task<LedgerVerificationResult> VerifyAsync(
+        GuyabanoSessionId sessionId,
+        LedgerCheckpoint? checkpoint,
+        CancellationToken cancellationToken = default)
+    {
+        await using var ledgerLease = await AcquireLedgerAsync(
+            sessionId, cancellationToken).ConfigureAwait(false);
+        return await ledgerLease.Ledger.VerifyAsync(
+            checkpoint, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Returns the deterministic ledger path for a session.</summary>
     public string GetLedgerPath(GuyabanoSessionId sessionId) =>
         Path.Combine(rootPath, sessionId.ToString(), "session.db");

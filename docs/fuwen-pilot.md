@@ -105,3 +105,27 @@ Each gap below is already a Fuwen milestone; nothing found here is untracked:
 2. Keep the pilot green while that lands; extend it phase by phase.
 3. Only after behavioral parity plus a focused-restart dogfood run, remove
    the old implementation (per Delivery F exit criteria).
+
+## Wave 1a status (2026-09-26): decomposition parity corpus
+
+Stages 1-4 DSL work has landed since this doc was written: `codegen-pilot.fuwen`
+now exercises IR v3-v7 (sequential spine, conditional merge, repeat loop,
+keyed fan-out, checkpoint, wait) and the parity suite covers compile, admission,
+durable execution, restart scope, and signal resume.
+
+Wave 1a adds the decomposition corpus in
+`tests/Guyabano.WorkflowProgress.Tests/DecompositionParityTests.cs`:
+
+- Corpus scheduling contract: `OrderCodeGenerationTasks` /
+  `GetReadyCodeGenerationTasks` wave sequences locked for diamond, linear, and
+  fan DAGs. Both paths share these functions: the host computes ready lists,
+  Fuwen fan-out consumes a bounded list per wave.
+- Scripted fan-out execution on SQLite Zhinu: source-order aggregation,
+  fail-once-then-succeed infrastructure retry with per-item call counts, fatal
+  failure surfacing as `WorkflowExecutionFailedException` with the provider
+  diagnostic, and restart-mid-wave rerunning only the invalidated item.
+- Recorded open dimensions before old-path removal: hard-coded
+  `decomposition/{version}/{parent}` keys versus Fuwen content-hash runtime
+  keys; run-failure diagnostics not naming the structural path; live
+  differential execution of the full hard-coded workflow; waves 2-4
+  (generation/review, build-repair/approval); focused-restart dogfood run.

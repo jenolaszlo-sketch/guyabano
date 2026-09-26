@@ -129,3 +129,15 @@ Wave 1a adds the decomposition corpus in
   keys; run-failure diagnostics not naming the structural path; live
   differential execution of the full hard-coded workflow; waves 2-4
   (generation/review, build-repair/approval); focused-restart dogfood run.
+
+## Wave 2 status (2026-09-26): generation wave and review branching
+
+`tests/Guyabano.WorkflowProgress.Tests/GenerationReviewParityTests.cs`:
+
+- Inference-driven fan-out with per-item token evidence: scripted inference
+  reports prompt/completion tokens and the corpus asserts exact totals.
+- Inference fail-once-then-succeed: the retry attempt's tokens are visible in
+  the total, proving retry-cost accounting.
+- Verdict-driven review branching through the v5 conditional merge: accept and
+  repair paths select correctly with divergent downstream activities and no
+  cross-branch execution.

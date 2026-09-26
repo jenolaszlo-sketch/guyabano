@@ -1052,3 +1052,57 @@ mutation with preservation — is specified in
 [`docs/workflow-planning-mutation.md`](docs/workflow-planning-mutation.md).
 Current status and open risks (including the unproven Zhinu mutation
 spike) are tracked in that document's appendix.
+
+## V2 — Evidence-driven workflow evolution (deferred)
+
+Status: **future work after V1; not a current release gate**. Added 2026-09-26.
+V2.1/V2.2/V2.3 name cross-project delivery stages, not package or IR versions.
+Existing near-term priorities and completed work retain their current status.
+
+Architecture and shared acceptance gates: [reviewed V2 specification](../Penghou.Guihua/docs/evidence-driven-workflow-evolution-v2.md).
+Cross-repository links assume sibling checkouts.
+
+### V2.1 — First outcome-aware repair consumer
+
+- [ ] Build on the existing future adaptive-planning dependency: define one
+  domain-specific task/rubric where execution completes but validation rejects
+  the artifact. Keep evaluator failure and missing evidence distinct.
+- [ ] Supply immutable source, acceptance, context and workspace/Hetu revision
+  identities to Guihua; review a Fuwen candidate and exact Zhinu transition
+  preview under existing workspace/approval policy.
+- [ ] Prove one rejected node is replaced, its real consumers rerun, an independent
+  branch is reused, and rubric-only changes can revalidate existing artifacts.
+  Record original results, overrides, correction cost and cutover receipts in
+  Hongxian without creating a competing application execution database.
+- [ ] Enforce cumulative replan limits and stop unexplained retry/repair loops.
+
+Gate: a crash-safe bounded repair preserves accepted workspace policy and the
+complete original/replacement history. Prerequisites remain upstream admission,
+comparison, generation cutover and durable session integration.
+
+### V2.2 — Isolated comparative generation
+
+- [ ] Run two candidate implementations against the same pinned input,
+  requirements and evaluator policy in separate approved workspaces.
+- [ ] Record actual differences, provider/model versions, test/review artifacts
+  and all candidate/evaluator/repair effort; allow no acceptable candidate or an
+  inconclusive result.
+- [ ] Select once through durable policy and keep publication/promotion as a
+  separate existing authorized operation. Losing candidates never mutate the
+  accepted workspace; compensation is not speculative-execution permission.
+
+Gate: restart/cancellation does not duplicate external work or promotion and
+does not erase losing/partial evidence.
+
+### V2.3 — Reuse relevant experience
+
+- [ ] Retrieve a pinned, scoped Hongxian/Cangjie decision context and compare
+  its versions, rubric, source characteristics, freshness and contrary evidence.
+  Under explicit policy, skip the experiment and select the supported strategy.
+- [ ] Measure repeated rejected work avoided, true reuse, total known/unknown
+  cost, latency, corrective effort and human overrides on comparable tasks.
+- [ ] Changed versions, unknown context or weak/conflicting evidence use the
+  declared baseline; one successful repair is not a universal learned rule.
+
+Reusable mechanisms stay upstream. Guyabano owns task meaning, evaluator trust,
+workspace isolation and promotion, not a new learning engine.

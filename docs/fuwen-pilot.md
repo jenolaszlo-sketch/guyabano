@@ -157,3 +157,32 @@ Wave 1a adds the decomposition corpus in
   policy), not in conditional Fuwen routing, because branch bodies are closed
   regions and cannot observe sibling outputs. The diagnostic-to-task repair
   mapping itself is covered by `CodeGenerationBuildRepairPlanner` unit tests.
+
+## Wave 4 status (2026-09-27): dependent waves, cross-pipeline restart, dogfood protocol
+
+`tests/Guyabano.WorkflowProgress.Tests/DependentWaveParityTests.cs`:
+
+- Dependent waves in one plan: a second fan-out consumes the first wave's
+  outputs with order and content preserved; restarting a wave-B item does not
+  rerun wave A.
+- Cross-pipeline restart scope: restarting a downstream build reruns only the
+  build, never the fan-out items.
+- Provider representation note: fan-out outputs arrive at downstream
+  activities as `ListRuntimeValue`, not JSON; providers must handle both.
+
+### Focused-restart dogfood protocol (exit evidence, not yet executed)
+
+Run each corpus scenario (Waves 1a-3 plus the chained plans above) twice:
+once clean, once with the host killed mid-wave and resumed on a fresh engine.
+Record per scenario: outputs identical, retry counts identical, restart
+invalidates only the interrupted subtree, and no acknowledged effect
+duplicates. Old-path removal requires this protocol green on a realistic
+component plus the live differential below.
+
+### Old-path removal decision: NOT YET
+
+The automated corpus is green, but removal needs evidence that does not exist
+yet: a live differential of the full hard-coded workflow against the same
+scripts (no isolated driver exists for `RunCoreAsync`; building one means
+standing up the complete scripted host), and the dogfood protocol above run
+against real providers. Until then the hard-coded path stays authoritative.

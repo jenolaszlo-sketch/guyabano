@@ -141,3 +141,19 @@ Wave 1a adds the decomposition corpus in
 - Verdict-driven review branching through the v5 conditional merge: accept and
   repair paths select correctly with divergent downstream activities and no
   cross-branch execution.
+
+## Wave 3 status (2026-09-27): build-repair loop and approval gates
+
+`tests/Guyabano.WorkflowProgress.Tests/BuildRepairApprovalParityTests.cs`:
+
+- Bounded build-repair cycle: a v6 repeat runs build, observes every build
+  output through the trusted repair activity in order, and breaks on clean
+  state (succeeds on the third attempt with repair inputs recorded).
+- Persistent dirt exhausts the max-3 bound and fails the run; attempt and
+  repair counts are exact.
+- Approval gates suspend on a wait node and route accept/reject branches on
+  the signal value with no cross-branch execution.
+- Design note: repair routing lives in the trusted repair activity (host
+  policy), not in conditional Fuwen routing, because branch bodies are closed
+  regions and cannot observe sibling outputs. The diagnostic-to-task repair
+  mapping itself is covered by `CodeGenerationBuildRepairPlanner` unit tests.

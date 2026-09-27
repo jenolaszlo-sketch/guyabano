@@ -24,8 +24,7 @@ public sealed class GenerationReviewParityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var inference = new ScriptedInference();
-        await using var run = await GenerationRun.StartAsync(
-            inference, "[\"a\",\"b\"]", ct);
+        await using var run = await ParityRun.StartAsync(BuildGenerationPlan(), GenerationCatalogue(), GenerationPorts(inference), "parity.generate", "[\"a\",\"b\"]", ct);
 
         await run.Engine.ExecuteAsync(run.RunId, ct);
         var output = await run.Engine.WaitForCompletionAsync<JsonElement>(run.RunId, cancellationToken: ct);
@@ -45,8 +44,7 @@ public sealed class GenerationReviewParityTests
         inference.Script("a",
             ScriptedInferenceOutcome.TransientFailure(),
             ScriptedInferenceOutcome.Success());
-        await using var run = await GenerationRun.StartAsync(
-            inference, "[\"a\",\"b\"]", ct, maximumInfrastructureAttempts: 2);
+        await using var run = await ParityRun.StartAsync(BuildGenerationPlan(), GenerationCatalogue(), GenerationPorts(inference, 2), "parity.generate", "[\"a\",\"b\"]", ct);
 
         await run.Engine.ExecuteAsync(run.RunId, ct);
         var output = await run.Engine.WaitForCompletionAsync<JsonElement>(run.RunId, cancellationToken: ct);
@@ -258,74 +256,12 @@ public sealed class GenerationReviewParityTests
             .Build();
     }
 
-    private sealed class GenerationRun : IAsyncDisposable
-    {
-        public WorkflowEngine Engine { get; }
-        public Guid RunId { get; }
-
-        private readonly string _root;
-
-        private GenerationRun(string root, WorkflowEngine engine, Guid runId)
-        {
-            _root = root;
-            Engine = engine;
-            RunId = runId;
-        }
-
-        public static async Task<GenerationRun> StartAsync(
-            IInferenceExecutor inference,
-            string inputJson,
-            CancellationToken ct,
-            int maximumInfrastructureAttempts = 1)
-        {
-            var catalogue = GenerationCatalogue();
-            var admission = await new WorkflowAdmissionService(
-                    new WorkflowCompiler(catalogue,
-                        capabilityPolicy: new CapabilityGrantPolicy("policy/1", [])))
-                .AdmitAsync(BuildGenerationPlan(), cancellationToken: ct)
-                .ConfigureAwait(false);
-            if (!admission.Succeeded)
-                throw new InvalidOperationException(
-                    $"Admission failed: {string.Join("; ", admission.Diagnostics.Select(d => $"{d.Code}:{d.Message} path={d.Path} expected={d.Expected} actual={d.Actual}"))}");
-            var registration = await new FuwenZhinuWorkflowFactory(
-                    new InMemoryWorkflowDefinitionStore(),
-                    new FuwenZhinuProviderRuntimeIdentity(
-                        admission.Receipt!.CatalogueSnapshotRevision,
-                        admission.Receipt.ResolvedDescriptorSetFingerprint),
-                    new FuwenZhinuExecutionPorts(
-                        new UnusedActivity(), new UnusedContext(), inference,
-                        observer: null,
-                        new FuwenZhinuExecutionPorts.Options(
-                            maximumInfrastructureAttempts, maximumFanOutConcurrency: 2)))
-                .CreateAsync("parity.generate", "1", admission, ct)
-                .ConfigureAwait(false);
-            var root = Path.Combine(
-                Path.GetTempPath(), "guyabano-generation-parity", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(root);
-            var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
-            {
-                DatabasePath = Path.Combine(root, "workflow.db"),
-                Pooling = false,
-            });
-            var engine = new WorkflowEngine(store,
-                registration.Register(new WorkflowRegistry()),
-                new ZhinuOptions { PollInterval = TimeSpan.FromMilliseconds(5) });
-            using var input = JsonDocument.Parse(inputJson);
-            var runId = await engine.StartAsync("parity.generate", "1", input.RootElement.Clone(),
-                cancellationToken: ct).ConfigureAwait(false);
-            return new GenerationRun(root, engine, runId);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await Engine.DisposeAsync().ConfigureAwait(false);
-            for (var attempt = 0; attempt < 5 && Directory.Exists(_root); attempt++)
-            {
-                try { Directory.Delete(_root, true); break; }
-                catch { await Task.Delay(50 * (attempt + 1)).ConfigureAwait(false); }
-            }
-        }
-    }
+    private static FuwenZhinuExecutionPorts GenerationPorts(
+        IInferenceExecutor inference, int maximumInfrastructureAttempts = 1) =>
+        new(new UnusedActivity(), new UnusedContext(), inference,
+            observer: null,
+            new FuwenZhinuExecutionPorts.Options(
+                maximumInfrastructureAttempts, maximumFanOutConcurrency: 2));
 
     private sealed class ScriptedInference : IInferenceExecutor, IInferenceExecutorPreflight
     {
@@ -336,6 +272,10 @@ public sealed class GenerationReviewParityTests
 
         public void Script(string input, params ScriptedInferenceOutcome[] outcomes) =>
             _scripts[input] = new Queue<ScriptedInferenceOutcome>(outcomes);
+
+        internal static InferenceExecutionEvidence Evidence() =>
+            new(GenerateProfile, GenerateTemplate, [],
+                promptTokens: 10, completionTokens: 5, totalTokens: 15);
 
         public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) => null;
 
@@ -352,10 +292,6 @@ public sealed class GenerationReviewParityTests
                 return ValueTask.FromResult(queue.Dequeue().Apply(text));
             return ValueTask.FromResult(ScriptedInferenceOutcome.Success().Apply(text));
         }
-
-        internal static InferenceExecutionEvidence Evidence() =>
-            new(GenerateProfile, GenerateTemplate, [],
-                promptTokens: 10, completionTokens: 5, totalTokens: 15);
     }
 
     private sealed record ScriptedInferenceOutcome(bool Succeed)
@@ -402,28 +338,5 @@ public sealed class GenerationReviewParityTests
             return ValueTask.FromResult(
                 ActivityExecutionResult.Succeeded(RuntimeValue.FromJson(doc.RootElement)));
         }
-    }
-
-    private sealed class UnusedActivity : IActivityExecutor
-    {
-        public ValueTask<ActivityExecutionResult> ExecuteAsync(
-            ActivityExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No activity node exists in generation parity plans.");
-    }
-
-    private sealed class UnusedContext : IContextProvider
-    {
-        public ValueTask<ContextExecutionResult> ExecuteAsync(
-            ContextExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No context node exists in parity plans.");
-    }
-
-    private sealed class UnusedInference : IInferenceExecutor, IInferenceExecutorPreflight
-    {
-        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) => null;
-
-        public ValueTask<InferenceExecutionResult> ExecuteAsync(
-            InferenceExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No inference node exists in review parity plans.");
     }
 }

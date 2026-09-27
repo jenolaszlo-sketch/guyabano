@@ -163,7 +163,7 @@ public sealed class DecompositionParityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var activity = new ScriptedDecomposeActivity();
-        await using var run = await DecompositionRun.StartAsync(activity, "[\"b\",\"a\",\"c\"]", ct);
+        await using var run = await ParityRun.StartAsync(BuildDecomposePlan(), CreateCatalogue(), Ports(activity), "parity.decompose", "[\"b\",\"a\",\"c\"]", ct);
 
         await run.Engine.ExecuteAsync(run.RunId, ct);
         var output = await run.Engine.WaitForCompletionAsync<JsonElement>(run.RunId, cancellationToken: ct);
@@ -179,8 +179,7 @@ public sealed class DecompositionParityTests
         var ct = TestContext.Current.CancellationToken;
         var activity = new ScriptedDecomposeActivity();
         activity.Script("b", ScriptedOutcome.TransientFailure(), ScriptedOutcome.Success());
-        await using var run = await DecompositionRun.StartAsync(
-            activity, "[\"a\",\"b\",\"c\"]", ct, maximumInfrastructureAttempts: 2);
+        await using var run = await ParityRun.StartAsync(BuildDecomposePlan(), CreateCatalogue(), Ports(activity, 2), "parity.decompose", "[\"a\",\"b\",\"c\"]", ct);
 
         await run.Engine.ExecuteAsync(run.RunId, ct);
         var output = await run.Engine.WaitForCompletionAsync<JsonElement>(run.RunId, cancellationToken: ct);
@@ -199,8 +198,7 @@ public sealed class DecompositionParityTests
         var ct = TestContext.Current.CancellationToken;
         var activity = new ScriptedDecomposeActivity();
         activity.Script("b", ScriptedOutcome.FatalFailure());
-        await using var run = await DecompositionRun.StartAsync(
-            activity, "[\"a\",\"b\",\"c\"]", ct);
+        await using var run = await ParityRun.StartAsync(BuildDecomposePlan(), CreateCatalogue(), Ports(activity), "parity.decompose", "[\"a\",\"b\",\"c\"]", ct);
 
         await run.Engine.ExecuteAsync(run.RunId, ct);
         var error = await Assert.ThrowsAsync<WorkflowExecutionFailedException>(() =>
@@ -219,8 +217,7 @@ public sealed class DecompositionParityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var activity = new ScriptedDecomposeActivity();
-        await using var run = await DecompositionRun.StartAsync(
-            activity, "[\"b\",\"a\",\"c\"]", ct);
+        await using var run = await ParityRun.StartAsync(BuildDecomposePlan(), CreateCatalogue(), Ports(activity), "parity.decompose", "[\"b\",\"a\",\"c\"]", ct);
 
         await run.Engine.ExecuteAsync(run.RunId, ct);
         var first = await run.Engine.WaitForCompletionAsync<JsonElement>(run.RunId, cancellationToken: ct);
@@ -229,7 +226,7 @@ public sealed class DecompositionParityTests
         activity.Calls.Should().HaveCount(3);
 
         var itemPath = RuntimeNodeIdentity.CreateFanOutItem(
-            DecompositionRun.FanOutPath, new StringRuntimeKey("a"));
+            FanOutPath, new StringRuntimeKey("a"));
         var restart = await run.Engine.RestartStepAsync(run.RunId, itemPath, ct);
         restart.StepsToInvalidate.Select(s => s.StepKey).Should().Contain(itemPath);
 
@@ -252,6 +249,16 @@ public sealed class DecompositionParityTests
                 new PrimitiveType(FuwenPrimitiveKind.String)),
             CallableEffect.Read, CallableIdempotency.Idempotent, CallableRetrySafety.Safe)),
     ]);
+
+    private static readonly string FanOutPath =
+        StructuralNodeIdentity.Create("parityDecompose", "decompose");
+
+    private static FuwenZhinuExecutionPorts Ports(
+        IActivityExecutor activity, int maximumInfrastructureAttempts = 1) =>
+        new(activity, new UnusedContext(), new UnusedInference(),
+            observer: null,
+            new FuwenZhinuExecutionPorts.Options(
+                maximumInfrastructureAttempts, maximumFanOutConcurrency: 2));
 
     private static WorkflowPlan BuildDecomposePlan()
     {
@@ -290,75 +297,6 @@ public sealed class DecompositionParityTests
             .Build();
     }
 
-    private sealed class DecompositionRun : IAsyncDisposable
-    {
-        public static readonly string FanOutPath =
-            StructuralNodeIdentity.Create("parityDecompose", "decompose");
-
-        public string Root { get; }
-        public WorkflowEngine Engine { get; }
-        public Guid RunId { get; }
-
-        private DecompositionRun(string root, WorkflowEngine engine, Guid runId)
-        {
-            Root = root;
-            Engine = engine;
-            RunId = runId;
-        }
-
-        public static async Task<DecompositionRun> StartAsync(
-            IActivityExecutor activity,
-            string inputJson,
-            CancellationToken ct,
-            int maximumInfrastructureAttempts = 1)
-        {
-            var catalogue = CreateCatalogue();
-            var admission = await new WorkflowAdmissionService(
-                    new WorkflowCompiler(catalogue,
-                        capabilityPolicy: new CapabilityGrantPolicy("policy/1", [])))
-                .AdmitAsync(BuildDecomposePlan(), cancellationToken: ct)
-                .ConfigureAwait(false);
-            if (!admission.Succeeded)
-                throw new InvalidOperationException(
-                    $"Admission failed: {string.Join("; ", admission.Diagnostics.Select(d => $"{d.Code}:{d.Message}"))}");
-            var registration = await new FuwenZhinuWorkflowFactory(
-                    new InMemoryWorkflowDefinitionStore(),
-                    new FuwenZhinuProviderRuntimeIdentity(
-                        admission.Receipt!.CatalogueSnapshotRevision,
-                        admission.Receipt.ResolvedDescriptorSetFingerprint),
-                    new FuwenZhinuExecutionPorts(
-                        activity, new UnusedContext(), new UnusedInference(),
-                        observer: null,
-                        new FuwenZhinuExecutionPorts.Options(
-                            maximumInfrastructureAttempts, maximumFanOutConcurrency: 2)))
-                .CreateAsync("parity.decompose", "1", admission, ct)
-                .ConfigureAwait(false);
-            var root = Path.Combine(
-                Path.GetTempPath(), "guyabano-decomposition-parity", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(root);
-            var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
-            {
-                DatabasePath = Path.Combine(root, "workflow.db"),
-                Pooling = false,
-            });
-            var engine = new WorkflowEngine(store, registration.Register(new WorkflowRegistry()),
-                new ZhinuOptions { PollInterval = TimeSpan.FromMilliseconds(5) });
-            using var input = JsonDocument.Parse(inputJson);
-            var runId = await engine.StartAsync("parity.decompose", "1", input.RootElement.Clone(),
-                cancellationToken: ct).ConfigureAwait(false);
-            return new DecompositionRun(root, engine, runId);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await Engine.DisposeAsync().ConfigureAwait(false);
-            for (var attempt = 0; attempt < 5 && Directory.Exists(Root); attempt++)
-            {
-                try { Directory.Delete(Root, true); break; }
-                catch { await Task.Delay(50 * (attempt + 1)).ConfigureAwait(false); }
-            }
-        }
-    }
 
     private sealed class ScriptedDecomposeActivity : IActivityExecutor
     {
@@ -407,19 +345,4 @@ public sealed class DecompositionParityTests
         }
     }
 
-    private sealed class UnusedContext : IContextProvider
-    {
-        public ValueTask<ContextExecutionResult> ExecuteAsync(
-            ContextExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No context node exists in decomposition parity plans.");
-    }
-
-    private sealed class UnusedInference : IInferenceExecutor, IInferenceExecutorPreflight
-    {
-        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) => null;
-
-        public ValueTask<InferenceExecutionResult> ExecuteAsync(
-            InferenceExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No inference node exists in decomposition parity plans.");
-    }
 }

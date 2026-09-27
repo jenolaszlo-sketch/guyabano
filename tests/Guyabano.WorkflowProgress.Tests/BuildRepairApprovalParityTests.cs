@@ -265,72 +265,6 @@ public sealed class BuildRepairApprovalParityTests
             .Build();
     }
 
-    private sealed class ParityRun : IAsyncDisposable
-    {
-        public WorkflowEngine Engine { get; }
-        public Guid RunId { get; }
-
-        private readonly string _root;
-
-        private ParityRun(string root, WorkflowEngine engine, Guid runId)
-        {
-            _root = root;
-            Engine = engine;
-            RunId = runId;
-        }
-
-        public static async Task<ParityRun> StartAsync(
-            WorkflowPlan plan,
-            ITrustedCatalogue catalogue,
-            FuwenZhinuExecutionPorts ports,
-            string workflowName,
-            string inputJson,
-            CancellationToken ct)
-        {
-            var admission = await new WorkflowAdmissionService(
-                    new WorkflowCompiler(catalogue,
-                        capabilityPolicy: new CapabilityGrantPolicy("policy/1", [])))
-                .AdmitAsync(plan, cancellationToken: ct)
-                .ConfigureAwait(false);
-            if (!admission.Succeeded)
-                throw new InvalidOperationException(
-                    $"Admission failed: {string.Join("; ", admission.Diagnostics.Select(d => $"{d.Code}:{d.Message} path={d.Path} expected={d.Expected} actual={d.Actual}"))}");
-            var registration = await new FuwenZhinuWorkflowFactory(
-                    new InMemoryWorkflowDefinitionStore(),
-                    new FuwenZhinuProviderRuntimeIdentity(
-                        admission.Receipt!.CatalogueSnapshotRevision,
-                        admission.Receipt.ResolvedDescriptorSetFingerprint),
-                    ports)
-                .CreateAsync(workflowName, "1", admission, ct)
-                .ConfigureAwait(false);
-            var root = Path.Combine(
-                Path.GetTempPath(), "guyabano-buildrepair-parity", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(root);
-            var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
-            {
-                DatabasePath = Path.Combine(root, "workflow.db"),
-                Pooling = false,
-            });
-            var engine = new WorkflowEngine(store,
-                registration.Register(new WorkflowRegistry()),
-                new ZhinuOptions { PollInterval = TimeSpan.FromMilliseconds(5) });
-            using var input = JsonDocument.Parse(inputJson);
-            var runId = await engine.StartAsync(workflowName, "1", input.RootElement.Clone(),
-                cancellationToken: ct).ConfigureAwait(false);
-            return new ParityRun(root, engine, runId);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await Engine.DisposeAsync().ConfigureAwait(false);
-            for (var attempt = 0; attempt < 5 && Directory.Exists(_root); attempt++)
-            {
-                try { Directory.Delete(_root, true); break; }
-                catch { await Task.Delay(50 * (attempt + 1)).ConfigureAwait(false); }
-            }
-        }
-    }
-
     private sealed class LoopActivityRouter : IActivityExecutor
     {
         private readonly ScriptedBuildActivity _build;
@@ -348,17 +282,8 @@ public sealed class BuildRepairApprovalParityTests
             {
                 "parity.build" => _build.ExecuteAsync(request, ct),
                 "parity.repair" => _repair.ExecuteAsync(request, ct),
-                "parity.noop" => Noop(request),
                 _ => throw new InvalidOperationException($"Unexpected activity '{request.Activity.Name}'."),
             };
-
-        private static ValueTask<ActivityExecutionResult> Noop(ActivityExecutionRequest request)
-        {
-            var input = ((JsonRuntimeValue)request.Arguments.Single().Value).Value.GetString()!;
-            using var doc = JsonDocument.Parse(JsonSerializer.Serialize(input));
-            return ValueTask.FromResult(
-                ActivityExecutionResult.Succeeded(RuntimeValue.FromJson(doc.RootElement)));
-        }
     }
 
     private sealed class ScriptedBuildActivity : IActivityExecutor
@@ -416,20 +341,4 @@ public sealed class BuildRepairApprovalParityTests
         }
     }
 
-    private sealed class UnusedContext : IContextProvider
-    {
-        public ValueTask<ContextExecutionResult> ExecuteAsync(
-            ContextExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No context node exists in parity plans.");
-    }
-
-    private sealed class UnusedInference : IInferenceExecutor, IInferenceExecutorPreflight
-    {
-        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) => null;
-
-        public ValueTask<InferenceExecutionResult> ExecuteAsync(
-            InferenceExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No inference node exists in parity plans.");
-    }
 }
-

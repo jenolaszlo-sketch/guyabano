@@ -26,7 +26,7 @@ public sealed class DependentWaveParityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var activity = new ScriptedWaveActivity();
-        await using var run = await WaveRun.StartAsync(
+        await using var run = await ParityRun.StartAsync(
             BuildChainedPlan(), ChainCatalogue(), Ports(activity),
             "parity.waves", "[\"x\",\"y\"]", ct);
 
@@ -44,7 +44,7 @@ public sealed class DependentWaveParityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var activity = new ScriptedWaveActivity();
-        await using var run = await WaveRun.StartAsync(
+        await using var run = await ParityRun.StartAsync(
             BuildChainedPlan(), ChainCatalogue(), Ports(activity),
             "parity.waves", "[\"x\",\"y\"]", ct);
 
@@ -53,7 +53,7 @@ public sealed class DependentWaveParityTests
             .ConfigureAwait(false);
 
         var itemPath = RuntimeNodeIdentity.CreateFanOutItem(
-            WaveRun.FanOutBPath, new StringRuntimeKey("x:a"));
+            FanOutBPath, new StringRuntimeKey("x:a"));
         var restart = await run.Engine.RestartStepAsync(run.RunId, itemPath, ct);
         restart.StepsToInvalidate.Select(s => s.StepKey).Should().Contain(itemPath);
 
@@ -70,7 +70,7 @@ public sealed class DependentWaveParityTests
     {
         var ct = TestContext.Current.CancellationToken;
         var activity = new ScriptedWaveActivity();
-        await using var run = await WaveRun.StartAsync(
+        await using var run = await ParityRun.StartAsync(
             BuildPipelinePlan(), ChainCatalogue(), Ports(activity),
             "parity.pipeline", "[\"x\",\"y\"]", ct);
 
@@ -80,8 +80,8 @@ public sealed class DependentWaveParityTests
         activity.Calls("parity.stepA").Should().HaveCount(2);
         activity.Calls("parity.build").Should().HaveCount(1);
 
-        var restart = await run.Engine.RestartStepAsync(run.RunId, WaveRun.BuildPath, ct);
-        restart.StepsToInvalidate.Select(s => s.StepKey).Should().Contain(WaveRun.BuildPath);
+        var restart = await run.Engine.RestartStepAsync(run.RunId, BuildPath, ct);
+        restart.StepsToInvalidate.Select(s => s.StepKey).Should().Contain(BuildPath);
 
         await run.Engine.ExecuteAsync(run.RunId, ct);
         var second = await run.Engine.WaitForCompletionAsync<JsonElement>(run.RunId, cancellationToken: ct);
@@ -89,6 +89,12 @@ public sealed class DependentWaveParityTests
         activity.Calls("parity.stepA").Should().HaveCount(2);
         activity.Calls("parity.build").Should().HaveCount(2);
     }
+
+    private static readonly string FanOutBPath =
+        StructuralNodeIdentity.Create("parityWaves", "waveB");
+
+    private static readonly string BuildPath =
+        StructuralNodeIdentity.Create("parityPipeline", "build");
 
     private static readonly DescriptorReference StepADescriptor = new(
         DescriptorKind.Activity, "parity.stepA", "1",
@@ -216,78 +222,6 @@ public sealed class DependentWaveParityTests
             .Build();
     }
 
-    private sealed class WaveRun : IAsyncDisposable
-    {
-        public static readonly string FanOutBPath =
-            StructuralNodeIdentity.Create("parityWaves", "waveB");
-
-        public static readonly string BuildPath =
-            StructuralNodeIdentity.Create("parityPipeline", "build");
-
-        public WorkflowEngine Engine { get; }
-        public Guid RunId { get; }
-
-        private readonly string _root;
-
-        private WaveRun(string root, WorkflowEngine engine, Guid runId)
-        {
-            _root = root;
-            Engine = engine;
-            RunId = runId;
-        }
-
-        public static async Task<WaveRun> StartAsync(
-            WorkflowPlan plan,
-            ITrustedCatalogue catalogue,
-            FuwenZhinuExecutionPorts ports,
-            string workflowName,
-            string inputJson,
-            CancellationToken ct)
-        {
-            var admission = await new WorkflowAdmissionService(
-                    new WorkflowCompiler(catalogue,
-                        capabilityPolicy: new CapabilityGrantPolicy("policy/1", [])))
-                .AdmitAsync(plan, cancellationToken: ct)
-                .ConfigureAwait(false);
-            if (!admission.Succeeded)
-                throw new InvalidOperationException(
-                    $"Admission failed: {string.Join("; ", admission.Diagnostics.Select(d => $"{d.Code}:{d.Message} path={d.Path}"))}");
-            var registration = await new FuwenZhinuWorkflowFactory(
-                    new InMemoryWorkflowDefinitionStore(),
-                    new FuwenZhinuProviderRuntimeIdentity(
-                        admission.Receipt!.CatalogueSnapshotRevision,
-                        admission.Receipt.ResolvedDescriptorSetFingerprint),
-                    ports)
-                .CreateAsync(workflowName, "1", admission, ct)
-                .ConfigureAwait(false);
-            var root = Path.Combine(
-                Path.GetTempPath(), "guyabano-wave-parity", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(root);
-            var store = new SqliteWorkflowStore(new ZhinuSqliteOptions
-            {
-                DatabasePath = Path.Combine(root, "workflow.db"),
-                Pooling = false,
-            });
-            var engine = new WorkflowEngine(store,
-                registration.Register(new WorkflowRegistry()),
-                new ZhinuOptions { PollInterval = TimeSpan.FromMilliseconds(5) });
-            using var input = JsonDocument.Parse(inputJson);
-            var runId = await engine.StartAsync(workflowName, "1", input.RootElement.Clone(),
-                cancellationToken: ct).ConfigureAwait(false);
-            return new WaveRun(root, engine, runId);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await Engine.DisposeAsync().ConfigureAwait(false);
-            for (var attempt = 0; attempt < 5 && Directory.Exists(_root); attempt++)
-            {
-                try { Directory.Delete(_root, true); break; }
-                catch { await Task.Delay(50 * (attempt + 1)).ConfigureAwait(false); }
-            }
-        }
-    }
-
     private sealed class ScriptedWaveActivity : IActivityExecutor
     {
         private readonly Dictionary<string, int> _calls = new(StringComparer.Ordinal);
@@ -340,19 +274,4 @@ public sealed class DependentWaveParityTests
             };
     }
 
-    private sealed class UnusedContext : IContextProvider
-    {
-        public ValueTask<ContextExecutionResult> ExecuteAsync(
-            ContextExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No context node exists in parity plans.");
-    }
-
-    private sealed class UnusedInference : IInferenceExecutor, IInferenceExecutorPreflight
-    {
-        public ExecutionFailure? Preflight(InferenceExecutionRequirement requirement) => null;
-
-        public ValueTask<InferenceExecutionResult> ExecuteAsync(
-            InferenceExecutionRequest request, CancellationToken ct = default) =>
-            throw new InvalidOperationException("No inference node exists in parity plans.");
-    }
 }
